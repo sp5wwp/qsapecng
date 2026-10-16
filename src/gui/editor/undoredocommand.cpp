@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/editor/itemtransform.h"
 #include "parser/parser_factory.h"
 #include "gui/editor/schematicsceneparser.h"
 #include "gui/editor/undoredocommand.h"
@@ -24,10 +25,10 @@
 #include "gui/editor/component.h"
 #include "gui/editor/item.h"
 
-#include <QtCore/QSet>
-#include <QtCore/QFileInfo>
-#include <QtCore/QPointer>
-#include <QtGui/QGraphicsItem>
+#include <QSet>
+#include <QFileInfo>
+#include <QPointer>
+#include <QGraphicsItem>
 
 #include <sstream>
 #include <memory>
@@ -198,7 +199,7 @@ AddUserDefItem::AddUserDefItem(
   delete builder;
   
   QPointer<qsapecng::SchematicScene> smart(rep);
-  item_->setData(101, qVariantFromValue(smart));
+  item_->setData(101, QVariant::fromValue(smart));
 }
 
 
@@ -383,7 +384,7 @@ void RotateItems::undo()
     if(item)
       item->rotateBack();
     else
-      graphicsItem->rotate(-90);
+      rotateItem(graphicsItem, -90);
   }
 }
 
@@ -395,7 +396,7 @@ void RotateItems::redo()
     if(item)
       item->rotate();
     else
-      graphicsItem->rotate(90);
+      rotateItem(graphicsItem, 90);
   }
 }
 
@@ -428,7 +429,7 @@ void MirrorItems::undo()
     if(item)
       item->mirror();
     else
-      graphicsItem->scale(-1, 1);
+      scaleItem(graphicsItem, -1, 1);
   }
 }
 
@@ -440,7 +441,7 @@ void MirrorItems::redo()
     if(item)
       item->mirror();
     else
-      graphicsItem->scale(-1, 1);
+      scaleItem(graphicsItem, -1, 1);
   }
 }
 
@@ -585,7 +586,9 @@ bool MoveItems::mergeWith(const QUndoCommand* command)
   if(command->id() != id())
     return false;
 
-  if(static_cast<const MoveItems*>(command)->items_.toSet() == items_.toSet()) {
+  const QList<QGraphicsItem*>& other = static_cast<const MoveItems*>(command)->items_;
+  if(QSet<QGraphicsItem*>(other.begin(), other.end())
+      == QSet<QGraphicsItem*>(items_.begin(), items_.end())) {
     offset_ += static_cast<const MoveItems*>(command)->offset_;
     return true;
   }

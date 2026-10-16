@@ -24,11 +24,11 @@
 #include "gui/editor/inode.h"
 #include "gui/editor/item.h"
 
-#include <QtGui/QGraphicsItem>
-#include <QtGui/QPainterPath>
+#include <QGraphicsItem>
+#include <QPainterPath>
 
-#include <QtCore/QExplicitlySharedDataPointer>
-#include <QtCore/QSet>
+#include <QExplicitlySharedDataPointer>
+#include <QSet>
 
 
 namespace qsapecng
@@ -71,6 +71,10 @@ public:
   const QSet<GraphicsNode*>& itemSet() const;
   bool isColliding() const;
 
+  // a tap is a connection point added in the middle of a wire
+  inline bool isTap() const { return tap_; }
+  inline void setTap(bool tap) { tap_ = tap; }
+
   void showNodeValue();
   void hideNodeValue();
 
@@ -88,6 +92,7 @@ private:
 
   bool colliding_;
   QSet<GraphicsNode*> itemSet_;
+  bool tap_ = false;
   QExplicitlySharedDataPointer<Node> dataPointer_;
 
   QGraphicsTextItem* label_;

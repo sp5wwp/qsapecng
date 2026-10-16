@@ -27,9 +27,9 @@
 #include "gui/qtsolutions/qtpropertyeditor/QtStringPropertyManager"
 #include "gui/qtsolutions/qtpropertyeditor/QtProperty"
 
-#include <QtCore/QPointF>
-#include <QtCore/QPointer>
-#include <QtGui/QGraphicsItem>
+#include <QPointF>
+#include <QPointer>
+#include <QGraphicsItem>
 
 #ifndef Q_MOC_RUN
 #include <boost/assign.hpp>
@@ -667,7 +667,7 @@ void SchematicSceneBuilder::end_userdef_component(
   component->setData(99, md5);
   
   QPointer<qsapecng::SchematicScene> smart(scene_);
-  component->setData(101, qVariantFromValue(smart));
+  component->setData(101, QVariant::fromValue(smart));
   
   QPair< SchematicScene*, QList<QGraphicsItem*> > pair = stack_.pop();
   

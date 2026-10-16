@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/theme.h"
 #include "parser/parser_factory.h"
 
 #include "gui/editor/schematicscene.h"
@@ -40,22 +41,24 @@
 #include "gui/qtsolutions/qtpropertyeditor/QtAbstractPropertyBrowser"
 #include "gui/qtsolutions/qtpropertyeditor/QtProperty"
 
-#include <QtCore/QEvent>
-#include <QtCore/QRegExp>
-#include <QtCore/QCryptographicHash>
-#include <QtCore/QPointer>
+#include <QEvent>
+#include <QRegularExpression>
+#include <QMimeData>
+#include <QTimer>
+#include <QCryptographicHash>
+#include <QPointer>
 
-#include <QtGui/QKeyEvent>
-#include <QtGui/QMenu>
-#include <QtGui/QPainter>
-#include <QtGui/QFileDialog>
-#include <QtGui/QUndoCommand>
-#include <QtGui/QGraphicsView>
-#include <QtGui/QGraphicsSceneMouseEvent>
-#include <QtGui/QGraphicsSceneDragDropEvent>
-#include <QtGui/QGraphicsSceneContextMenuEvent>
-#include <QtGui/QApplication>
-#include <QtGui/QClipboard>
+#include <QKeyEvent>
+#include <QMenu>
+#include <QPainter>
+#include <QFileDialog>
+#include <QUndoCommand>
+#include <QGraphicsView>
+#include <QGraphicsSceneMouseEvent>
+#include <QGraphicsSceneDragDropEvent>
+#include <QGraphicsSceneContextMenuEvent>
+#include <QApplication>
+#include <QClipboard>
 
 #include <sstream>
 #include <memory>
@@ -986,7 +989,7 @@ QPainterPath SchematicScene::userDefPath(uint ports)
     path.lineTo(0, step * (2 * i + 1));
     path.lineTo(step, step * (2 * i + 1));
     path.addText(step * 4 / 3, step * (2 * i + 1) + step / 2,
-        QFont("Times", 8, QFont::Light),
+        theme::schematicFont(8),
         QString::number(i + 1));
   }
 
@@ -996,7 +999,7 @@ QPainterPath SchematicScene::userDefPath(uint ports)
     path.lineTo(6 * step, step * (2 * i + 1));
     path.lineTo(5 * step, step * (2 * i + 1));
     path.addText(4 * step - step / 3, step * (2 * i + 1) + step / 2,
-        QFont("Times", 8, QFont::Light),
+        theme::schematicFont(8),
         QString::number(i + side + ports % 2 + 1));
   }
 
@@ -1023,6 +1026,25 @@ QList<QPointF> SchematicScene::userDefNodes(uint ports)
 SchematicScene::SchematicScene(QObject* parent): QGraphicsScene(parent) {
   setupProperties();
   init();
+
+  // keep T-junction connections (and their dots) in sync with the drawing:
+  // recompute once per batch of changes
+  connect(this, &QGraphicsScene::changed, this, [this]() {
+    if(wireTapsPending_)
+      return;
+    wireTapsPending_ = true;
+    QTimer::singleShot(0, this, [this]() {
+      wireTapsPending_ = false;
+      updateWireTaps();
+    });
+  });
+}
+
+
+void SchematicScene::updateWireTaps()
+{
+  foreach(Item* item, wireList_)
+    static_cast<Wire*>(item)->updateTaps();
 }
 
 
@@ -1291,10 +1313,10 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
                   || type == ResistorItemType
                 )
               {
-                QRegExp sn = Settings().notation();
+                QRegularExpression sn = Settings().notation();
                 stringManager_->setRegExp(pV, sn);
               } else {
-                QRegExp sn = Settings().notation();
+                QRegularExpression sn = Settings().notation();
                 stringManager_->setRegExp(pV, sn);
               }
 
@@ -1311,7 +1333,7 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
               stringManager_->setValue(lpn, name->valueText() + "_Lp");
               stringManager_->setValue(lsn, name->valueText() + "_Ls");
 
-              QRegExp sn = Settings().notation();
+              QRegularExpression sn = Settings().notation();
               stringManager_->setRegExp(lpv, sn);
               stringManager_->setValue(lpv, "1.0");
               stringManager_->setRegExp(lsv, sn);
@@ -1761,7 +1783,7 @@ void SchematicScene::binSelectedItems()
 
 void SchematicScene::bringToFrontSelectedItem()
 {
-  QGraphicsItem* item = itemAt(lastMousePressPos_);
+  QGraphicsItem* item = itemAt(lastMousePressPos_, QTransform());
   if(!item)
     return;
 
@@ -1774,7 +1796,7 @@ void SchematicScene::bringToFrontSelectedItem()
 
 void SchematicScene::sendToBackSelectedItem()
 {
-  QGraphicsItem* item = itemAt(lastMousePressPos_);
+  QGraphicsItem* item = itemAt(lastMousePressPos_, QTransform());
   if(!item)
     return;
 
@@ -1818,6 +1840,7 @@ QVector<int> SchematicScene::ports() {
 void SchematicScene::assignNodes(int seed)
 {
   resetStatus();
+  updateWireTaps();
 
   foreach(Item* item, groundList_)
     static_cast<Component*>(item)->propagate(SchematicScene::Ground);
@@ -1905,14 +1928,17 @@ void SchematicScene::resetStatus()
 
 void SchematicScene::drawBackground(QPainter* painter, const QRectF& rect)
 {
+  // The schematic is always drawn on a white "sheet" (components are black),
+  // independently of the light/dark application palette.
+  painter->fillRect(rect, theme::sheetBackground());
+
   if(gridVisible_) {
     painter->save();
 
-    painter->fillRect(rect, Qt::white);
 //     painter->setRenderHints(
 //       QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     painter->setRenderHints(QPainter::SmoothPixmapTransform);
-    painter->setPen(QPen(Qt::black, 0));
+    painter->setPen(QPen(theme::sheetGrid(), 0));
     painter->setBrush(Qt::NoBrush);
 
     int left = rect.x();
@@ -2026,9 +2052,9 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
   }
 
   if(!hasActiveItem() && !hasUserDefReq() && !hasPendingWire()
-      && selectedItems().isEmpty() && itemAt(event->scenePos())) {
+      && selectedItems().isEmpty() && itemAt(event->scenePos(), QTransform())) {
     clearSelection();
-    itemAt(event->scenePos())->setSelected(true);
+    itemAt(event->scenePos(), QTransform())->setSelected(true);
   }
 
   QGraphicsScene::mousePressEvent(event);
@@ -2057,11 +2083,11 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 void SchematicScene::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 {
   if(!hasActiveItem() && !hasUserDefReq() && !hasPendingWire()
-      && itemAt(event->scenePos())) {
-    if(SchematicScene::itemType(itemAt(event->scenePos()))
+      && itemAt(event->scenePos(), QTransform())) {
+    if(SchematicScene::itemType(itemAt(event->scenePos(), QTransform()))
         == SchematicScene::UserDefItemType)
     {
-      QGraphicsItem* item = itemAt(event->scenePos());
+      QGraphicsItem* item = itemAt(event->scenePos(), QTransform());
       QPointer<qsapecng::SchematicScene> rep =
         item->data(101).value< QPointer<qsapecng::SchematicScene> >();
 
@@ -2070,7 +2096,7 @@ void SchematicScene::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
     }
   }
 
-  if(SchematicScene::itemType(itemAt(event->scenePos()))
+  if(SchematicScene::itemType(itemAt(event->scenePos(), QTransform()))
       != SchematicScene::UserDefItemType)
     QGraphicsScene::mousePressEvent(event);
 }

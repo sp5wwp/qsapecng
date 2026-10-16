@@ -21,8 +21,8 @@
 #define QSAPECNGWINDOW_H
 
 
-#include <QtGui/QMainWindow>
-#include <QtCore/QModelIndex>
+#include <QMainWindow>
+#include <QModelIndex>
 
 #include "gui/workplane/workplane.h"
 
@@ -146,6 +146,7 @@ private slots:
   void updateDocks();
 
   void setActiveSubWindow(QWidget* window);
+  void syncWithCurrentEditor();
   void subWindowActivated(QMdiSubWindow* window);
   void stackEditor(SchematicEditor* editor);
   

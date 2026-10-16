@@ -24,20 +24,23 @@
 #include "gui/qlogger.h"
 #include "gui/settings.h"
 
-#include <QtCore/QRegExp>
-#include <QtGui/QRegExpValidator>
-#include <QtGui/QHBoxLayout>
-#include <QtGui/QVBoxLayout>
-#include <QtGui/QFormLayout>
-#include <QtGui/QGroupBox>
-#include <QtGui/QLineEdit>
-#include <QtGui/QDoubleSpinBox>
-#include <QtGui/QPushButton>
-#include <QtGui/QLabel>
-#include <QtGui/QTableWidget>
-#include <QtGui/QHeaderView>
-#include <QtGui/QFrame>
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QFormLayout>
+#include <QGroupBox>
+#include <QLineEdit>
+#include <QDoubleSpinBox>
+#include <QPushButton>
+#include <QLabel>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QFrame>
 
+#include <QEvent>
+#include <QApplication>
+#include <QTimer>
 #include <qwt_plot_grid.h>
 #include <qwt_plot_canvas.h>
 #include <qwt_plot_picker.h>
@@ -45,6 +48,8 @@
 #include <qwt_plot_renderer.h>
 #include <qwt_scale_engine.h>
 #include <qwt_curve_fitter.h>
+#include <qwt_weeding_curve_fitter.h>
+#include <qwt_text.h>
 #include <qwt_picker_machine.h>
 #include <qwt_symbol.h>
 
@@ -100,7 +105,9 @@ void MarkableCurve::moved(const QPointF& pos)
     QString label = "( " + QString::number(data()->sample(idx).x()) + ", "
       + QString::number(data()->sample(idx).y()) + " ) ["
       + QString::number(idx) + "]";
-    marker_->setLabel(label);
+    QwtText text(label);
+    text.setColor(QApplication::palette().color(QPalette::Text));
+    marker_->setLabel(text);
 
     Qt::Alignment H =
         (data()->sample(idx).x() >= minXValue() + ((maxXValue() - minXValue()) / 2))
@@ -166,7 +173,9 @@ void MarkedCurve::replotMarker()
 
     QString label = "( " + QString::number(data()->sample(i).x()) + ", "
       + QString::number(data()->sample(i).y()) + " )";
-    marker->setLabel(label);
+    QwtText text(label);
+    text.setColor(QApplication::palette().color(QPalette::Text));
+    marker->setLabel(text);
 
     markers_.push_back(marker);
   }
@@ -183,6 +192,67 @@ void MarkedCurve::resetMarker()
   markers_.clear();
 }
 
+
+
+namespace
+{
+
+
+// Modern, palette-aware styling for the analysis plot: frameless canvas,
+// low-contrast grid, antialiased curves in the accent colour and clearly
+// distinguishable zero (o) / pole (x) markers.
+void applyPlotStyle(
+    QwtPlot* plot,
+    QwtPlotGrid* grid,
+    QVector< QPair< QwtPlotCurve*, bool > >& curves,
+    int zerosId,
+    int polesId
+  )
+{
+  const QPalette pal = QApplication::palette();
+  const QColor base = pal.color(QPalette::Base);
+  const QColor text = pal.color(QPalette::Text);
+  const QColor accent = pal.color(QPalette::Highlight);
+  const QColor poleColor(0xe5, 0x48, 0x4d);
+
+  if(QwtPlotCanvas* canvas = qobject_cast<QwtPlotCanvas*>(plot->canvas())) {
+    canvas->setFrameStyle(QFrame::NoFrame);
+    QPalette cp = canvas->palette();
+    cp.setColor(QPalette::Window, base);
+    canvas->setPalette(cp);
+    canvas->setAutoFillBackground(true);
+  }
+
+  QColor major = text;
+  major.setAlpha(50);
+  QColor minor = text;
+  minor.setAlpha(20);
+  grid->enableXMin(true);
+  grid->setMajorPen(major, 0, Qt::SolidLine);
+  grid->setMinorPen(minor, 0, Qt::SolidLine);
+
+  for(int i = 0; i < curves.size(); ++i) {
+    QwtPlotCurve* curve = curves[i].first;
+    curve->setRenderHint(QwtPlotItem::RenderAntialiased, true);
+
+    if(i == zerosId) {
+      curve->setSymbol(new QwtSymbol(QwtSymbol::Ellipse,
+        Qt::NoBrush, QPen(accent, 2), QSize(10, 10)));
+    } else if(i == polesId) {
+      curve->setSymbol(new QwtSymbol(QwtSymbol::XCross,
+        Qt::NoBrush, QPen(poleColor, 2), QSize(11, 11)));
+    } else {
+      QPen pen = curve->pen();
+      pen.setColor(accent);
+      pen.setWidthF(2.);
+      pen.setCosmetic(true);
+      curve->setPen(pen);
+    }
+  }
+}
+
+
+}
 
 
 WorkPlane::WorkPlane(QWidget* parent)
@@ -243,8 +313,9 @@ void WorkPlane::setData(
     
     QLineEdit* right = new QLineEdit;
     right->setText(QString::number(i->second));
-    QRegExp sn = Settings().notation();
-    QRegExpValidator* validator = new QRegExpValidator(sn, right);
+    QRegularExpression sn = Settings().notation();
+    QRegularExpressionValidator* validator =
+      new QRegularExpressionValidator(sn, right);
     right->setValidator(validator);
     
     data_->setCellWidget(row, 0, left);
@@ -294,13 +365,42 @@ void WorkPlane::setDirty()
 }
 
 
-void WorkPlane::xAxisLogScale(bool log)
+void WorkPlane::changeEvent(QEvent* event)
 {
-  if(log)
+  const QEvent::Type t = event->type();
+  if((t == QEvent::PaletteChange || t == QEvent::ApplicationPaletteChange
+      || t == QEvent::StyleChange) && plot_ && grid_)
+  {
+    // defer until the application has finished re-polishing widgets
+    QTimer::singleShot(0, this, [this]() {
+      applyPlotStyle(plot_, grid_, curves_, ZEROS, POLES);
+      plot_->replot();
+    });
+  }
+  QWidget::changeEvent(event);
+}
+
+
+void WorkPlane::applyAxisScales(bool forceLinear)
+{
+  // A pole/zero map has (mostly negative) real parts on the x axis, so it
+  // is always drawn with linear axes; frequency plots use the user's choice.
+  if(xLog_ && !forceLinear)
     plot_->setAxisScaleEngine(QwtPlot::xBottom, new QwtLogScaleEngine(10));
   else
     plot_->setAxisScaleEngine(QwtPlot::xBottom, new QwtLinearScaleEngine);
 
+  if(yLog_ && !forceLinear)
+    plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLogScaleEngine(10));
+  else
+    plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLinearScaleEngine);
+}
+
+
+void WorkPlane::xAxisLogScale(bool log)
+{
+  xLog_ = log;
+  applyAxisScales(lastId_ == ZEROS || lastId_ == POLES);
   plot_->updateAxes();
   plot_->replot();
 }
@@ -308,11 +408,8 @@ void WorkPlane::xAxisLogScale(bool log)
 
 void WorkPlane::yAxisLogScale(bool log)
 {
-  if(log)
-    plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLogScaleEngine(10));
-  else
-    plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLinearScaleEngine);
-
+  yLog_ = log;
+  applyAxisScales(lastId_ == ZEROS || lastId_ == POLES);
   plot_->updateAxes();
   plot_->replot();
 }
@@ -328,6 +425,7 @@ void WorkPlane::plot(WorkPlane::F f)
   setEnabled(false);
 
   lastId_ = f;
+  applyAxisScales(f == ZEROS || f == POLES);
   if(!attached_.isEmpty()) {
     foreach(QwtPlotCurve* curve, attached_) {
       curve->setVisible(false);
@@ -836,6 +934,8 @@ void WorkPlane::setupCurves()
     curves_[i].first->setVisible(false);
     curves_[i].second = false;
   }
+
+  applyPlotStyle(plot_, grid_, curves_, ZEROS, POLES);
 
   lastId_ = NOOP;
 }

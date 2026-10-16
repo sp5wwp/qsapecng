@@ -25,10 +25,10 @@
 #include "gui/editor/vpiface.h"
 #include "gui/editor/propertytextitem.hpp"
 
-#include <QtCore/QList>
-#include <QtCore/QPointF>
-#include <QtCore/QVariant>
-#include <QtGui/QPainterPath>
+#include <QList>
+#include <QPointF>
+#include <QVariant>
+#include <QPainterPath>
 
 
 class QPainter;

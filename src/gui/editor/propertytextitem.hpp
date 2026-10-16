@@ -21,7 +21,8 @@
 #define PROPERTYTEXTITEM_H
 
 
-#include <QtGui/QGraphicsTextItem>
+#include "gui/theme.h"
+#include <QGraphicsTextItem>
 
 #include "gui/qtsolutions/qtpropertyeditor/QtProperty"
 
@@ -39,14 +40,18 @@ public:
   PropertyTextItem(QGraphicsItem* parent = 0)
       : QGraphicsTextItem(parent), property_(0)
     {
-      setFont(QFont("Times", 10, QFont::Light));
+      setFont(theme::schematicFont(10));
+      // the sheet is always white: don't inherit a dark-theme text colour
+      setDefaultTextColor(theme::sheetForeground());
       setTextInteractionFlags(Qt::NoTextInteraction);
       setFlags(QGraphicsItem::ItemIsMovable);
     }
   PropertyTextItem(const QString& text, QGraphicsItem* parent = 0)
       : QGraphicsTextItem(text, parent), property_(0)
     {
-      setFont(QFont("Times", 10, QFont::Light));
+      setFont(theme::schematicFont(10));
+      // the sheet is always white: don't inherit a dark-theme text colour
+      setDefaultTextColor(theme::sheetForeground());
       setTextInteractionFlags(Qt::NoTextInteraction);
       setFlags(QGraphicsItem::ItemIsMovable);
     }

@@ -21,8 +21,8 @@
 #define SCHEMATICVIEW_H
 
 
-#include <QtGui/QGraphicsView>
-#include <QtGui/QResizeEvent>
+#include <QGraphicsView>
+#include <QResizeEvent>
 
 
 namespace qsapecng

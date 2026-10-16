@@ -1,0 +1,7 @@
+Example circuits
+================
+
+rc-lowpass-2nd-order.info
+  Two cascaded RC low-pass sections (R = 1 kOhm, C = 1 uF).
+  Expected result:  V1 / (C1 C2 R1 R2 s^2 + (C2 R2 + C1 R1 + C2 R1) s + 1),
+  poles near -381.97 and -2618.03 rad/s.

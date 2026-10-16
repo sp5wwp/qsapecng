@@ -194,6 +194,7 @@ public:
     out_.name("out");
     grammar_.name("grammar");
 
+#ifdef QSAPECNG_PARSER_DEBUG
     boost::spirit::qi::debug(circ_);
     boost::spirit::qi::debug(elms_);
     boost::spirit::qi::debug(selm_);
@@ -201,6 +202,7 @@ public:
     boost::spirit::qi::debug(aelm_);
     boost::spirit::qi::debug(out_);
     boost::spirit::qi::debug(grammar_);
+#endif
   }
 
 private:

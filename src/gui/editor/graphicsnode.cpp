@@ -17,11 +17,12 @@
 */
 
 
+#include "gui/theme.h"
 #include "gui/editor/graphicsnode.h"
 
-#include <QtGui/QGraphicsTextItem>
-#include <QtGui/QGraphicsScene>
-#include <QtGui/QPainter>
+#include <QGraphicsTextItem>
+#include <QGraphicsScene>
+#include <QPainter>
 
 
 namespace qsapecng
@@ -32,8 +33,12 @@ GraphicsNode::GraphicsNode(
       QGraphicsItem* parent,
       QGraphicsScene* scene
     )
-  : QGraphicsItem(parent, scene)
+  : QGraphicsItem(parent)
 {
+  // Qt 4 accepted the scene in the QGraphicsItem constructor
+  if(scene && !parent)
+    scene->addItem(this);
+
   owner_ = qgraphicsitem_cast<Item*>(parent);
 
   dataPointer_ = new Node;
@@ -48,7 +53,7 @@ GraphicsNode::GraphicsNode(
   );
 
   setAcceptDrops(false);
-  setFlags(0);
+  setFlags(QGraphicsItem::GraphicsItemFlags());
 }
 
 
@@ -170,8 +175,11 @@ QVariant GraphicsNode::itemChange(GraphicsItemChange change, const QVariant& val
 
 void GraphicsNode::showNodeValue()
 {
-  if(!label_)
+  if(!label_) {
     label_ = new QGraphicsTextItem(this);
+    label_->setDefaultTextColor(theme::sheetForeground());
+    label_->setFont(theme::schematicFont(9));
+  }
 
   label_->setPlainText(QString::number(node()->value()));
   updateLabelPosition();

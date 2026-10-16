@@ -21,15 +21,17 @@
 #define SCHEMATICSCENE_H
 
 
-#include <QtGui/QGraphicsScene>
+#include <QGraphicsScene>
 
-#include <QtCore/QList>
-#include <QtCore/QRect>
-#include <QtCore/QHash>
-#include <QtCore/QPointF>
-#include <QtCore/QVariant>
-#include <QtCore/QMetaType>
-#include <QtCore/QPointer>
+#include <QList>
+#include <QRect>
+#include <QHash>
+#include <QPointF>
+#include <QVariant>
+#include <QMetaType>
+#include <QPointer>
+
+#include "gui/qtsolutions/qtpropertyeditor/qtpropertybrowser.h"
 
 #include <memory>
 
@@ -188,6 +190,8 @@ public:
   void assignNodes(int seed = SchematicScene::Ground + 1);
 
 public slots:
+  // recompute wire taps (T-junction connections) for all wires
+  void updateWireTaps();
   void resetNodes();
   void setGridVisible(bool visible = true);
   void resetStatus();
@@ -263,6 +267,7 @@ private:
   QtCheckBoxFactory* checkBoxFactory_;
 
   QtProperty* properties_;
+  bool wireTapsPending_ = false;
   QHash<SupportedItemType, unsigned int> itemCntMap_;
   QHash<SupportedItemType, QtProperty*> typeRootMap_;
 
@@ -273,7 +278,9 @@ private:
 
 
 Q_DECLARE_METATYPE(QPointer<qsapecng::SchematicScene>);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 Q_DECLARE_METATYPE(QtProperty*);
+#endif
 
 
 #endif // SCHEMATICSCENE_H

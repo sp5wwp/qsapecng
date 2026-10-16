@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/theme.h"
 #include "model/metacircuit.h"
 #include "parser/parser_factory.h"
 #include "parser/crc_circuit.h"
@@ -27,16 +28,16 @@
 #include "gui/settings.h"
 #include "gui/qlogger.h"
 
-#include <QtCore/QPointer>
-#include <QtCore/QFileInfo>
-#include <QtGui/QFileDialog>
-#include <QtGui/QMessageBox>
-#include <QtGui/QPlainTextEdit>
-#include <QtGui/QUndoStack>
-#include <QtGui/QApplication>
-#include <QtGui/QVBoxLayout>
-#include <QtGui/QDialogButtonBox>
-#include <QtGui/QFocusEvent>
+#include <QPointer>
+#include <QFileInfo>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QUndoStack>
+#include <QApplication>
+#include <QVBoxLayout>
+#include <QDialogButtonBox>
+#include <QFocusEvent>
 
 #include <fstream>
 #include <sstream>
@@ -157,16 +158,38 @@ bool SchematicEditor::save()
 
 bool SchematicEditor::saveAs()
 {
+  const QString infoFilter = tr("Info files (*.info)");
+  const QString xmlFilter = tr("XML files (*.xml)");
+  const QString crcFilter = tr("Netlist files (*.crc)");
+  QString selectedFilter = infoFilter;
+
   QString fileName = QFileDialog::getSaveFileName(
       this, tr("Save As"), Settings().workspace(),
-      tr("%1;;%2;;%3")
-        .arg(tr("Info files (*.info)"))
-        .arg(tr("XML files (*.xml)"))
-        .arg(tr("Netlist files (*.crc)"))
+      QString("%1;;%2;;%3").arg(infoFilter, xmlFilter, crcFilter),
+      &selectedFilter
     );
 
   if(fileName.isEmpty())
     return false;
+
+  // Without an extension the file format is unknown (issue #4): add the one
+  // matching the file type chosen in the dialog.
+  if(QFileInfo(fileName).suffix().isEmpty()) {
+    if(selectedFilter == xmlFilter)
+      fileName += ".xml";
+    else if(selectedFilter == crcFilter)
+      fileName += ".crc";
+    else
+      fileName += ".info";
+
+    // the dialog only confirmed overwriting the name without extension
+    if(QFileInfo::exists(fileName)
+        && QMessageBox::question(this, tr("Save As"),
+             tr("%1 already exists.\nDo you want to replace it?")
+               .arg(QFileInfo(fileName).fileName()))
+           != QMessageBox::Yes)
+      return false;
+  }
 
   return saveFile(fileName);
 }
@@ -174,6 +197,18 @@ bool SchematicEditor::saveAs()
 
 bool SchematicEditor::saveFile(const QString& fileName)
 {
+  // Check the format before touching the file: opening it for writing
+  // truncates it, and an unknown suffix used to produce an empty file while
+  // reporting success (issue #4, PR #7).
+  const QString suffix = QFileInfo(fileName).suffix().toLower();
+  if(suffix != "info" && suffix != "xml" && suffix != "crc") {
+    QMessageBox::warning(this, tr("Write file"),
+      tr("Unable to write file %1:\nunknown file type \"%2\".\n"
+         "Use the .info, .xml or .crc extension.")
+        .arg(fileName, suffix.isEmpty() ? tr("(none)") : suffix));
+    return false;
+  }
+
   QFile file(fileName);
   
   if(!file.open(QFile::WriteOnly | QFile::Text)) {
@@ -194,11 +229,9 @@ bool SchematicEditor::saveFile(const QString& fileName)
   QCursor cur = cursor();
   setCursor(Qt::WaitCursor);
 
-  QFileInfo fileInfo(file);
   std::ofstream out_file(QFile::encodeName(fileName));
   sapecng::abstract_builder* out =
-    sapecng::builder_factory::builder(
-      fileInfo.suffix().toStdString(), out_file);
+    sapecng::builder_factory::builder(suffix.toStdString(), out_file);
 
   SchematicSceneParser* parser = new SchematicSceneParser(*scene_);
 
@@ -207,6 +240,14 @@ bool SchematicEditor::saveFile(const QString& fileName)
 
   delete parser;
   delete out;
+
+  out_file.flush();
+  if(!out || !out_file) {
+    setCursor(cur);
+    QMessageBox::warning(this, tr("Write file"),
+      tr("Unable to write file %1.").arg(fileName));
+    return false;
+  }
 
   setCurrentFile(fileName);
   externalCleanChanged_ = true;
@@ -518,7 +559,7 @@ void SchematicEditor::init()
 
   setGeometry(0, 0, 640, 480);
   setWindowTitle(curFile_ + "[*]");
-  setWindowIcon(QIcon(":/images/grid.png"));
+  setWindowIcon(theme::icon("schematic"));
   setAttribute(Qt::WA_DeleteOnClose);
 }
 

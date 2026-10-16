@@ -17,9 +17,10 @@
 */
 
 
+#include "gui/theme.h"
 #include "gui/editor/label.h"
 
-#include <QtGui/QPainter>
+#include <QPainter>
 
 
 namespace qsapecng
@@ -36,6 +37,8 @@ Label::Label(QGraphicsItem* parent, SchematicScene* scene)
   );
 
   label_.setParentItem(this);
+  label_.setDefaultTextColor(theme::sheetForeground());
+  label_.setFont(theme::schematicFont(10));
   label_.setPlainText(QObject::tr("notext"));
   label_.setTextInteractionFlags(Qt::TextEditorInteraction);
   label_.setPos(Hook, 0);

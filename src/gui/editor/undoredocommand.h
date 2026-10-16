@@ -23,13 +23,13 @@
 
 #include "gui/editor/schematicscene.h"
 
-#include <QtGui/QUndoCommand>
+#include <QUndoCommand>
 
-#include <QtCore/QPointF>
-#include <QtCore/QLineF>
+#include <QPointF>
+#include <QLineF>
 
-#include <QtCore/QVariant>
-#include <QtCore/QList>
+#include <QVariant>
+#include <QList>
 
 
 class QGraphicsScene;

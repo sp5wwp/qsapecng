@@ -1,102 +1,16 @@
-/****************************************************************************
-**
-** This file is part of a Qt Solutions component.
-** 
-** Copyright (c) 2009 Nokia Corporation and/or its subsidiary(-ies).
-** 
-** Contact:  Qt Software Information (qt-info@nokia.com)
-** 
-** Commercial Usage  
-** Licensees holding valid Qt Commercial licenses may use this file in
-** accordance with the Qt Solutions Commercial License Agreement provided
-** with the Software or, alternatively, in accordance with the terms
-** contained in a written agreement between you and Nokia.
-** 
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU Lesser General Public License version 2.1 requirements
-** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-** 
-** In addition, as a special exception, Nokia gives you certain
-** additional rights. These rights are described in the Nokia Qt LGPL
-** Exception version 1.0, included in the file LGPL_EXCEPTION.txt in this
-** package.
-** 
-** GNU General Public License Usage 
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3.0 as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU General Public License version 3.0 requirements will be
-** met: http://www.gnu.org/copyleft/gpl.html.
-** 
-** Please note Third Party Software included with Qt Solutions may impose
-** additional restrictions and it is the user's responsibility to ensure
-** that they have met the licensing requirements of the GPL, LGPL, or Qt
-** Solutions Commercial license and the relevant license of the Third
-** Party Software they are using.
-** 
-** If you are unsure which license is appropriate for your use, please
-** contact the sales department at qt-sales@nokia.com.
-** 
-****************************************************************************/
-
-/****************************************************************************
-**
-** Copyright (C) 2009 Nokia Corporation and/or its subsidiary(-ies).
-** Contact: Qt Software Information (qt-info@nokia.com)
-**
-** This file is part of the tools applications of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** No Commercial Usage
-** This file contains pre-release code and may not be distributed.
-** You may use this file in accordance with the terms and conditions
-** contained in the either Technology Preview License Agreement or the
-** Beta Release License Agreement.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU Lesser General Public License version 2.1 requirements
-** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** In addition, as a special exception, Nokia gives you certain
-** additional rights. These rights are described in the Nokia Qt LGPL
-** Exception version 1.0, included in the file LGPL_EXCEPTION.txt in this
-** package.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3.0 as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU General Public License version 3.0 requirements will be
-** met: http://www.gnu.org/copyleft/gpl.html.
-**
-** If you are unsure which license is appropriate for your use, please
-** contact the sales department at qt-sales@nokia.com.
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qtbuttonpropertybrowser.h"
 #include <QtCore/QSet>
-#include <QtGui/QGridLayout>
-#include <QtGui/QLabel>
+#include <QtWidgets/QGridLayout>
+#include <QtWidgets/QLabel>
 #include <QtCore/QTimer>
 #include <QtCore/QMap>
-#include <QtGui/QToolButton>
-#include <QtGui/QStyle>
+#include <QtWidgets/QToolButton>
+#include <QtWidgets/QStyle>
 
-#if QT_VERSION >= 0x040400
 QT_BEGIN_NAMESPACE
-#endif
 
 class QtButtonPropertyBrowserPrivate
 {
@@ -118,17 +32,15 @@ public:
 
     struct WidgetItem
     {
-        WidgetItem() : widget(0), label(0), widgetLabel(0),
-                button(0), container(0), layout(0), /*line(0), */parent(0), expanded(false) { }
-        QWidget *widget; // can be null
-        QLabel *label; // main label with property name
-        QLabel *widgetLabel; // label substitute showing the current value if there is no widget
-        QToolButton *button; // expandable button for items with children
-        QWidget *container; // container which is expanded when the button is clicked
-        QGridLayout *layout; // layout in container
-        WidgetItem *parent;
+        QWidget *widget{nullptr}; // can be null
+        QLabel *label{nullptr}; // main label with property name
+        QLabel *widgetLabel{nullptr}; // label substitute showing the current value if there is no widget
+        QToolButton *button{nullptr}; // expandable button for items with children
+        QWidget *container{nullptr}; // container which is expanded when the button is clicked
+        QGridLayout *layout{nullptr}; // layout in container
+        WidgetItem *parent{nullptr};
         QList<WidgetItem *> children;
-        bool expanded;
+        bool expanded{false};
     };
 private:
     void updateLater();
@@ -175,9 +87,7 @@ int QtButtonPropertyBrowserPrivate::gridRow(WidgetItem *item) const
         siblings = m_children;
 
     int row = 0;
-    QListIterator<WidgetItem *> it(siblings);
-    while (it.hasNext()) {
-        WidgetItem *sibling = it.next();
+    for (WidgetItem *sibling : std::as_const(siblings)) {
         if (sibling == item)
             return row;
         row += gridSpan(sibling);
@@ -214,13 +124,10 @@ void QtButtonPropertyBrowserPrivate::slotEditorDestroyed()
 
 void QtButtonPropertyBrowserPrivate::slotUpdate()
 {
-    QListIterator<WidgetItem *> itItem(m_recreateQueue);
-    while (itItem.hasNext()) {
-        WidgetItem *item = itItem.next();
-
+    for (WidgetItem *item : std::as_const(m_recreateQueue)) {
         WidgetItem *parent = item->parent;
-        QWidget *w = 0;
-        QGridLayout *l = 0;
+        QWidget *w = nullptr;
+        QGridLayout *l = nullptr;
         const int oldRow = gridRow(item);
         if (parent) {
             w = parent->container;
@@ -253,7 +160,7 @@ void QtButtonPropertyBrowserPrivate::setExpanded(WidgetItem *item, bool expanded
     item->expanded = expanded;
     const int row = gridRow(item);
     WidgetItem *parent = item->parent;
-    QGridLayout *l = 0;
+    QGridLayout *l = nullptr;
     if (parent)
         l = parent->layout;
     else
@@ -300,8 +207,8 @@ void QtButtonPropertyBrowserPrivate::propertyInserted(QtBrowserItem *index, QtBr
     WidgetItem *newItem = new WidgetItem();
     newItem->parent = parentItem;
 
-    QGridLayout *layout = 0;
-    QWidget *parentWidget = 0;
+    QGridLayout *layout = nullptr;
+    QWidget *parentWidget = nullptr;
     int row = -1;
     if (!afterItem) {
         row = 0;
@@ -324,14 +231,11 @@ void QtButtonPropertyBrowserPrivate::propertyInserted(QtBrowserItem *index, QtBr
         if (!parentItem->container) {
             m_recreateQueue.removeAll(parentItem);
             WidgetItem *grandParent = parentItem->parent;
-            QWidget *w = 0;
-            QGridLayout *l = 0;
+            QGridLayout *l = nullptr;
             const int oldRow = gridRow(parentItem);
             if (grandParent) {
-                w = grandParent->container;
                 l = grandParent->layout;
             } else {
-                w = q_ptr;
                 l = m_mainLayout;
             }
             QFrame *container = new QFrame();
@@ -346,7 +250,7 @@ void QtButtonPropertyBrowserPrivate::propertyInserted(QtBrowserItem *index, QtBr
             if (parentItem->label) {
                 l->removeWidget(parentItem->label);
                 delete parentItem->label;
-                parentItem->label = 0;
+                parentItem->label = nullptr;
             }
             int span = 1;
             if (!parentItem->widget && !parentItem->widgetLabel)
@@ -420,13 +324,13 @@ void QtButtonPropertyBrowserPrivate::propertyRemoved(QtBrowserItem *index)
         removeRow(m_mainLayout, row);
         if (colSpan > 1)
             removeRow(m_mainLayout, row);
-    } else if (parentItem->children.count() != 0) {
+    } else if (parentItem->children.size() != 0) {
         removeRow(parentItem->layout, row);
         if (colSpan > 1)
             removeRow(parentItem->layout, row);
     } else {
         const WidgetItem *grandParent = parentItem->parent;
-        QGridLayout *l = 0;
+        QGridLayout *l = nullptr;
         if (grandParent) {
             l = grandParent->layout;
         } else {
@@ -440,9 +344,9 @@ void QtButtonPropertyBrowserPrivate::propertyRemoved(QtBrowserItem *index)
         l->removeWidget(parentItem->container);
         delete parentItem->button;
         delete parentItem->container;
-        parentItem->button = 0;
-        parentItem->container = 0;
-        parentItem->layout = 0;
+        parentItem->button = nullptr;
+        parentItem->container = nullptr;
+        parentItem->layout = nullptr;
         if (!m_recreateQueue.contains(parentItem))
             m_recreateQueue.append(parentItem);
         if (parentSpan > 1)
@@ -469,8 +373,7 @@ void QtButtonPropertyBrowserPrivate::insertRow(QGridLayout *layout, int row) con
         }
     }
 
-    const QMap<QLayoutItem *, QRect>::ConstIterator icend =  itemToPos.constEnd();
-    for(QMap<QLayoutItem *, QRect>::ConstIterator it = itemToPos.constBegin(); it != icend; ++it) {
+    for (auto it = itemToPos.constBegin(), icend = itemToPos.constEnd(); it != icend; ++it) {
         const QRect r = it.value();
         layout->addItem(it.key(), r.x(), r.y(), r.width(), r.height());
     }
@@ -490,8 +393,7 @@ void QtButtonPropertyBrowserPrivate::removeRow(QGridLayout *layout, int row) con
         }
     }
 
-    const QMap<QLayoutItem *, QRect>::ConstIterator icend =  itemToPos.constEnd();
-    for(QMap<QLayoutItem *, QRect>::ConstIterator it = itemToPos.constBegin(); it != icend; ++it) {
+    for (auto it = itemToPos.constBegin(), icend = itemToPos.constEnd(); it != icend; ++it) {
         const QRect r = it.value();
         layout->addItem(it.key(), r.x(), r.y(), r.width(), r.height());
     }
@@ -512,7 +414,7 @@ void QtButtonPropertyBrowserPrivate::updateItem(WidgetItem *item)
         font.setUnderline(property->isModified());
         item->button->setFont(font);
         item->button->setText(property->propertyName());
-        item->button->setToolTip(property->toolTip());
+        item->button->setToolTip(property->descriptionToolTip());
         item->button->setStatusTip(property->statusTip());
         item->button->setWhatsThis(property->whatsThis());
         item->button->setEnabled(property->isEnabled());
@@ -522,7 +424,7 @@ void QtButtonPropertyBrowserPrivate::updateItem(WidgetItem *item)
         font.setUnderline(property->isModified());
         item->label->setFont(font);
         item->label->setText(property->propertyName());
-        item->label->setToolTip(property->toolTip());
+        item->label->setToolTip(property->descriptionToolTip());
         item->label->setStatusTip(property->statusTip());
         item->label->setWhatsThis(property->whatsThis());
         item->label->setEnabled(property->isEnabled());
@@ -540,7 +442,8 @@ void QtButtonPropertyBrowserPrivate::updateItem(WidgetItem *item)
         font.setUnderline(false);
         item->widget->setFont(font);
         item->widget->setEnabled(property->isEnabled());
-        item->widget->setToolTip(property->valueText());
+        const QString valueToolTip = property->valueToolTip();
+        item->widget->setToolTip(valueToolTip.isEmpty() ? property->valueText() : valueToolTip);
     }
 }
 
@@ -548,6 +451,9 @@ void QtButtonPropertyBrowserPrivate::updateItem(WidgetItem *item)
 
 /*!
     \class QtButtonPropertyBrowser
+    \internal
+    \inmodule QtDesigner
+    \since 4.4
 
     \brief The QtButtonPropertyBrowser class provides a drop down QToolButton
     based property browser.
@@ -592,9 +498,8 @@ void QtButtonPropertyBrowserPrivate::updateItem(WidgetItem *item)
     Creates a property browser with the given \a parent.
 */
 QtButtonPropertyBrowser::QtButtonPropertyBrowser(QWidget *parent)
-    : QtAbstractPropertyBrowser(parent)
+    : QtAbstractPropertyBrowser(parent), d_ptr(new QtButtonPropertyBrowserPrivate)
 {
-    d_ptr = new QtButtonPropertyBrowserPrivate;
     d_ptr->q_ptr = this;
 
     d_ptr->init(this);
@@ -615,7 +520,6 @@ QtButtonPropertyBrowser::~QtButtonPropertyBrowser()
     const QMap<QtButtonPropertyBrowserPrivate::WidgetItem *, QtBrowserItem *>::ConstIterator icend = d_ptr->m_itemToIndex.constEnd();
     for (QMap<QtButtonPropertyBrowserPrivate::WidgetItem *, QtBrowserItem *>::ConstIterator  it =  d_ptr->m_itemToIndex.constBegin(); it != icend; ++it)
         delete it.key();
-    delete d_ptr;
 }
 
 /*!
@@ -669,8 +573,6 @@ bool QtButtonPropertyBrowser::isExpanded(QtBrowserItem *item) const
     return false;
 }
 
-#if QT_VERSION >= 0x040400
 QT_END_NAMESPACE
-#endif
 
 #include "moc_qtbuttonpropertybrowser.cpp"

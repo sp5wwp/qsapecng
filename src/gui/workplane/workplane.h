@@ -23,14 +23,14 @@
 
 #include "model/metacircuit.h"
 
-#include <QtGui/QWidget>
-#include <QtGui/QMenu>
-#include <QtGui/QContextMenuEvent>
-#include <QtGui/QPrinter>
+#include <QWidget>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QPrinter>
 
-#include <QtCore/QObject>
-#include <QtCore/QVector>
-#include <QtCore/QPair>
+#include <QObject>
+#include <QVector>
+#include <QPair>
 
 #include <qwt_plot.h>
 #include <qwt_plot_curve.h>
@@ -190,13 +190,20 @@ private:
   sapecng::metacircuit::expression num_;
   sapecng::metacircuit::expression den_;
 
-  QwtPlotGrid* grid_;
-  QwtPlot_ContextMenu* plot_;
+  QwtPlotGrid* grid_ = nullptr;
+  QwtPlot_ContextMenu* plot_ = nullptr;
   QVector< QwtPlotCurve* > attached_;
   QVector< QPair< QwtPlotCurve*, bool > > curves_;
   QwtPickerMachine *clickPointMachine_;
   QwtPlotPicker* tracker_;
   F lastId_;
+  bool xLog_ = true;   // user's x-axis log-scale choice
+  bool yLog_ = false;  // user's y-axis log-scale choice
+
+  void applyAxisScales(bool forceLinear);
+
+protected:
+  void changeEvent(QEvent* event) override;
 
   QDoubleSpinBox* startFreq_;
   QDoubleSpinBox* endFreq_;

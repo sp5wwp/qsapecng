@@ -54,11 +54,11 @@ rpoly_adapter(const std::map< int, double >& p)
   /*   if (ret == -1)  ==>  error   */
 
   for(int i = 0; i < ret; ++i)
-    zeros.push_back(std::make_pair<double, double>(zeror[i], zeroi[i]));
+    zeros.push_back(std::make_pair(zeror[i], zeroi[i]));
 
   delete [] zeroi;
   delete [] zeror;
-  delete op;
+  delete [] op;
 
   return zeros;
 }

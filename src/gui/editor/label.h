@@ -23,9 +23,9 @@
 
 #include "gui/editor/item.h"
 
-#include <QtGui/QGraphicsTextItem>
-#include <QtGui/QPainterPath>
-#include <QtGui/QPen>
+#include <QGraphicsTextItem>
+#include <QPainterPath>
+#include <QPen>
 
 
 namespace qsapecng

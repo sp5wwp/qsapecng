@@ -25,8 +25,8 @@
 #include "gui/editor/metacircuit_thread.hpp"
 #include "gui/workplane/workplane.h"
 
-#include <QtCore/QMutexLocker>
-#include <QtGui/QMdiSubWindow>
+#include <QMutexLocker>
+#include <QMdiSubWindow>
 
 
 class QFocusEvent;
@@ -42,11 +42,11 @@ class SchematicEditor: public QMdiSubWindow
   Q_OBJECT
 
 public:
-  SchematicEditor(QWidget* parent = 0, Qt::WindowFlags flags = 0);
+  SchematicEditor(QWidget* parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
   SchematicEditor(
       SchematicScene& scene,
       QWidget* parent = 0,
-      Qt::WindowFlags flags = 0
+      Qt::WindowFlags flags = Qt::WindowFlags()
     );
 
   inline SchematicView& view() const { return *view_; }

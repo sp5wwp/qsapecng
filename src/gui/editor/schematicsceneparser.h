@@ -25,10 +25,10 @@
 #include "gui/editor/schematicscene.h"
 #include "gui/editor/item.h"
 
-#include <QtCore/QPair>
-#include <QtCore/QStack>
-#include <QtCore/QPointF>
-#include <QtCore/QList>
+#include <QPair>
+#include <QStack>
+#include <QPointF>
+#include <QList>
 
 #include <vector>
 #include <map>

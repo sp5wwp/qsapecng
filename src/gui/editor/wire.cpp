@@ -21,9 +21,9 @@
 #include "gui/editor/graphicsnode.h"
 #include "gui/editor/schematicscene.h"
 
-#include <QtCore/QStringList>
-#include <QtGui/QPainter>
-#include <QtGui/QColor>
+#include <QStringList>
+#include <QPainter>
+#include <QColor>
 
 
 namespace qsapecng
@@ -66,6 +66,7 @@ Wire::~Wire()
   }
 
   nodes_.clear();
+  taps_.clear();
 }
 
 
@@ -228,7 +229,7 @@ void Wire::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 
   foreach(QGraphicsItem* graphicsItem, collidingItemList) {
     Item* item = qgraphicsitem_cast<Item*>(graphicsItem);
-    if(item && itemType() == Item::Wire) {
+    if(item && item->itemType() == Item::Wire) {
 
       Wire* wire =
         static_cast<Wire*>(graphicsItem);
@@ -381,6 +382,7 @@ void Wire::refreshNodeList()
   }
 
   nodes_.clear();
+  taps_.clear();
 
   if(connectedJunctions_) {
     if(orientation_ == Qt::Horizontal) {
@@ -414,6 +416,70 @@ void Wire::refreshNodeList()
     nodes_.append(from);
     nodes_.append(to);
   }
+}
+
+
+bool Wire::updateTaps()
+{
+  QGraphicsScene* sc = scene();
+  if(!sc || connectedJunctions_)
+    return false;
+
+  // interior grid points of the segment, in local coordinates
+  QList<QPointF> wanted;
+  const QPointF a = fromPoint();
+  const QPointF b = toPoint();
+  const int step = SchematicScene::GridStep;
+
+  QList<QPointF> interior;
+  if(orientation_ == Qt::Horizontal) {
+    const qreal lo = qMin(a.x(), b.x()), hi = qMax(a.x(), b.x());
+    for(qreal x = lo + step; x < hi - step / 2.; x += step)
+      interior.append(QPointF(x, a.y()));
+  } else {
+    const qreal lo = qMin(a.y(), b.y()), hi = qMax(a.y(), b.y());
+    for(qreal y = lo + step; y < hi - step / 2.; y += step)
+      interior.append(QPointF(a.x(), y));
+  }
+
+  foreach(const QPointF& p, interior) {
+    const QPointF sp = mapToScene(p);
+    foreach(QGraphicsItem* graphicsItem, sc->items(sp)) {
+      GraphicsNode* other = qgraphicsitem_cast<GraphicsNode*>(graphicsItem);
+      if(!other || other->parentItem() == this || other->isTap())
+        continue;
+      if(QLineF(other->scenePos(), sp).length() < 0.5) {
+        wanted.append(p);
+        break;
+      }
+    }
+  }
+
+  QList<QPointF> current;
+  foreach(GraphicsNode* tap, taps_)
+    current.append(tap->pos());
+  if(current == wanted)
+    return false;
+
+  foreach(GraphicsNode* tap, taps_) {
+    nodes_.removeAll(tap);
+    if(tap->scene())
+      tap->scene()->removeItem(tap);
+    delete tap;
+  }
+  taps_.clear();
+
+  foreach(const QPointF& p, wanted) {
+    GraphicsNode* tap = new GraphicsNode(this);
+    tap->setOwner(this);
+    tap->setTap(true);
+    tap->setPos(p);
+    tap->updateItemSet();
+    nodes_.append(tap);
+    taps_.append(tap);
+  }
+
+  return true;
 }
 
 

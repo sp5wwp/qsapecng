@@ -19,7 +19,7 @@
 
 #include "gui/sidebarview.h"
 
-#include <QtGui/QDrag>
+#include <QDrag>
 
 
 namespace qsapecng
@@ -53,8 +53,7 @@ void SideBarView::startDrag(Qt::DropActions supportedActions)
     indexes.clear();
     indexes << index;
     drag->setMimeData(model()->mimeData(indexes));
-    drag->setPixmap(qVariantValue<QPixmap>(
-      model()->itemData(index)[Qt::DecorationRole])
+    drag->setPixmap(model()->itemData(index)[Qt::DecorationRole].value<QPixmap>()
     );
 
     drag->setHotSpot(QPoint(

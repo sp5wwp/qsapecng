@@ -17,17 +17,18 @@
 */
 
 
+#include "gui/theme.h"
 #include "gui/configdialog/configdialog.h"
 
-#include <QtGui/QMessageBox>
-#include <QtGui/QPushButton>
+#include <QMessageBox>
+#include <QPushButton>
 
-#include <QtGui/QListWidget>
-#include <QtGui/QStackedWidget>
-#include <QtGui/QDialogButtonBox>
+#include <QListWidget>
+#include <QStackedWidget>
+#include <QDialogButtonBox>
 
-#include <QtGui/QHBoxLayout>
-#include <QtGui/QVBoxLayout>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
 
 
 namespace qsapecng
@@ -132,7 +133,7 @@ void ConfigDialog::createIcons()
   generalButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
 
   QListWidgetItem* fontButton = new QListWidgetItem(contents_);
-  fontButton->setIcon(QIcon(":/images/font.png"));
+  fontButton->setIcon(theme::icon("font"));
   fontButton->setText(tr("Font"));
   fontButton->setTextAlignment(Qt::AlignHCenter);
   fontButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);

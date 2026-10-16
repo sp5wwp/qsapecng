@@ -21,12 +21,13 @@
 #define QLOGGER_H
 
 
+#include "gui/theme.h"
 #include "logger/logpolicy.h"
 #include "logger/logger.h"
 
-#include <QtCore/QObject>
-#include <QtCore/QRegExp>
-#include <QtGui/QColor>
+#include <QObject>
+#include <QRegularExpression>
+#include <QColor>
 
 
 typedef sapecng::LogPolicy SapecNGLogger;
@@ -50,16 +51,16 @@ public:
   void operator()(const std::string& msg)
   {
     QString qmsg = QString::fromStdString(msg);
-    if(qmsg.contains(QRegExp("^\\[DEBUG\\]\\s*")) && debugColor_.isValid())
-      emit textColorChanged(debugColor_);
-    if(qmsg.contains(QRegExp("^\\[INFO\\]\\s*")) && infoColor_.isValid())
-      emit textColorChanged(infoColor_);
-    if(qmsg.contains(QRegExp("^\\[WARNING\\]\\s*")) && warningColor_.isValid())
-      emit textColorChanged(warningColor_);
-    if(qmsg.contains(QRegExp("^\\[ERROR\\]\\s*")) && errorColor_.isValid())
-      emit textColorChanged(errorColor_);
-    if(qmsg.contains(QRegExp("^\\[FATAL\\]\\s*")) && fatalColor_.isValid())
-      emit textColorChanged(fatalColor_);
+    if(qmsg.startsWith("[DEBUG]") && debugColor_.isValid())
+      emit textColorChanged(theme::readableOn(debugColor_));
+    if(qmsg.startsWith("[INFO]") && infoColor_.isValid())
+      emit textColorChanged(theme::readableOn(infoColor_));
+    if(qmsg.startsWith("[WARNING]") && warningColor_.isValid())
+      emit textColorChanged(theme::readableOn(warningColor_));
+    if(qmsg.startsWith("[ERROR]") && errorColor_.isValid())
+      emit textColorChanged(theme::readableOn(errorColor_));
+    if(qmsg.startsWith("[FATAL]") && fatalColor_.isValid())
+      emit textColorChanged(theme::readableOn(fatalColor_));
     emit log(qmsg);
   }
 

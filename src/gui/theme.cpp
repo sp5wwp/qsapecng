@@ -1,0 +1,351 @@
+/*
+    QSapecNG - Qt based SapecNG GUI front-end
+    Copyright (C) 2009, Michele Caini
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+
+#include "gui/theme.h"
+#include "config.h"
+
+#include <QApplication>
+#include <QFile>
+#include <QGuiApplication>
+#include <QHash>
+#include <QIconEngine>
+#include <QPainter>
+#include <QPalette>
+#include <QScreen>
+#include <QSettings>
+#include <QStyle>
+#include <QStyleFactory>
+#include <QSvgRenderer>
+#include <QtGlobal>
+
+#include <memory>
+
+
+namespace qsapecng
+{
+namespace theme
+{
+
+
+namespace
+{
+
+
+QByteArray loadSvg(const QString& path)
+{
+  static QHash<QString, QByteArray> cache;
+  auto it = cache.constFind(path);
+  if(it != cache.constEnd())
+    return *it;
+
+  QFile file(path);
+  QByteArray data;
+  if(file.open(QIODevice::ReadOnly))
+    data = file.readAll();
+  cache.insert(path, data);
+  return data;
+}
+
+
+QColor foreground(QIcon::Mode mode)
+{
+  const QPalette pal = QApplication::palette();
+  switch(mode) {
+  case QIcon::Disabled:
+    return pal.color(QPalette::Disabled, QPalette::WindowText);
+  case QIcon::Selected:
+    return pal.color(QPalette::Active, QPalette::HighlightedText);
+  default:
+    return pal.color(QPalette::Active, QPalette::WindowText);
+  }
+}
+
+
+// Renders an SVG whose drawing colour is either "currentColor" (line icons)
+// or plain black (the old Inkscape circuit symbols), replacing it with the
+// palette colour for the requested mode at paint time.
+class TintedSvgIconEngine: public QIconEngine
+{
+
+public:
+  TintedSvgIconEngine(const QString& path, bool keepAspect, qreal strokeWidth)
+    : path_(path), keepAspect_(keepAspect), strokeWidth_(strokeWidth) { }
+
+  QIconEngine* clone() const override
+    { return new TintedSvgIconEngine(*this); }
+
+  QString key() const override
+    { return QStringLiteral("qsapecng-tinted-svg"); }
+
+  bool isNull() override
+    { return loadSvg(path_).isEmpty(); }
+
+  void paint(QPainter* painter, const QRect& rect,
+      QIcon::Mode mode, QIcon::State) override
+  {
+    QByteArray svg = loadSvg(path_);
+    if(svg.isEmpty())
+      return;
+
+    const QByteArray fg = foreground(mode).name().toLatin1();
+    svg.replace("currentColor", fg);
+    svg.replace("#000000", fg);
+    if(strokeWidth_ > 0)
+      svg.replace("stroke-width=\"2\"",
+        "stroke-width=\"" + QByteArray::number(strokeWidth_) + "\"");
+    // light fills in the old symbols become translucent so they read on
+    // dark backgrounds as well
+    svg.replace("fill:#e6e6e6", "fill:" + fg + ";fill-opacity:0.15");
+
+    QSvgRenderer renderer(svg);
+    QRectF target = rect;
+    if(keepAspect_) {
+      QSizeF s = renderer.defaultSize();
+      s.scale(rect.size(), Qt::KeepAspectRatio);
+      target = QRectF(QPointF(0, 0), s);
+      target.moveCenter(QRectF(rect).center());
+    }
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing);
+    renderer.render(painter, target);
+    painter->restore();
+  }
+
+  QPixmap pixmap(const QSize& size, QIcon::Mode mode,
+      QIcon::State state) override
+    { return scaledPixmap(size, mode, state, 1.0); }
+
+  QPixmap scaledPixmap(const QSize& size, QIcon::Mode mode,
+      QIcon::State state, qreal scale) override
+  {
+    QPixmap pm(size * scale);
+    pm.fill(Qt::transparent);
+    pm.setDevicePixelRatio(scale);
+    QPainter p(&pm);
+    paint(&p, QRect(QPoint(0, 0), size), mode, state);
+    return pm;
+  }
+
+private:
+  QString path_;
+  bool keepAspect_;
+  qreal strokeWidth_;
+
+};
+
+
+QPalette darkPalette()
+{
+  const QColor window(0x2b, 0x2d, 0x31);
+  const QColor base(0x1f, 0x21, 0x24);
+  const QColor alt(0x26, 0x28, 0x2c);
+  const QColor text(0xe6, 0xe8, 0xeb);
+  const QColor dim(0x8a, 0x8f, 0x98);
+  const QColor button(0x34, 0x37, 0x3c);
+  const QColor accent(0x4c, 0x9a, 0xff);
+
+  QPalette pal;
+  pal.setColor(QPalette::Window, window);
+  pal.setColor(QPalette::WindowText, text);
+  pal.setColor(QPalette::Base, base);
+  pal.setColor(QPalette::AlternateBase, alt);
+  pal.setColor(QPalette::ToolTipBase, button);
+  pal.setColor(QPalette::ToolTipText, text);
+  pal.setColor(QPalette::PlaceholderText, dim);
+  pal.setColor(QPalette::Text, text);
+  pal.setColor(QPalette::Button, button);
+  pal.setColor(QPalette::ButtonText, text);
+  pal.setColor(QPalette::BrightText, Qt::white);
+  pal.setColor(QPalette::Light, button.lighter(130));
+  pal.setColor(QPalette::Midlight, button.lighter(115));
+  pal.setColor(QPalette::Mid, button.darker(120));
+  pal.setColor(QPalette::Dark, window.darker(140));
+  pal.setColor(QPalette::Shadow, Qt::black);
+  pal.setColor(QPalette::Highlight, accent);
+  pal.setColor(QPalette::HighlightedText, Qt::white);
+  pal.setColor(QPalette::Link, accent);
+  pal.setColor(QPalette::LinkVisited, accent.lighter(120));
+
+  for(QPalette::ColorRole role : { QPalette::WindowText, QPalette::Text,
+        QPalette::ButtonText, QPalette::Light })
+    pal.setColor(QPalette::Disabled, role, QColor(0x6b, 0x70, 0x78));
+  pal.setColor(QPalette::Disabled, QPalette::Highlight, button);
+  return pal;
+}
+
+
+QPalette lightPalette()
+{
+  std::unique_ptr<QStyle> fusion(QStyleFactory::create(QStringLiteral("Fusion")));
+  QPalette pal = fusion ? fusion->standardPalette() : QPalette();
+  pal.setColor(QPalette::Highlight, QColor(0x25, 0x63, 0xeb));
+  pal.setColor(QPalette::Link, QColor(0x25, 0x63, 0xeb));
+  return pal;
+}
+
+
+QString platformStyleName;
+
+
+}
+
+
+Mode mode()
+{
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  const QString v = settings.value(QStringLiteral("Application/theme")).toString();
+  if(v == QLatin1String("light"))
+    return Mode::Light;
+  if(v == QLatin1String("dark"))
+    return Mode::Dark;
+  return Mode::System;
+}
+
+
+void setMode(Mode m)
+{
+  {
+    QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+    settings.setValue(QStringLiteral("Application/theme"),
+      m == Mode::Light ? QStringLiteral("light")
+      : m == Mode::Dark ? QStringLiteral("dark") : QStringLiteral("system"));
+  }
+
+  QApplication* app = qobject_cast<QApplication*>(QCoreApplication::instance());
+  if(!app)
+    return;
+
+  if(m == Mode::System) {
+    if(QStyle* style = QStyleFactory::create(platformStyleName))
+      app->setStyle(style);
+    QApplication::setPalette(app->style()->standardPalette());
+  } else {
+    app->setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    QApplication::setPalette(m == Mode::Dark ? darkPalette() : lightPalette());
+  }
+
+  // Widgets polished under the application style sheet keep their old
+  // palette; re-applying the sheet re-polishes every widget.
+  app->setStyleSheet(app->styleSheet());
+}
+
+
+void applyAppearance(QApplication& app)
+{
+  // Respect an explicit choice (-style argument, QT_STYLE_OVERRIDE, qt6ct
+  // ...). Only replace the legacy Windows styles, which look dated and do
+  // not support dark mode; windows11 (Qt >= 6.7), macOS and Fusion stay.
+  const QString current = app.style()->name().toLower();
+  const bool overridden = !qEnvironmentVariableIsEmpty("QT_STYLE_OVERRIDE")
+    || app.arguments().contains(QStringLiteral("-style"));
+  if(!overridden && (current == QLatin1String("windowsvista")
+      || current == QLatin1String("windows")))
+  {
+    if(QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion")))
+      app.setStyle(fusion);
+  }
+  platformStyleName = app.style()->name();
+
+  // Slightly more generous tool bar icons than the Qt default.
+  app.setStyleSheet(QStringLiteral(
+    "QToolBar { spacing: 2px; padding: 2px; }"
+    "QToolBar QToolButton { padding: 3px; border-radius: 4px; }"
+    "QDockWidget::title { padding: 4px 6px; }"
+  ));
+
+  if(mode() != Mode::System)
+    setMode(mode());
+}
+
+
+bool isDark()
+{
+  const QPalette pal = QApplication::palette();
+  return pal.color(QPalette::Window).lightness()
+    < pal.color(QPalette::WindowText).lightness();
+}
+
+
+QIcon icon(const QString& name)
+{
+  return QIcon(new TintedSvgIconEngine(
+    QStringLiteral(":/icons/%1.svg").arg(name), false, 1.75));
+}
+
+
+QIcon symbolIcon(const QString& name)
+{
+  return QIcon(new TintedSvgIconEngine(
+    QStringLiteral(":/images/symbols/%1.svg").arg(name), true, 0));
+}
+
+
+QPixmap symbolPixmap(const QString& name, const QSize& size)
+{
+  qreal dpr = 1.0;
+  if(QScreen* screen = QGuiApplication::primaryScreen())
+    dpr = screen->devicePixelRatio();
+  return symbolIcon(name).pixmap(size, dpr);
+}
+
+
+QFont schematicFont(int pointSize)
+{
+  QFont font = QApplication::font();
+  font.setStyleHint(QFont::SansSerif);
+  font.setPointSize(pointSize);
+  font.setWeight(QFont::Normal);
+  return font;
+}
+
+
+QColor sheetBackground()
+{
+  return QColor(0xff, 0xff, 0xff);
+}
+
+
+QColor sheetForeground()
+{
+  return QColor(Qt::black);
+}
+
+
+QColor readableOn(const QColor& color)
+{
+  if(!color.isValid() || color == QColor(Qt::black))
+    return QApplication::palette().color(QPalette::Text);
+  if(isDark() && color.lightnessF() < 0.55) {
+    QColor c = color.toHsl();
+    c.setHslF(c.hslHueF(), c.hslSaturationF(), 0.68);
+    return c;
+  }
+  return color;
+}
+
+
+QColor sheetGrid()
+{
+  return QColor(0xa8, 0xb0, 0xbc);
+}
+
+
+}
+}

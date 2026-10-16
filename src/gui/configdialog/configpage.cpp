@@ -22,21 +22,21 @@
 
 #include "logger/logger.h"
 
-#include <QtGui/QApplication>
+#include <QApplication>
 
-#include <QtGui/QComboBox>
-#include <QtGui/QPushButton>
-#include <QtGui/QGroupBox>
-#include <QtGui/QLabel>
+#include <QComboBox>
+#include <QPushButton>
+#include <QGroupBox>
+#include <QLabel>
 
-#include <QtCore/QSignalMapper>
+#include <QSignalMapper>
 
-#include <QtGui/QFontDialog>
-#include <QtGui/QColorDialog>
+#include <QFontDialog>
+#include <QColorDialog>
 
-#include <QtGui/QHBoxLayout>
-#include <QtGui/QVBoxLayout>
-#include <QtGui/QGridLayout>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QGridLayout>
 
 
 namespace qsapecng
@@ -152,8 +152,8 @@ GeneralPage::GeneralPage(QWidget* parent)
   connect(fatalColor_, SIGNAL(clicked()),
     colorMapper_, SLOT(map()));
 
-  connect(colorMapper_, SIGNAL(mapped(int)),
-    this, SLOT(changeColor(int)));
+  connect(colorMapper_, &QSignalMapper::mappedInt,
+    this, [this](int id) { changeColor(id); });
 
   QHBoxLayout* logLevelLayout = new QHBoxLayout;
   logLevelLayout->addWidget(logLevelLabel);
@@ -192,11 +192,11 @@ void GeneralPage::apply()
   SettingsManager manager;
 
   manager.setLogLvl(logLevel_->itemData(logLevel_->currentIndex()).toInt());
-  manager.setDebugColor(debugColor_->palette().color(QPalette::Background));
-  manager.setInfoColor(infoColor_->palette().color(QPalette::Background));
-  manager.setWarningColor(warningColor_->palette().color(QPalette::Background));
-  manager.setErrorColor(errorColor_->palette().color(QPalette::Background));
-  manager.setFatalColor(fatalColor_->palette().color(QPalette::Background));
+  manager.setDebugColor(debugColor_->palette().color(QPalette::Window));
+  manager.setInfoColor(infoColor_->palette().color(QPalette::Window));
+  manager.setWarningColor(warningColor_->palette().color(QPalette::Window));
+  manager.setErrorColor(errorColor_->palette().color(QPalette::Window));
+  manager.setFatalColor(fatalColor_->palette().color(QPalette::Window));
 
   setPageModified(false);
 }
@@ -212,7 +212,7 @@ void GeneralPage::changeColor(int id)
   {
   case sapecng::Logger::DEBUG:
     color = QColorDialog::getColor(
-        debugColor_->palette().color(QPalette::Background),
+        debugColor_->palette().color(QPalette::Window),
         this, tr("Choose a color")
       );
     if(color.isValid()) {
@@ -222,7 +222,7 @@ void GeneralPage::changeColor(int id)
     break;
   case sapecng::Logger::INFO:
     color = QColorDialog::getColor(
-        infoColor_->palette().color(QPalette::Background),
+        infoColor_->palette().color(QPalette::Window),
         this, tr("Choose a color")
       );
     if(color.isValid()) {
@@ -232,7 +232,7 @@ void GeneralPage::changeColor(int id)
     break;
   case sapecng::Logger::WARNING:
     color = QColorDialog::getColor(
-        warningColor_->palette().color(QPalette::Background),
+        warningColor_->palette().color(QPalette::Window),
         this, tr("Choose a color")
       );
     if(color.isValid()) {
@@ -242,7 +242,7 @@ void GeneralPage::changeColor(int id)
     break;
   case sapecng::Logger::ERROR:
     color = QColorDialog::getColor(
-        errorColor_->palette().color(QPalette::Background),
+        errorColor_->palette().color(QPalette::Window),
         this, tr("Choose a color")
       );
     if(color.isValid()) {
@@ -252,7 +252,7 @@ void GeneralPage::changeColor(int id)
     break;
   case sapecng::Logger::FATAL:
     color = QColorDialog::getColor(
-        fatalColor_->palette().color(QPalette::Background),
+        fatalColor_->palette().color(QPalette::Window),
         this, tr("Choose a color")
       );
     if(color.isValid()) {

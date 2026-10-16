@@ -18,17 +18,20 @@
 
 
 #include "gui/qsapecngwindow.h"
+#include "gui/theme.h"
 
-#include <QtGui/QApplication>
-#include <QtGui/QSplashScreen>
-#include <QtGui/QPixmap>
-#include <QtGui/QMainWindow>
-#include <QtCore/QString>
+#include <QApplication>
+#include <QSplashScreen>
+#include <QPixmap>
+#include <QMainWindow>
+#include <QString>
+#include <QStringList>
 
 
 int main(int argc, char** argv)
 {
   QApplication app(argc, argv);
+  qsapecng::theme::applyAppearance(app);
   
 //   QPixmap pixmap(":/images/qsapecng-splash-ng.png");
   QPixmap pixmap(":/images/qsapecng-splash.png");
@@ -43,25 +46,22 @@ int main(int argc, char** argv)
   
   qsapecng::QSapecNGWindow window;
 
-  if(argc > 1) {
+  // Show the main window before opening files given on the command line:
+  // QMdiArea only activates sub-windows properly once it is visible.
+  window.show();
+
+  const QStringList args = app.arguments();
+  if(args.size() > 1) {
     splash.showMessage(
         QObject::tr("Loading file(s)..."),
         Qt::AlignBottom | Qt::AlignLeft
     );
-    
-    for(int i = 1; i < argc; ++i)
-      window << QString(argv[i]);
-    
     app.processEvents();
+
+    for(int i = 1; i < args.size(); ++i)
+      window << args.at(i);
   }
 
-  splash.showMessage(
-      QObject::tr("Loading QSapecNG..."),
-      Qt::AlignBottom | Qt::AlignLeft
-    );
-  app.processEvents();
-
-  window.show();
   splash.finish(&window);
 
   return app.exec();

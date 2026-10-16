@@ -17,12 +17,13 @@
 */
 
 
+#include "gui/editor/itemtransform.h"
 #include "gui/editor/component.h"
 #include "gui/editor/graphicsnode.h"
 #include "gui/editor/wire.h"
 
-#include <QtGui/QGraphicsScene>
-#include <QtGui/QPainter>
+#include <QGraphicsScene>
+#include <QPainter>
 
 
 namespace qsapecng
@@ -132,14 +133,14 @@ void Component::mirror()
 {
   if(!angle() || angle() == 180) {
     if(label_)
-      label_->scale(-1, 1);
+      scaleItem(label_, -1, 1);
     foreach(GraphicsNode* node, nodeList_)
-      node->scale(-1, 1);
+      scaleItem(node, -1, 1);
   } else {
     if(label_)
-      label_->scale(1, -1);
+      scaleItem(label_, 1, -1);
     foreach(GraphicsNode* node, nodeList_)
-      node->scale(1, -1);
+      scaleItem(node, 1, -1);
   }
 
   Item::mirror();
@@ -149,10 +150,10 @@ void Component::mirror()
 void Component::rotate()
 {
   foreach(GraphicsNode* node, nodeList_)
-    node->rotate(-90);
+    rotateItem(node, -90);
 
   if(label_)
-    label_->rotate(-90);
+    rotateItem(label_, -90);
 
   Item::rotate();
 }

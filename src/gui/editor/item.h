@@ -21,8 +21,8 @@
 #define ITEM_H
 
 
-#include <QtGui/QGraphicsItem>
-#include <QtGui/QPen>
+#include <QGraphicsItem>
+#include <QPen>
 
 
 class QGraphicsSceneMouseEvent;

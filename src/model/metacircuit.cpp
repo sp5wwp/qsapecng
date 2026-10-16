@@ -384,10 +384,15 @@ void metacircuit::simplify(std::pair<expression, expression>& p)
 
 void metacircuit::compress(expression& e)
 {
-  for(expression::iterator it = e.begin(); it != e.end(); ++it) {
+  // Drop terms with a zero coefficient, then powers of s left without terms.
+  // erase() invalidates the erased iterator, so continue from the one it
+  // returns (advancing the erased one crashed the solver, issue #6).
+  for(expression::iterator it = e.begin(); it != e.end(); ) {
     it->second.remove_if(detail::basic_checker());
     if(detail::degree_checker()(*it))
-      e.erase(it);
+      it = e.erase(it);
+    else
+      ++it;
   }
 }
 
@@ -446,7 +451,12 @@ void metacircuit::remove_candidate(expression& e, const std::string& c)
   {
     for(degree_expression::iterator
         dit = it->second.begin(); dit != it->second.end(); ++dit)
-      dit->second.erase(std::find(dit->second.begin(), dit->second.end(), c));
+    {
+      std::list<std::string>::iterator f =
+        std::find(dit->second.begin(), dit->second.end(), c);
+      if(f != dit->second.end())
+        dit->second.erase(f);
+    }
   }
 }
 
@@ -530,7 +540,7 @@ int metacircuit::get_sign(
   for(size_t iter = 0; iter < col; ++iter)
     det *= matrix[iter * col + iter];
 
-  delete matrix;
+  delete [] matrix;
 
   return det;
 }

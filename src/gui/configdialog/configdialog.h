@@ -21,7 +21,7 @@
 #define CONFIGDIALOG_H
 
 
-#include <QtGui/QDialog>
+#include <QDialog>
 
 #include "gui/configdialog/configpage.h"
 

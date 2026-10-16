@@ -24,9 +24,9 @@
 #include "model/metacircuit.h"
 #include "parser/parser.h"
 
-#include <QtCore/QMutexLocker>
-#include <QtCore/QThread>
-#include <QtCore/QMutex>
+#include <QMutexLocker>
+#include <QThread>
+#include <QMutex>
 
 
 namespace qsapecng

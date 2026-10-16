@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/theme.h"
 #include "config.h"
 
 #include "exception/sapecngexception.h"
@@ -38,53 +39,54 @@
 #include "gui/qtsolutions/qtpropertyeditor/QtTreePropertyBrowser"
 #include "gui/qtsolutions/qtpropertyeditor/QtButtonPropertyBrowser"
 
-#include <QtGui/QProgressBar>
+#include <QProgressBar>
 
-#include <QtGui/QMdiArea>
-#include <QtGui/QMdiSubWindow>
+#include <QMdiArea>
+#include <QMdiSubWindow>
 
-#include <QtGui/QTabWidget>
+#include <QTabWidget>
 
-#include <QtGui/QMessageBox>
-#include <QtGui/QDialogButtonBox>
+#include <QMessageBox>
+#include <QDialogButtonBox>
 
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
-#include <QtGui/QFileDialog>
+#include <QFile>
+#include <QFileInfo>
+#include <QFileDialog>
 
-#include <QtGui/QLabel>
-#include <QtGui/QLineEdit>
-#include <QtGui/QTextEdit>
-#include <QtGui/QPushButton>
-#include <QtGui/QAction>
-#include <QtGui/QToolBox>
-#include <QtGui/QTextDocument>
-#include <QtGui/QGroupBox>
-#include <QtGui/QPlainTextEdit>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QPushButton>
+#include <QAction>
+#include <QToolBox>
+#include <QTextDocument>
+#include <QGroupBox>
+#include <QPlainTextEdit>
 
-#include <QtGui/QMenu>
-#include <QtGui/QMenuBar>
-#include <QtGui/QToolBar>
-#include <QtGui/QStatusBar>
-#include <QtGui/QDockWidget>
+#include <QMenu>
+#include <QMenuBar>
+#include <QToolBar>
+#include <QStatusBar>
+#include <QDockWidget>
 
-#include <QtCore/QSignalMapper>
-#include <QtGui/QCloseEvent>
-#include <QtGui/QGraphicsItem>
+#include <QSignalMapper>
+#include <QActionGroup>
+#include <QCloseEvent>
+#include <QGraphicsItem>
 
-#include <QtGui/QUndoView>
-#include <QtGui/QUndoGroup>
-#include <QtGui/QUndoStack>
+#include <QUndoView>
+#include <QUndoGroup>
+#include <QUndoStack>
 
-#include <QtGui/QFileSystemModel>
-#include <QtGui/QTreeView>
+#include <QFileSystemModel>
+#include <QTreeView>
 
-#include <QtGui/QPrinter>
-#include <QtGui/QPrintDialog>
+#include <QPrinter>
+#include <QPrintDialog>
 
-#include <QtGui/QGridLayout>
-#include <QtGui/QVBoxLayout>
-#include <QtGui/QApplication>
+#include <QGridLayout>
+#include <QVBoxLayout>
+#include <QApplication>
 
 #include <limits>
 
@@ -98,29 +100,28 @@ QSapecNGWindow::QSapecNGWindow()
   Settings().load();
 
   windowMapper_ = new QSignalMapper(this);
-  connect(windowMapper_, SIGNAL(mapped(QWidget*)),
-    this, SLOT(setActiveSubWindow(QWidget*)));
+  connect(windowMapper_, &QSignalMapper::mappedObject,
+    this, [this](QObject* obj) {
+      setActiveSubWindow(qobject_cast<QWidget*>(obj));
+    });
 
   fMapper_ = new QSignalMapper(this);
-  connect(fMapper_, SIGNAL(mapped(int)), this, SLOT(plot(int)));
+  connect(fMapper_, &QSignalMapper::mappedInt, this, [this](int id) {
+      plot(id);
+    });
 
   mdiArea_ = new ExtendedMdiArea;
   mdiArea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   mdiArea_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-//   mdiArea_->setViewMode(QMdiArea::TabbedView);
+  mdiArea_->setViewMode(QMdiArea::TabbedView);
+  mdiArea_->setDocumentMode(true);
+  mdiArea_->setTabsClosable(true);
+  mdiArea_->setTabsMovable(true);
 
   connect(static_cast<ExtendedMdiArea*>(mdiArea_),
     SIGNAL(dropFileEvent(const QString&)), this, SLOT(open(const QString&)));
-  connect(mdiArea_, SIGNAL(subWindowActivated(QMdiSubWindow*)),
-    this, SLOT(subWindowActivated(QMdiSubWindow*)));
-  connect(mdiArea_, SIGNAL(subWindowActivated(QMdiSubWindow*)),
-    this, SLOT(sceneSelectionChanged()));
-  connect(mdiArea_, SIGNAL(subWindowActivated(QMdiSubWindow*)),
-    this, SLOT(updateMenus()));
-  connect(mdiArea_, SIGNAL(subWindowActivated(QMdiSubWindow*)),
-    this, SLOT(updatePropertyBrowser()));
-  connect(mdiArea_, SIGNAL(subWindowActivated(QMdiSubWindow*)),
-    this, SLOT(updateDocks()));
+  connect(mdiArea_, &QMdiArea::subWindowActivated,
+    this, &QSapecNGWindow::syncWithCurrentEditor);
 
   createLogger();
   createDockWidgets();
@@ -299,6 +300,7 @@ void QSapecNGWindow::resolve()
     editor->solve();
     mdiArea_->setActiveSubWindow(0);
     mdiArea_->setActiveSubWindow(editor);
+    syncWithCurrentEditor();
   }
 }
 
@@ -331,8 +333,9 @@ void QSapecNGWindow::newFile()
 {
   central_->setCurrentWidget(mdiArea_);
   QMdiSubWindow* subWindow = createSchematicEditor();
-  setActiveSubWindow(subWindow);
-  subWindow->show();
+  subWindow->showMaximized();
+  mdiArea_->setActiveSubWindow(subWindow);
+  syncWithCurrentEditor();
 }
 
 
@@ -344,6 +347,7 @@ void QSapecNGWindow::open(const QString& fileName)
     QMdiSubWindow* existing = findEditor(fileName);
     if(existing) {
       mdiArea_->setActiveSubWindow(existing);
+      syncWithCurrentEditor();
       return;
     }
 
@@ -361,8 +365,9 @@ void QSapecNGWindow::open(const QString& fileName)
     if(loaded) {
       updateRecentFileList(fileName);
       statusBar()->showMessage(tr("File loaded"), 2000);
+      editor->showMaximized();
       mdiArea_->setActiveSubWindow(editor);
-      editor->show();
+      syncWithCurrentEditor();
     } else {
       editor->setWindowModified(false);
       editor->close();
@@ -406,6 +411,7 @@ void QSapecNGWindow::openRecent()
     QMdiSubWindow* existing = findEditor(action->data().toString());
     if(existing) {
       mdiArea_->setActiveSubWindow(existing);
+      syncWithCurrentEditor();
       return;
     }
 
@@ -423,8 +429,9 @@ void QSapecNGWindow::openRecent()
     if(loaded) {
       updateRecentFileList(action->data().toString());
       statusBar()->showMessage(tr("File loaded"), 2000);
+      editor->showMaximized();
       mdiArea_->setActiveSubWindow(editor);
-      editor->show();
+      syncWithCurrentEditor();
     } else {
       editor->setWindowModified(false);
       editor->close();
@@ -781,21 +788,21 @@ void QSapecNGWindow::createLogger()
 
 void QSapecNGWindow::createActions()
 {
-  newAct_ = new QAction(QIcon(":/images/new.png"), tr("&New"), this);
+  newAct_ = new QAction(theme::icon("new"), tr("&New"), this);
   newAct_->setShortcuts(QKeySequence::New);
   newAct_->setStatusTip(tr("New file"));
   connect(newAct_, SIGNAL(triggered()), this, SLOT(newFile()));
 
-  openAct_ = new QAction(QIcon(":/images/open.png"), tr("&Open..."), this);
+  openAct_ = new QAction(theme::icon("open"), tr("&Open..."), this);
   openAct_->setShortcuts(QKeySequence::Open);
   openAct_->setStatusTip(tr("Open"));
   connect(openAct_, SIGNAL(triggered()), this, SLOT(open()));
 
-  openCrcAct_ = new QAction(QIcon(":/images/open.png"), tr("Open &Crc (netlist)"), this);
+  openCrcAct_ = new QAction(theme::icon("open"), tr("Open &Crc (netlist)"), this);
   openCrcAct_->setStatusTip(tr("Open Crc"));
   connect(openCrcAct_, SIGNAL(triggered()), this, SLOT(openCrc()));
 
-  saveAct_ = new QAction(QIcon(":/images/save.png"), tr("&Save"), this);
+  saveAct_ = new QAction(theme::icon("save"), tr("&Save"), this);
   saveAct_->setShortcuts(QKeySequence::Save);
   saveAct_->setStatusTip(tr("Save"));
   connect(saveAct_, SIGNAL(triggered()), this, SLOT(save()));
@@ -805,22 +812,22 @@ void QSapecNGWindow::createActions()
   saveAsAct_->setStatusTip(tr("Save As..."));
   connect(saveAsAct_, SIGNAL(triggered()), this, SLOT(saveAs()));
 
-  printAct_ = new QAction(QIcon(":/images/print.png"), tr("&Print"), this);
+  printAct_ = new QAction(theme::icon("print"), tr("&Print"), this);
   printAct_->setShortcuts(QKeySequence::Print);
   printAct_->setStatusTip(tr("Print"));
   connect(printAct_, SIGNAL(triggered()), this, SLOT(print()));
 
-  quitAct_ = new QAction(QIcon(":/images/cross.png"), tr("&Quit"), this);
+  quitAct_ = new QAction(theme::icon("cross"), tr("&Quit"), this);
   quitAct_->setShortcut(tr("Ctrl+Q"));
   quitAct_->setStatusTip(tr("Quit"));
   connect(quitAct_, SIGNAL(triggered()), qApp, SLOT(closeAllWindows()));
 
-  binAct_ = new QAction(QIcon(":/images/bin.png"), tr("&Delete"), this);
+  binAct_ = new QAction(theme::icon("bin"), tr("&Delete"), this);
   binAct_->setShortcut(QKeySequence::Delete);
   binAct_->setStatusTip(tr("Delete"));
   connect(binAct_, SIGNAL(triggered()), this, SLOT(bin()));
 
-  undoAct_ = new QAction(QIcon(":/images/undo.png"), tr("&Undo"), this);
+  undoAct_ = new QAction(theme::icon("undo"), tr("&Undo"), this);
   undoAct_->setShortcut(QKeySequence::Undo);
   undoAct_->setStatusTip(tr("Undo"));
   undoAct_->setEnabled(undoRedoGroup_->canUndo());
@@ -830,7 +837,7 @@ void QSapecNGWindow::createActions()
       undoAct_, SLOT(setEnabled(bool))
     );
 
-  redoAct_ = new QAction(QIcon(":/images/redo.png"), tr("&Redo"), this);
+  redoAct_ = new QAction(theme::icon("redo"), tr("&Redo"), this);
   redoAct_->setShortcut(QKeySequence::Redo);
   redoAct_->setStatusTip(tr("Redo"));
   redoAct_->setEnabled(undoRedoGroup_->canRedo());
@@ -844,68 +851,68 @@ void QSapecNGWindow::createActions()
   propsAct_->setStatusTip(tr("Properties..."));
   connect(propsAct_, SIGNAL(triggered()), this, SLOT(props()));
 
-  cutAct_ = new QAction(QIcon(":/images/cut.png"), tr("Cu&t"), this);
+  cutAct_ = new QAction(theme::icon("cut"), tr("Cu&t"), this);
   cutAct_->setShortcut(QKeySequence::Cut);
   cutAct_->setStatusTip(tr("Cut"));
   connect(cutAct_, SIGNAL(triggered()), this, SLOT(cut()));
 
-  copyAct_ = new QAction(QIcon(":/images/copy.png"), tr("&Copy"), this);
+  copyAct_ = new QAction(theme::icon("copy"), tr("&Copy"), this);
   copyAct_->setShortcut(QKeySequence::Copy);
   copyAct_->setStatusTip(tr("Copy"));
   connect(copyAct_, SIGNAL(triggered()), this, SLOT(copy()));
 
-  pasteAct_ = new QAction(QIcon(":/images/paste.png"), tr("&Paste"), this);
+  pasteAct_ = new QAction(theme::icon("paste"), tr("&Paste"), this);
   pasteAct_->setShortcut(QKeySequence::Paste);
   pasteAct_->setStatusTip(tr("Paste"));
   connect(pasteAct_, SIGNAL(triggered()), this, SLOT(paste()));
 
-  rotateAct_ = new QAction(QIcon(":/images/rotate.png"), tr("R&otate"), this);
+  rotateAct_ = new QAction(theme::icon("rotate"), tr("R&otate"), this);
   rotateAct_->setStatusTip(tr("Rotate"));
   connect(rotateAct_, SIGNAL(triggered()), this, SLOT(rotate()));
 
-  mirrorAct_ = new QAction(QIcon(":/images/mirror.png"), tr("&Mirror"), this);
+  mirrorAct_ = new QAction(theme::icon("mirror"), tr("&Mirror"), this);
   mirrorAct_->setStatusTip(tr("Mirror"));
   connect(mirrorAct_, SIGNAL(triggered()), this, SLOT(mirror()));
 
   bringToFrontAct_ =
-    new QAction(QIcon(":/images/bringfront.png"), tr("Bring to &front"), this);
+    new QAction(theme::icon("bringfront"), tr("Bring to &front"), this);
   bringToFrontAct_->setStatusTip(tr("Bring to front"));
   connect(bringToFrontAct_, SIGNAL(triggered()), this, SLOT(bringToFront()));
 
   sendToBackAct_ =
-    new QAction(QIcon(":/images/sendback.png"), tr("Send to &back"), this);
+    new QAction(theme::icon("sendback"), tr("Send to &back"), this);
   sendToBackAct_->setStatusTip(tr("Send to back"));
   connect(sendToBackAct_, SIGNAL(triggered()), this, SLOT(sendToBack()));
 
-  zoomInAct_ = new QAction(QIcon(":/images/zoomin.png"), tr("Zoom &In"), this);
+  zoomInAct_ = new QAction(theme::icon("zoomin"), tr("Zoom &In"), this);
   zoomInAct_->setShortcuts(QKeySequence::ZoomIn);
   zoomInAct_->setStatusTip(tr("Zoom In"));
   connect(zoomInAct_, SIGNAL(triggered()), this, SLOT(zoomIn()));
 
-  zoomOutAct_ = new QAction(QIcon(":/images/zoomout.png"), tr("Zoom &Out"), this);
+  zoomOutAct_ = new QAction(theme::icon("zoomout"), tr("Zoom &Out"), this);
   zoomOutAct_->setShortcuts(QKeySequence::ZoomOut);
   zoomOutAct_->setStatusTip(tr("Zoom Out"));
   connect(zoomOutAct_, SIGNAL(triggered()), this, SLOT(zoomOut()));
 
-  zoomNormalAct_ = new QAction(QIcon(":/images/zoomnormal.png"), tr("Zoom &Normal"), this);
+  zoomNormalAct_ = new QAction(theme::icon("zoomnormal"), tr("Zoom &Normal"), this);
   zoomNormalAct_->setStatusTip(tr("Zoom Normal"));
   connect(zoomNormalAct_, SIGNAL(triggered()), this, SLOT(zoomNormal()));
 
-  fitAct_ = new QAction(QIcon(":/images/fit.png"), tr("&Fit"), this);
+  fitAct_ = new QAction(theme::icon("fit"), tr("&Fit"), this);
   fitAct_->setStatusTip(tr("Fit"));
   connect(fitAct_, SIGNAL(triggered()), this, SLOT(fit()));
 
-  nodeAct_ = new QAction(QIcon(":/images/node.png"), tr("Assign &nodes"), this);
+  nodeAct_ = new QAction(theme::icon("node"), tr("Assign &nodes"), this);
   nodeAct_->setShortcut(tr("F7"));
   nodeAct_->setStatusTip(tr("Assign nodes"));
   connect(nodeAct_, SIGNAL(triggered()), this, SLOT(assignNodes()));
 
-  resolveAct_ = new QAction(QIcon(":/images/resolve.png"), tr("&Resolve..."), this);
+  resolveAct_ = new QAction(theme::icon("resolve"), tr("&Resolve..."), this);
   resolveAct_->setShortcut(tr("F8"));
   resolveAct_->setStatusTip(tr("Resolve"));
   connect(resolveAct_, SIGNAL(triggered()), this, SLOT(resolve()));
 
-  waveAct_ = new QAction(QIcon(":/images/wave.png"), tr("&Workplane..."), this);
+  waveAct_ = new QAction(theme::icon("wave"), tr("&Workplane..."), this);
   waveAct_->setShortcut(tr("F9"));
   waveAct_->setStatusTip(tr("Workplane"));
   connect(waveAct_, SIGNAL(triggered()), this, SLOT(wave()));
@@ -916,7 +923,7 @@ void QSapecNGWindow::createActions()
   connect(toggleScreenModeAct_, SIGNAL(triggered()),
     this, SLOT(toggleScreenMode()));
 
-  configureAppAct_ = new QAction(QIcon(":/images/configuration.png"),
+  configureAppAct_ = new QAction(theme::icon("configuration"),
     tr("&Configure QSapecNG..."), this);
   configureAppAct_->setStatusTip(tr("Configure QSapecNG..."));
   connect(configureAppAct_, SIGNAL(triggered()),
@@ -956,11 +963,11 @@ void QSapecNGWindow::createActions()
   separatorAct_ = new QAction(this);
   separatorAct_->setSeparator(true);
 
-  licenseAct_ = new QAction(QIcon(":/images/license.png"), tr("&License"), this);
+  licenseAct_ = new QAction(theme::icon("license"), tr("&License"), this);
   licenseAct_->setStatusTip(tr("Show License"));
   connect(licenseAct_, SIGNAL(triggered()), this, SLOT(license()));
 
-  aboutAct_ = new QAction(QIcon(":/images/info.png"), tr("&About"), this);
+  aboutAct_ = new QAction(theme::icon("info"), tr("&About"), this);
   aboutAct_->setStatusTip(tr("About QSapecNG"));
   connect(aboutAct_, SIGNAL(triggered()), this, SLOT(about()));
 
@@ -969,64 +976,64 @@ void QSapecNGWindow::createActions()
   connect(aboutQtAct_, SIGNAL(triggered()), qApp, SLOT(aboutQt()));
 
   userdefAct_ =
-    new QAction(QIcon(":/images/symbols/userdef.png"), tr("&User def"), this);
+    new QAction(theme::symbolIcon("userdef"), tr("&User def"), this);
   userdefAct_->setStatusTip(tr("User def"));
   connect(userdefAct_, SIGNAL(triggered()), this, SLOT(userDefRequested()));
 
   connectedWireSessionAct_ =
-    new QAction(QIcon(":/images/symbols/wirecross.png"), tr("Wire c&ross"), this);
+    new QAction(theme::symbolIcon("wirecross"), tr("Wire c&ross"), this);
   connectedWireSessionAct_->setStatusTip(tr("Wire Cross Session Request"));
   connect(connectedWireSessionAct_, SIGNAL(triggered()),
     this, SLOT(connectedWireSessionRequested()));
 
   disconnectedWireSessionAct_ =
-    new QAction(QIcon(":/images/symbols/wire.png"), tr("&Wire"), this);
+    new QAction(theme::symbolIcon("wire"), tr("&Wire"), this);
   disconnectedWireSessionAct_->setStatusTip(tr("Wire Session Request"));
   connect(disconnectedWireSessionAct_, SIGNAL(triggered()),
     this, SLOT(disconnectedWireSessionRequested()));
 
   groundSessionAct_ =
-    new QAction(QIcon(":/images/symbols/ground.png"), tr("&Ground"), this);
+    new QAction(theme::symbolIcon("ground"), tr("&Ground"), this);
   groundSessionAct_->setStatusTip(tr("Ground Session Request"));
   connect(groundSessionAct_, SIGNAL(triggered()),
     this, SLOT(groundSessionRequested()));
 
   portSessionAct_ =
-    new QAction(QIcon(":/images/symbols/port.png"), tr("&Port"), this);
+    new QAction(theme::symbolIcon("port"), tr("&Port"), this);
   portSessionAct_->setStatusTip(tr("Port Session Request"));
   connect(portSessionAct_, SIGNAL(triggered()),
     this, SLOT(portSessionRequested()));
 
   outSessionAct_ =
-    new QAction(QIcon(":/images/symbols/out.png"), tr("&Out"), this);
+    new QAction(theme::symbolIcon("out"), tr("&Out"), this);
   outSessionAct_->setStatusTip(tr("Out Session Request"));
   connect(outSessionAct_, SIGNAL(triggered()),
     this, SLOT(outSessionRequested()));
 
   voltmeterSessionAct_ =
-    new QAction(QIcon(":/images/symbols/voltmeter.png"), tr("&Voltmeter"), this);
+    new QAction(theme::symbolIcon("voltmeter"), tr("&Voltmeter"), this);
   voltmeterSessionAct_->setStatusTip(tr("Voltmeter Session Request"));
   connect(voltmeterSessionAct_, SIGNAL(triggered()),
     this, SLOT(voltmeterSessionRequested()));
 
   ammeterSessionAct_ =
-    new QAction(QIcon(":/images/symbols/ammeter.png"), tr("&Ammeter"), this);
+    new QAction(theme::symbolIcon("ammeter"), tr("&Ammeter"), this);
   ammeterSessionAct_->setStatusTip(tr("Ammeter Session Request"));
   connect(ammeterSessionAct_, SIGNAL(triggered()),
     this, SLOT(ammeterSessionRequested()));
 
   labelSessionAct_ =
-    new QAction(QIcon(":/images/label.png"), tr("&Label"), this);
+    new QAction(theme::icon("label"), tr("&Label"), this);
   labelSessionAct_->setStatusTip(tr("Insert Label"));
   connect(labelSessionAct_, SIGNAL(triggered()),
     this, SLOT(labelSessionRequested()));
 
-  cursorAct_ = new QAction(QIcon(":/images/cursor.png"), tr("&Cursor"), this);
+  cursorAct_ = new QAction(theme::icon("cursor"), tr("&Cursor"), this);
   cursorAct_->setStatusTip(tr("Clear pending request"));
   connect(cursorAct_, SIGNAL(triggered()), this, SLOT(clearSessionRequested()));
 
   toggleGridAct_ =
-    new QAction(QIcon(":/images/grid.png"), tr("&Toggle grid"), this);
+    new QAction(theme::icon("grid"), tr("&Toggle grid"), this);
   toggleGridAct_->setStatusTip(tr("Toggle grid"));
   toggleGridAct_->setCheckable(true);
   connect(toggleGridAct_, SIGNAL(triggered(bool)),
@@ -1149,7 +1156,7 @@ void QSapecNGWindow::createMenus()
   fileMenu_ = menuBar()->addMenu(tr("&File"));
   fileMenu_->addAction(newAct_);
   fileMenu_->addAction(openAct_);
-  recentMenu_ = fileMenu_->addMenu(QIcon(":/images/open.png"), tr("Open &Recent"));
+  recentMenu_ = fileMenu_->addMenu(theme::icon("open"), tr("Open &Recent"));
   for(int i = 0; i < maxRecentFiles; ++i)
     recentMenu_->addAction(openRecentActs_[i]);
   fileMenu_->addAction(openCrcAct_);
@@ -1227,6 +1234,23 @@ void QSapecNGWindow::createMenus()
   toolbarMenu_->addAction(runToolBar_->toggleViewAction());
   toolbarMenu_->addAction(toolToolBar_->toggleViewAction());
   settingMenu_->addAction(toggleScreenModeAct_);
+
+  QMenu* appearanceMenu = settingMenu_->addMenu(tr("&Appearance"));
+  QActionGroup* appearanceGroup = new QActionGroup(appearanceMenu);
+  const QList< QPair<QString, theme::Mode> > modes = {
+    { tr("Follow &system"), theme::Mode::System },
+    { tr("&Light"), theme::Mode::Light },
+    { tr("&Dark"), theme::Mode::Dark }
+  };
+  for(const auto& m : modes) {
+    QAction* act = appearanceMenu->addAction(m.first);
+    act->setCheckable(true);
+    act->setChecked(theme::mode() == m.second);
+    appearanceGroup->addAction(act);
+    const theme::Mode mode = m.second;
+    connect(act, &QAction::triggered, this, [mode]() { theme::setMode(mode); });
+  }
+
   settingMenu_->addSeparator();
   settingMenu_->addAction(configureAppAct_);
 
@@ -1355,7 +1379,7 @@ void QSapecNGWindow::createUndoRedoDockLayout()
 {
   undoRedoGroup_ = new QUndoGroup(this);
   undoRedoView_ = new QUndoView(undoRedoGroup_, this);
-  undoRedoView_->setCleanIcon(QIcon(":/images/save.png"));
+  undoRedoView_->setCleanIcon(theme::icon("save"));
 
   undoRedoDock_->setWidget(undoRedoView_);
 }
@@ -1432,9 +1456,9 @@ void QSapecNGWindow::writeSettings()
 
 SchematicEditor* QSapecNGWindow::activeEditor()
 {
-  if(mdiArea_->activeSubWindow()) {
+  if(mdiArea_->currentSubWindow()) {
     SchematicEditor* editor =
-      qobject_cast<SchematicEditor*>(mdiArea_->activeSubWindow());
+      qobject_cast<SchematicEditor*>(mdiArea_->currentSubWindow());
     if(editor && !editor->isRunning())
       return editor;
   }
@@ -1487,7 +1511,7 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
       &(editor->scene()), SLOT(setGridVisible(bool)));
 
   editor->setAttribute(Qt::WA_DeleteOnClose);
-  editor->setWindowIcon(QIcon(":/images/grid.png"));
+  editor->setWindowIcon(theme::icon("schematic"));
   mdiArea_->addSubWindow(editor, Qt::SubWindow);
 }
 
@@ -1626,6 +1650,19 @@ void QSapecNGWindow::setActiveSubWindow(QWidget* window)
 }
 
 
+void QSapecNGWindow::syncWithCurrentEditor()
+{
+  // QMdiArea does not always emit subWindowActivated() in tabbed mode
+  // (e.g. for files opened before the main window is shown), so the
+  // window state is refreshed from currentSubWindow() explicitly.
+  subWindowActivated(mdiArea_->currentSubWindow());
+  sceneSelectionChanged();
+  updateMenus();
+  updatePropertyBrowser();
+  updateDocks();
+}
+
+
 void QSapecNGWindow::subWindowActivated(QMdiSubWindow* window)
 {
   progressBar_->setRange(0, 1);
@@ -1645,8 +1682,9 @@ void QSapecNGWindow::stackEditor(SchematicEditor* editor)
 {
   setupSchematicEditor(editor);
   central_->setCurrentWidget(mdiArea_);
-  setActiveSubWindow(editor);
-  editor->show();
+  editor->showMaximized();
+  mdiArea_->setActiveSubWindow(editor);
+  syncWithCurrentEditor();
 
   statusBar()->showMessage(tr("Component loaded"), 2000);
 }

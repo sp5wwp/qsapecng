@@ -43,6 +43,30 @@
 <!-- settings -->
   <file>images/configuration.png</file>
 
+<!-- symbols (vector, used for HiDPI icons) -->
+  <file>images/symbols/ammeter.svg</file>
+  <file>images/symbols/capacitor.svg</file>
+  <file>images/symbols/cccs.svg</file>
+  <file>images/symbols/ccvs.svg</file>
+  <file>images/symbols/current.svg</file>
+  <file>images/symbols/ground.svg</file>
+  <file>images/symbols/inductor.svg</file>
+  <file>images/symbols/mutualinductance.svg</file>
+  <file>images/symbols/opampl.svg</file>
+  <file>images/symbols/out.svg</file>
+  <file>images/symbols/port.svg</file>
+  <file>images/symbols/resistor.svg</file>
+  <file>images/symbols/transformer.svg</file>
+  <file>images/symbols/userdef.svg</file>
+  <file>images/symbols/vccs.svg</file>
+  <file>images/symbols/vcvs.svg</file>
+  <file>images/symbols/voltage.svg</file>
+  <file>images/symbols/voltmeter.svg</file>
+  <file>images/symbols/wire.svg</file>
+  <file>images/symbols/wirecross.svg</file>
+  <file>images/symbols/xccs.svg</file>
+  <file>images/symbols/xcvs.svg</file>
+
 <!-- symbols sidebar -->
   <file>images/symbols/userdef.png</file>
   <file>images/symbols/resistor.png</file>
