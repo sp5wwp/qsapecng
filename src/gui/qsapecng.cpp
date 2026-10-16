@@ -31,6 +31,12 @@
 int main(int argc, char** argv)
 {
   QApplication app(argc, argv);
+  // explicit names: dialogs without a title use the application name, which
+  // would otherwise be the executable name (e.g. "AppRun.wrapped" in an
+  // AppImage); the desktop file name lets Wayland compositors find the icon
+  QApplication::setApplicationName(QStringLiteral(PACKAGE_NAME));
+  QApplication::setApplicationVersion(QStringLiteral(PACKAGE_VERSION));
+  QGuiApplication::setDesktopFileName(QStringLiteral("qsapecng"));
   qsapecng::theme::applyAppearance(app);
   
 //   QPixmap pixmap(":/images/qsapecng-splash-ng.png");

@@ -140,6 +140,39 @@ Define `QSAPECNG_PARSER_DEBUG` to get the Boost.Spirit trace of the netlist
 parser on stdout.
 
 
+## Release packages and CI
+
+`.github/workflows/build.yml` builds on every push, pull request and tag:
+
+| Platform | Package | Built with |
+|----------|---------|------------|
+| Linux | `QSapecNG-<version>-x86_64.AppImage` | Ubuntu 22.04, Qt 6.8 LTS, linuxdeploy |
+| Windows | `QSapecNG-<version>-win64.zip` and `.exe` installer | MSVC, Qt 6.8 LTS, CPack (ZIP + NSIS) |
+
+Both jobs run the regression tests. The packages are downloadable from the
+workflow run's *Artifacts*; pushing a tag such as `v3.0.0` also publishes
+them as a GitHub Release (a tag containing `-`, e.g. `v3.0.0-beta1`, makes a
+pre-release).
+
+The same steps work locally:
+
+```sh
+# Linux: Qwt for the Qt you bundle, then the AppImage (written to dist/)
+QMAKE=/path/to/qt6/bin/qmake packaging/build-qwt.sh "$PWD/qwt"
+QMAKE=/path/to/qt6/bin/qmake packaging/build-appimage.sh "$PWD/qwt" dist
+```
+
+```powershell
+# Windows (PowerShell): Qwt with MSVC, then build and package
+$env:QMAKE = 'C:\Qt\6.8.3\msvc2022_64\bin\qmake.exe'
+packaging\build-qwt.ps1 -Prefix C:\Qwt-6.3.0
+cmake -S . -B build -A x64 -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64 `
+      -DQWT_ROOT_DIR=C:/Qwt-6.3.0 -DBOOST_ROOT=C:/boost_1_xx_0
+cmake --build build --config Release
+cd build; cpack -C Release
+```
+
+
 ## Appearance
 
 *Settings → Appearance* chooses between following the system colour scheme,
