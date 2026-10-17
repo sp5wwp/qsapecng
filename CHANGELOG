@@ -61,12 +61,16 @@ QSapecNG CHANGELOG
       step in Hz (prefixes allowed). Values come from the transfer
       function, markers stay when the circuit is solved again; Plot >
       Markers Panel (Ctrl+M), Plot > Clear Markers
-    o Plots in their own panels instead of the Editor / Workplane tabs:
-      Run > New Plot (F9) asks for the kind, frequency range and axes;
-      each plot is a tab beside Messages and Result that can be dragged
-      out; several plots at once. Plots follow every Resolve (F8), the
-      first Resolve opens a Bode plot, and a plot in view stays in view.
-      Plot > Plot Settings changes the current one
+    o Plots in a window of their own (Plots, one tab per plot) instead of
+      the Editor / Workplane tabs: Run > New Plot (F9) asks for the kind,
+      frequency range and axes; several plots at once, with the Plot menu
+      and a toolbar in that window. Plots follow every Resolve (F8), the
+      first Resolve opens a Bode plot; Plot > Plot Settings changes the
+      current one, Window > Plots Window (Ctrl+Shift+P) brings it back;
+      size and place are remembered
+    o Differential markers: Reference makes the selected marker the
+      reference; the others show their difference from it in magnitude
+      and phase (in the panel and on the plot) and in frequency
     o Plot axes use prefixes (1k, 10M); pole and zero labels read
       -5k + j5k
     o Real resistors, inductors and capacitors: untick "Ideal" in the

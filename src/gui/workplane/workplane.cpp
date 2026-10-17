@@ -49,6 +49,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTableWidget>
+#include <QScrollBar>
 #include <qwt_scale_widget.h>
 #include <qwt_scale_draw.h>
 #include <QHeaderView>
@@ -1151,6 +1152,17 @@ void WorkPlane::refreshMarkers()
   const QwtScaleMap xMap = plot_->canvasMap(QwtPlot::xBottom);
   const Qt::Alignment rows[] = { Qt::AlignTop, Qt::AlignBottom, Qt::AlignVCenter };
   double lastPx[3] = { -1e9, -1e9, -1e9 };
+
+  // differential markers: values of the reference
+  const bool hasRef = refHz_ > 0. && markers_.contains(refHz_);
+  if(!hasRef)
+    refHz_ = 0.;
+  double refMag = 0., refPh = 0.;
+  const bool refOk = hasRef && markerValues(refHz_, &refMag, &refPh);
+  const int refIndex = hasRef ? markers_.indexOf(refHz_) : -1;
+  markerTable_->setColumnHidden(3, !hasRef);
+  markerTable_->setColumnHidden(4, !hasRef);
+
   for(int i = 0; i < markers_.size(); ++i) {
     const double hz = markers_.at(i);
     double mag = 0., ph = 0.;
@@ -1166,6 +1178,35 @@ void WorkPlane::refreshMarkers()
     markerTable_->setItem(i, 1, m);
     markerTable_->setItem(i, 2, p);
 
+    const bool isRef = (i == refIndex);
+    const bool showDelta = hasRef && !isRef && ok && refOk;
+    QString dMag, dPh, dF;
+    if(showDelta) {
+      dMag = magnitudeDb_
+        ? QStringLiteral("%1%2 dB").arg(mag - refMag >= 0 ? "+" : "")
+            .arg(mag - refMag, 0, 'f', 2)
+        : (mag - refMag >= 0 ? QStringLiteral("+") : QString())
+            + units::format(QString::number(mag - refMag, 'g', 6), "");
+      dPh = (ph - refPh >= 0 ? QStringLiteral("+") : QString())
+        + phaseText(ph - refPh);
+      dF = (hz - refHz_ >= 0 ? QStringLiteral("+") : QStringLiteral("-"))
+        + units::format(QString::number(std::fabs(hz - refHz_), 'g', 6), "Hz");
+    }
+    QTableWidgetItem* dm = new QTableWidgetItem(isRef ? tr("ref") : dMag);
+    QTableWidgetItem* dp = new QTableWidgetItem(isRef ? tr("ref") : dPh);
+    dm->setFlags(dm->flags() & ~Qt::ItemIsEditable);
+    dp->setFlags(dp->flags() & ~Qt::ItemIsEditable);
+    markerTable_->setItem(i, 3, dm);
+    markerTable_->setItem(i, 4, dp);
+    if(showDelta)
+      f->setToolTip(QStringLiteral("Δf = ") + dF);
+    if(isRef) {
+      QFont bold = f->font();
+      bold.setBold(true);
+      for(QTableWidgetItem* it : { f, m, p, dm, dp })
+        it->setFont(bold);
+    }
+
     if(!frequencyPlot)
       continue;
 
@@ -1174,13 +1215,17 @@ void WorkPlane::refreshMarkers()
     line->setLineStyle(QwtPlotMarker::VLine);
     QColor c = QApplication::palette().color(QPalette::Text);
     c.setAlpha(150);
-    line->setLinePen(c, 1, Qt::DashLine);
+    line->setLinePen(c, isRef ? 2 : 1, isRef ? Qt::DashDotLine : Qt::DashLine);
     line->setXValue(angular_ ? hz * twoPi : hz);
-    QString text = QStringLiteral("M%1  %2").arg(i + 1)
+    QString text = QStringLiteral("M%1%2  %3").arg(i + 1)
+      .arg(isRef ? tr(" (ref)") : QString())
       .arg(units::format(QString::number(hz, 'g', 6), "Hz"));
     if(ok)
       text += QLatin1Char('\n') + magnitudeText(mag)
         + QLatin1Char('\n') + phaseText(ph);
+    if(showDelta)
+      text += QStringLiteral("\nΔ ") + dF + QStringLiteral("\nΔ ") + dMag
+        + QStringLiteral("\nΔ ") + dPh;
     QwtText label(text);
     label.setColor(QApplication::palette().color(QPalette::Text));
     QColor bg = QApplication::palette().color(QPalette::Base);
@@ -1201,7 +1246,36 @@ void WorkPlane::refreshMarkers()
     markerLines_.append(line);
   }
   fillingTable_ = false;
+
+  // the panel is as wide as the columns need
+  markerTable_->resizeColumnsToContents();
+  int width = 2 * markerTable_->frameWidth() + 8;
+  for(int c = 0; c < markerTable_->columnCount(); ++c)
+    if(!markerTable_->isColumnHidden(c))
+      width += markerTable_->horizontalHeader()->sectionSize(c);
+  if(markerTable_->verticalScrollBar()->isVisible())
+    width += markerTable_->verticalScrollBar()->width();
+  markerPanel_->setMinimumWidth(qBound(260, width + 8, 560));
+
   plot_->replot();
+}
+
+
+void WorkPlane::setMarker(int row, double hz)
+{
+  // the reference follows its marker
+  if(markers_.at(row) == refHz_)
+    refHz_ = hz;
+  markers_[row] = hz;
+  std::sort(markers_.begin(), markers_.end());
+}
+
+
+void WorkPlane::removeMarker(int row)
+{
+  if(markers_.at(row) == refHz_)
+    refHz_ = 0.;
+  markers_.removeAt(row);
 }
 
 
@@ -1232,8 +1306,7 @@ void WorkPlane::moveSelectedMarker(int direction)
   const double hz = markers_.at(row) + direction * step;
   if(!(hz > 0))
     return;
-  markers_[row] = hz;
-  std::sort(markers_.begin(), markers_.end());
+  setMarker(row, hz);
   refreshMarkers();
   markerTable_->selectRow(markers_.indexOf(hz));
 }
@@ -1244,10 +1317,8 @@ void WorkPlane::markerEdited(int row, int column)
   if(fillingTable_ || column != 0 || row < 0 || row >= markers_.size())
     return;
   double hz = 0.;
-  if(units::parse(markerTable_->item(row, 0)->text(), "Hz", &hz) && hz > 0) {
-    markers_[row] = hz;
-    std::sort(markers_.begin(), markers_.end());
-  }
+  if(units::parse(markerTable_->item(row, 0)->text(), "Hz", &hz) && hz > 0)
+    setMarker(row, hz);
   // re-show the list (also when the text was not a frequency)
   QTimer::singleShot(0, this, [this]() { refreshMarkers(); });
 }
@@ -1266,7 +1337,7 @@ void WorkPlane::plotClicked(const QPointF& pos)
   for(int i = 0; i < markers_.size(); ++i) {
     const double x = angular_ ? markers_.at(i) * twoPi : markers_.at(i);
     if(qAbs(map.transform(x) - px) < 5.) {
-      markers_.removeAt(i);
+      removeMarker(i);
       refreshMarkers();
       return;
     }
@@ -1471,7 +1542,7 @@ public:
   QwtText label(double v) const override
   {
     // prefixes from 1000 up; below that the plain numbers read better
-    if(std::fabs(v) < 1000.)
+    if(std::fabs(v) < 999.5)
       return QwtScaleDraw::label(v);
     return QwtText(units::format(QString::number(v, 'g', 6), QString()));
   }
@@ -1514,10 +1585,12 @@ void WorkPlane::createMainLayout()
     this, SLOT(plotClicked(const QPointF&)));
 
   // markers panel
-  markerTable_ = new QTableWidget(0, 3);
+  markerTable_ = new QTableWidget(0, 5);
   markerTable_->setHorizontalHeaderLabels(
-    { tr("Frequency"), tr("Magnitude"), tr("Phase") });
-  markerTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    { tr("Frequency"), tr("Magnitude"), tr("Phase"),
+      QStringLiteral("Δ ") + tr("Mag."), QStringLiteral("Δ ") + tr("Phase") });
+  markerTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  markerTable_->horizontalHeader()->setStretchLastSection(true);
   markerTable_->verticalHeader()->setVisible(false);
   markerTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
   markerTable_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1537,7 +1610,7 @@ void WorkPlane::createMainLayout()
   connect(remove, &QPushButton::clicked, this, [this]() {
       const int row = selectedMarker();
       if(row >= 0) {
-        markers_.removeAt(row);
+        removeMarker(row);
         refreshMarkers();
       }
     });
@@ -1554,9 +1627,23 @@ void WorkPlane::createMainLayout()
   stepEdit_->setToolTip(tr("Step for moving a marker, in Hz (10, 1k, 1MEG)"));
   stepEdit_->setMaximumWidth(70);
 
+  QPushButton* reference = new QPushButton(tr("Reference"));
+  reference->setToolTip(tr("Differential markers: the selected marker becomes "
+    "the reference and the others show their difference from it in "
+    "magnitude and phase (and frequency). Again on the reference: off"));
+  connect(reference, &QPushButton::clicked, this, [this]() {
+      const int row = selectedMarker();
+      if(row < 0)
+        return;
+      refHz_ = (markers_.at(row) == refHz_) ? 0. : markers_.at(row);
+      refreshMarkers();
+      markerTable_->selectRow(row);
+    });
+
   QHBoxLayout* buttons = new QHBoxLayout;
   buttons->addWidget(add);
   buttons->addWidget(remove);
+  buttons->addWidget(reference);
   QHBoxLayout* move = new QHBoxLayout;
   move->addWidget(left);
   move->addWidget(right);
@@ -1574,7 +1661,7 @@ void WorkPlane::createMainLayout()
   markerPanel_ = new QWidget;
   markerPanel_->setLayout(panelLayout);
   markerPanel_->setMinimumWidth(260);
-  markerPanel_->setMaximumWidth(380);
+  markerPanel_->setMaximumWidth(560);
 
   QSplitter* splitter = new QSplitter(Qt::Horizontal);
   splitter->addWidget(plot_);
@@ -1793,6 +1880,7 @@ void WorkPlane::setupCurves()
 void WorkPlane::clearMarkers()
 {
   markers_.clear();
+  refHz_ = 0.;
   refreshMarkers();
 }
 

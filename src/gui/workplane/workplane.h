@@ -299,6 +299,9 @@ protected:
   QLineEdit* stepEdit_ = nullptr;
   bool fillingTable_ = false;
   bool markersPanelWanted_ = true;
+  double refHz_ = 0.;                     // reference marker (0: none)
+  void setMarker(int row, double hz);
+  void removeMarker(int row);
   void refreshMarkers();
   bool markerValues(double hz, double* magnitude, double* phase) const;
   QString magnitudeText(double v) const;

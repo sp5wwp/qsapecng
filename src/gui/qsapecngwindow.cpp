@@ -51,6 +51,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QMainWindow>
 #include <QFileDialog>
 #include <QDir>
 #include <QSettings>
@@ -176,6 +177,13 @@ void QSapecNGWindow::closeEvent(QCloseEvent* event)
   } else {
     writeSettings();
     Settings().save();
+    if(plotWindow_) {
+      QSettings().setValue(QStringLiteral("PlotWindow/geometry"),
+        plotWindow_->saveGeometry());
+      plotWindow_->close();
+      delete plotWindow_;
+      plotWindow_ = nullptr;
+    }
     event->accept();
   }
 }
@@ -288,43 +296,103 @@ WorkPlane* QSapecNGWindow::createPlot(SchematicEditor* editor,
   }
   plane->applySettings(settings);
 
-  static int count = 0;
-  QDockWidget* dock = new QDockWidget(this);
-  dock->setObjectName(QStringLiteral("plotDock%1").arg(++count));
-  dock->setAttribute(Qt::WA_DeleteOnClose);
-  dock->setAllowedAreas(Qt::AllDockWidgetAreas);
-  dock->setWidget(plane);
-  addDockWidget(Qt::BottomDockWidgetArea, dock);
-  tabifyDockWidget(resultDock_, dock);
-
-  PlotEntry entry{ dock, plane, editor };
+  createPlotWindow();
+  PlotEntry entry{ plane, editor };
   plots_.append(entry);
+  const int index = plotTabs_->addTab(plane, QString());
   updatePlotTitle(plane);
 
-  connect(dock, &QDockWidget::visibilityChanged, this, [this, plane](bool v) {
-      if(v) { currentPlot_ = plane; updateMenus(); }
-    });
-  connect(dock, &QObject::destroyed, this, [this, plane]() {
+  connect(plane, &QObject::destroyed, this, [this, plane]() {
       for(int i = 0; i < plots_.size(); ++i)
-        if(plots_.at(i).plane == plane)
+        if(plots_.at(i).plane.isNull() || plots_.at(i).plane == plane)
           plots_.removeAt(i--);
-      if(currentPlot_ == plane)
-        currentPlot_ = plots_.isEmpty() ? 0 : plots_.last().plane.data();
+      if(currentPlot_.isNull() || currentPlot_ == plane)
+        currentPlot_ = qobject_cast<WorkPlane*>(plotTabs_->currentWidget());
       updateMenus();
     });
 
-  dock->show();
-  dock->raise();
+  plotTabs_->setCurrentIndex(index);
+  showPlotWindow();
   currentPlot_ = plane;
   updateMenus();
   return plane;
 }
 
 
+void QSapecNGWindow::createPlotWindow()
+{
+  if(plotWindow_)
+    return;
+
+  // a top-level window of its own (own taskbar entry, can go to another
+  // screen); closed with the main window
+  plotWindow_ = new QMainWindow(nullptr);
+  plotWindow_->setWindowTitle(tr("Plots - %1").arg(PACKAGE_NAME));
+  plotWindow_->setWindowIcon(windowIcon());
+  plotWindow_->setAttribute(Qt::WA_QuitOnClose, false);
+
+  plotTabs_ = new QTabWidget;
+  plotTabs_->setDocumentMode(true);
+  plotTabs_->setTabsClosable(true);
+  plotTabs_->setMovable(true);
+  plotWindow_->setCentralWidget(plotTabs_);
+  connect(plotTabs_, &QTabWidget::tabCloseRequested, this, [this](int index) {
+      QWidget* page = plotTabs_->widget(index);
+      plotTabs_->removeTab(index);
+      delete page;
+      if(plotTabs_->count() == 0)
+        plotWindow_->hide();
+    });
+  connect(plotTabs_, &QTabWidget::currentChanged, this, [this]() {
+      currentPlot_ = qobject_cast<WorkPlane*>(plotTabs_->currentWidget());
+      updateMenus();
+    });
+
+  // the Plot menu and its shortcuts work here as in the main window
+  plotWindow_->menuBar()->addMenu(workplaneMenu_);
+  QToolBar* bar = plotWindow_->addToolBar(tr("Plot"));
+  bar->setObjectName(QStringLiteral("plotToolBar"));
+  bar->setMovable(false);
+  bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  bar->addAction(waveAct_);
+  bar->addAction(plotSettingsAct_);
+  bar->addSeparator();
+  bar->addAction(resetViewAct_);
+  bar->addAction(vrangeAct_);
+  bar->addSeparator();
+  bar->addAction(markersPanelAct_);
+  bar->addAction(clearMarkersAct_);
+  bar->addSeparator();
+  bar->addAction(printPlotAct_);
+  // F8 (resolve the schematic) also from here
+  plotWindow_->addAction(resolveAct_);
+
+  QSettings settings;
+  if(!plotWindow_->restoreGeometry(
+      settings.value(QStringLiteral("PlotWindow/geometry")).toByteArray()))
+  {
+    plotWindow_->resize(1000, 640);
+    plotWindow_->move(geometry().center() - QPoint(500, 320));
+  }
+}
+
+
+void QSapecNGWindow::showPlotWindow()
+{
+  createPlotWindow();
+  if(plotWindow_->isMinimized())
+    plotWindow_->showNormal();
+  else
+    plotWindow_->show();
+  plotWindow_->raise();
+  plotWindow_->activateWindow();
+}
+
+
 void QSapecNGWindow::updatePlotTitle(WorkPlane* plane)
 {
   for(const PlotEntry& e : plots_) {
-    if(e.plane != plane || !e.dock)
+    if(e.plane != plane)
       continue;
     static const char* kinds[] = {
       QT_TR_NOOP("Frequency response"), QT_TR_NOOP("Phase response"),
@@ -334,7 +402,11 @@ void QSapecNGWindow::updatePlotTitle(WorkPlane* plane)
     if(e.editor)
       title += QStringLiteral(" - ")
         + QFileInfo(e.editor->currentFile()).fileName();
-    e.dock->setWindowTitle(title);
+    const int index = plotTabs_->indexOf(plane);
+    if(index >= 0) {
+      plotTabs_->setTabText(index, title);
+      plotTabs_->setTabToolTip(index, e.editor ? e.editor->currentFile() : QString());
+    }
   }
 }
 
@@ -944,6 +1016,8 @@ void QSapecNGWindow::updateMenus()
   resetViewAct_->setEnabled(hasPlot);
   clearMarkersAct_->setEnabled(hasPlot);
   markersPanelAct_->setEnabled(hasPlot);
+  if(showPlotsAct_)
+    showPlotsAct_->setEnabled(plotTabs_ && plotTabs_->count() > 0);
   if(currentPlot_) {
     QSignalBlocker block(markersPanelAct_);
     markersPanelAct_->setChecked(currentPlot_->markersPanelVisible());
@@ -956,6 +1030,7 @@ void QSapecNGWindow::updateMenus()
 void QSapecNGWindow::updateWindowMenu()
 {
   windowMenu_->clear();
+  windowMenu_->addAction(showPlotsAct_);
   windowMenu_->addMenu(showMenu_);
   windowMenu_->addSeparator();
   windowMenu_->addAction(closeAct_);
@@ -1535,6 +1610,12 @@ void QSapecNGWindow::createMenus()
   settingMenu_->addAction(configureAppAct_);
 
   windowMenu_ = menuBar()->addMenu(tr("&Window"));
+  showPlotsAct_ = new QAction(tr("&Plots Window"), this);
+  addAction(showPlotsAct_);
+  showPlotsAct_->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_P);
+  showPlotsAct_->setStatusTip(tr("Bring the window with the plots to the front"));
+  connect(showPlotsAct_, &QAction::triggered, this,
+    [this]() { if(plotTabs_ && plotTabs_->count()) showPlotWindow(); });
   showMenu_ = windowMenu_->addMenu(tr("&Show"));
   updateWindowMenu();
   connect(windowMenu_, SIGNAL(aboutToShow()), this, SLOT(updateWindowMenu()));
@@ -1862,18 +1943,12 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
   connect(editor, &SchematicEditor::solved, this, [this, editor]() {
     // plots of this schematic follow its result; one asked for before
     // solving opens now, and a first result opens a Bode plot
-    // a plot of it in view stays in view (re-solving after an edit)
-    bool plotInView = false;
-    for(const PlotEntry& e : plots_)
-      plotInView = plotInView || (e.editor == editor && e.dock
-        && e.dock->isVisible() && !e.dock->visibleRegion().isEmpty());
     refreshPlots(editor);
     if(editor == activeEditor()) {
       updateResultPanel();
       updateStatus();
       resultDock_->show();
-      if(!plotInView)
-        resultDock_->raise();
+      resultDock_->raise();
     }
 
     // a new plot comes to the front
@@ -1904,8 +1979,8 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
   connect(editor, &QObject::destroyed, this, [this, editor]() {
       pendingPlots_.remove(editor);
       for(const PlotEntry& e : plots_)
-        if(e.editor.isNull() && e.dock)
-          e.dock->close();
+        if(e.editor.isNull() && e.plane)
+          e.plane->deleteLater();
     });
   editor->setAttribute(Qt::WA_DeleteOnClose);
   editor->setWindowIcon(theme::icon("schematic"));

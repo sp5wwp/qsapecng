@@ -41,6 +41,7 @@ class QMdiArea;
 class QMdiSubWindow;
 
 class QTabWidget;
+class QMainWindow;
 
 class QTextEdit;
 class QLineEdit;
@@ -224,13 +225,18 @@ private:
   // plots: one dock each, bound to the schematic they show
   struct PlotEntry
   {
-    QPointer<QDockWidget> dock;
     QPointer<WorkPlane> plane;
     QPointer<SchematicEditor> editor;
   };
   QList<PlotEntry> plots_;
   QPointer<WorkPlane> currentPlot_;
   QHash<SchematicEditor*, PlotSettings> pendingPlots_;   // after solving
+  // plots live in their own window, one tab each
+  QMainWindow* plotWindow_ = nullptr;
+  QTabWidget* plotTabs_ = nullptr;
+  QAction* showPlotsAct_ = nullptr;
+  void createPlotWindow();
+  void showPlotWindow();
   WorkPlane* createPlot(SchematicEditor* editor, const PlotSettings& settings);
   void updatePlotTitle(WorkPlane* plane);
   void refreshPlots(SchematicEditor* editor);
