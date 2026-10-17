@@ -202,6 +202,10 @@ public slots:
   void setAngularFrequency(bool radPerSecond);
   // WorkPlane > Frequency Range...
   void editFrequencyRange();
+  // WorkPlane > Vertical Range...
+  void editVerticalRange();
+  // WorkPlane > Reset View: undo zooming and panning
+  void resetView();
   void print(QPrinter& printer);
 
 private:
@@ -250,6 +254,19 @@ protected:
   void autoFrequencyRange();
   void invalidateCurves();
   void plotBode();
+
+  // vertical range per plotted quantity ("magDb", "mag", "phaseDeg",
+  // "phaseRad"); automatic unless set in the dialog
+  struct YRange { bool automatic = true; double min = 0.; double max = 1.; };
+  YRange yRange(const QString& key) const;
+  void setYRange(const QString& key, const YRange& range);
+  QString magnitudeKey() const;
+  QString phaseKey() const;
+  void applyYRange(int axis, const QString& key);
+
+  // mouse wheel zoom around the pointer
+  bool eventFilter(QObject* watched, QEvent* event) override;
+  void zoomAt(const QPoint& pos, double factor, bool x, bool y);
 
   QVBoxLayout* centralLayout_;
   QHBoxLayout* mainLayout_;

@@ -22,6 +22,9 @@
 #include "functor/functor.hpp"
 #include "gui/workplane/workplane.h"
 #include "gui/units.h"
+#include <QWheelEvent>
+#include <QDoubleValidator>
+#include <QGroupBox>
 #include "config.h"
 #include <cmath>
 #include <QSpinBox>
@@ -55,6 +58,7 @@
 #include <qwt_plot_picker.h>
 #include <qwt_plot_marker.h>
 #include <qwt_plot_renderer.h>
+#include <qwt_plot_panner.h>
 #include <qwt_scale_engine.h>
 #include <qwt_curve_fitter.h>
 #include <qwt_weeding_curve_fitter.h>
@@ -726,6 +730,12 @@ void WorkPlane::plot(WorkPlane::F f)
   }
 
   relabel(f);
+  if(!keepAttached_) {
+    if(f == PHASE || f == PHASE_RAD)
+      applyYRange(QwtPlot::yLeft, phaseKey());
+    else if(f != ZEROS && f != POLES)
+      applyYRange(QwtPlot::yLeft, magnitudeKey());
+  }
 
   plot_->setFocus(Qt::OtherFocusReason);
   plot_->updateAxes();
@@ -847,6 +857,8 @@ void WorkPlane::plotBode()
   plot_->setAxisAutoScale(QwtPlot::yRight);
   plot_->setAxisScaleEngine(QwtPlot::yRight, new QwtLinearScaleEngine);
   applyAxisScales(false);
+  applyYRange(QwtPlot::yLeft, magnitudeKey());
+  applyYRange(QwtPlot::yRight, phaseKey());
 
   relabel(magF);
   plot_->setTitle(tr("Bode plot"));
@@ -861,6 +873,186 @@ void WorkPlane::plotBode()
   plot_->setAxisTitle(QwtPlot::yRight, right);
 
   plot_->updateAxes();
+  plot_->replot();
+}
+
+
+QString WorkPlane::magnitudeKey() const
+{
+  return magnitudeDb_ ? QStringLiteral("magDb") : QStringLiteral("mag");
+}
+
+
+QString WorkPlane::phaseKey() const
+{
+  return phaseDegrees_ ? QStringLiteral("phaseDeg") : QStringLiteral("phaseRad");
+}
+
+
+WorkPlane::YRange WorkPlane::yRange(const QString& key) const
+{
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  const QString base = QStringLiteral("Workplane/yRange/%1/").arg(key);
+  YRange r;
+  r.automatic = settings.value(base + "auto", true).toBool();
+  r.min = settings.value(base + "min", 0.).toDouble();
+  r.max = settings.value(base + "max", 1.).toDouble();
+  if(!(r.max > r.min))
+    r.automatic = true;
+  return r;
+}
+
+
+void WorkPlane::setYRange(const QString& key, const YRange& r)
+{
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  const QString base = QStringLiteral("Workplane/yRange/%1/").arg(key);
+  settings.setValue(base + "auto", r.automatic);
+  settings.setValue(base + "min", r.min);
+  settings.setValue(base + "max", r.max);
+}
+
+
+void WorkPlane::applyYRange(int axis, const QString& key)
+{
+  const YRange r = yRange(key);
+  if(r.automatic)
+    plot_->setAxisAutoScale(axis);
+  else
+    plot_->setAxisScale(axis, r.min, r.max);
+}
+
+
+void WorkPlane::resetView()
+{
+  if(lastId_ != NOOP)
+    showKind(kind_);   // curves are cached: this only rescales
+}
+
+
+void WorkPlane::editVerticalRange()
+{
+  QDialog dialog(this);
+  dialog.setWindowTitle(tr("Vertical Range"));
+
+  struct Axis {
+    QString key, title;
+    QCheckBox* automatic; QLineEdit* min; QLineEdit* max;
+  };
+  QList<Axis> axes;
+  if(kind_ == PhaseKind)
+    axes << Axis{ phaseKey(), phaseDegrees_ ? tr("Phase (°)") : tr("Phase (rad)") };
+  else if(kind_ == BodeKind)
+    axes << Axis{ magnitudeKey(),
+                  magnitudeDb_ ? tr("Magnitude (dB)") : tr("Magnitude") }
+         << Axis{ phaseKey(), phaseDegrees_ ? tr("Phase (°)") : tr("Phase (rad)") };
+  else
+    axes << Axis{ magnitudeKey(),
+                  magnitudeDb_ ? tr("Magnitude (dB)") : tr("Magnitude") };
+
+  QVBoxLayout* layout = new QVBoxLayout(&dialog);
+  QDialogButtonBox* buttons = new QDialogButtonBox(
+    QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+
+  auto validate = [&]() {
+    bool ok = true;
+    for(const Axis& a : axes) {
+      a.min->setEnabled(!a.automatic->isChecked());
+      a.max->setEnabled(!a.automatic->isChecked());
+      if(!a.automatic->isChecked()) {
+        bool okMin = false, okMax = false;
+        const double lo = a.min->text().toDouble(&okMin);
+        const double hi = a.max->text().toDouble(&okMax);
+        ok = ok && okMin && okMax && hi > lo;
+      }
+    }
+    buttons->button(QDialogButtonBox::Ok)->setEnabled(ok);
+  };
+
+  for(Axis& a : axes) {
+    const YRange r = yRange(a.key);
+    // automatic: show the range on screen as a starting point
+    const int axisId = (&a == &axes.last() && kind_ == BodeKind)
+      ? QwtPlot::yRight : QwtPlot::yLeft;
+    const QwtInterval shown = plot_->axisInterval(axisId);
+    a.automatic = new QCheckBox(tr("&Automatic"));
+    a.automatic->setChecked(r.automatic);
+    a.min = new QLineEdit(QString::number(r.automatic ? shown.minValue() : r.min, 'g', 6));
+    a.max = new QLineEdit(QString::number(r.automatic ? shown.maxValue() : r.max, 'g', 6));
+    a.min->setValidator(new QDoubleValidator(a.min));
+    a.max->setValidator(new QDoubleValidator(a.max));
+
+    QFormLayout* form = new QFormLayout;
+    form->addRow(a.automatic);
+    form->addRow(tr("Minimum:"), a.min);
+    form->addRow(tr("Maximum:"), a.max);
+    QGroupBox* box = new QGroupBox(a.title);
+    box->setLayout(form);
+    layout->addWidget(box);
+
+    connect(a.automatic, &QCheckBox::toggled, &dialog, validate);
+    connect(a.min, &QLineEdit::textChanged, &dialog, validate);
+    connect(a.max, &QLineEdit::textChanged, &dialog, validate);
+  }
+
+  connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  layout->addWidget(buttons);
+  validate();
+
+  if(dialog.exec() != QDialog::Accepted)
+    return;
+
+  for(const Axis& a : axes) {
+    YRange r;
+    r.automatic = a.automatic->isChecked();
+    r.min = a.min->text().toDouble();
+    r.max = a.max->text().toDouble();
+    setYRange(a.key, r);
+  }
+  resetView();
+}
+
+
+bool WorkPlane::eventFilter(QObject* watched, QEvent* event)
+{
+  if(watched == plot_->canvas() && event->type() == QEvent::Wheel) {
+    QWheelEvent* wheel = static_cast<QWheelEvent*>(event);
+    const int delta = wheel->angleDelta().y();
+    if(delta != 0 && lastId_ != NOOP) {
+      // Shift: frequency axis only, Ctrl: vertical axis only
+      const bool onlyX = wheel->modifiers() & Qt::ShiftModifier;
+      const bool onlyY = wheel->modifiers() & Qt::ControlModifier;
+      zoomAt(wheel->position().toPoint(), std::pow(1.2, delta / 120.),
+        !onlyY, !onlyX);
+    }
+    return true;
+  }
+  return QWidget::eventFilter(watched, event);
+}
+
+
+void WorkPlane::zoomAt(const QPoint& pos, double factor, bool x, bool y)
+{
+  // zoom in pixel space around the pointer; invTransform takes care of
+  // logarithmic axes
+  auto zoomAxis = [&](int axis, double c) {
+    const QwtScaleMap map = plot_->canvasMap(axis);
+    const double p1 = c + (map.p1() - c) / factor;
+    const double p2 = c + (map.p2() - c) / factor;
+    double a = map.invTransform(p1), b = map.invTransform(p2);
+    if(a > b) std::swap(a, b);
+    if(std::isfinite(a) && std::isfinite(b) && b > a)
+      plot_->setAxisScale(axis, a, b);
+  };
+
+  if(x)
+    zoomAxis(QwtPlot::xBottom, pos.x());
+  if(y) {
+    zoomAxis(QwtPlot::yLeft, pos.y());
+    if(plot_->isAxisVisible(QwtPlot::yRight))
+      zoomAxis(QwtPlot::yRight, pos.y());
+  }
   plot_->replot();
 }
 
@@ -1056,6 +1248,11 @@ void WorkPlane::createMainLayout()
   tracker_->setStateMachine(clickPointMachine_);
   tracker_->setRubberBand(QwtPicker::VLineRubberBand);
   tracker_->setTrackerMode(QwtPicker::AlwaysOff);
+
+  // middle button pans, the wheel zooms (see eventFilter)
+  QwtPlotPanner* panner = new QwtPlotPanner(plot_->canvas());
+  panner->setMouseButton(Qt::MiddleButton);
+  plot_->canvas()->installEventFilter(this);
 
   grid_ = new QwtPlotGrid;
   grid_->setPen(QPen(Qt::gray, 0., Qt::DotLine));

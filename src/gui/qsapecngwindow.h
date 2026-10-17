@@ -302,6 +302,8 @@ private:
   QAction* dbAct_;
   QAction* bodeAct_;
   QAction* rangeAct_;
+  QAction* vrangeAct_;
+  QAction* resetViewAct_;
   QAction* degreesAct_;
   QAction* angularAct_;
   /* plotter noop acts */

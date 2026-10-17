@@ -865,6 +865,8 @@ void QSapecNGWindow::updateMenus()
   bodeAct_->setEnabled(hasWorkplane);
   zerosPolesAct_->setEnabled(hasWorkplane);
   rangeAct_->setEnabled(hasWorkplane);
+  vrangeAct_->setEnabled(hasWorkplane);
+  resetViewAct_->setEnabled(hasWorkplane);
 
   xLogAct_->setEnabled(hasWorkplane);
   yLogAct_->setEnabled(hasWorkplane && !dbAct_->isChecked());
@@ -1209,6 +1211,18 @@ void QSapecNGWindow::createActions()
   connect(bodeAct_, &QAction::triggered, this,
     [this]() { workplane_->showKind(WorkPlane::BodeKind); });
 
+  vrangeAct_ = new QAction(tr("&Vertical Range..."), this);
+  vrangeAct_->setStatusTip(tr("Fixed or automatic range of the vertical axis"));
+  connect(vrangeAct_, &QAction::triggered, this,
+    [this]() { workplane_->editVerticalRange(); });
+
+  resetViewAct_ = new QAction(tr("Reset &View"), this);
+  resetViewAct_->setShortcut(Qt::Key_Home);
+  resetViewAct_->setStatusTip(tr("Undo zooming (mouse wheel) and panning "
+                                 "(middle button)"));
+  connect(resetViewAct_, &QAction::triggered, this,
+    [this]() { workplane_->resetView(); });
+
   rangeAct_ = new QAction(tr("Frequency &Range..."), this);
   rangeAct_->setStatusTip(tr("Start, stop and resolution of the sweep"));
   connect(rangeAct_, &QAction::triggered, this,
@@ -1390,6 +1404,8 @@ void QSapecNGWindow::createMenus()
   workplaneMenu_->addAction(zerosPolesAct_);
   workplaneMenu_->addSeparator();
   workplaneMenu_->addAction(rangeAct_);
+  workplaneMenu_->addAction(vrangeAct_);
+  workplaneMenu_->addAction(resetViewAct_);
   workplaneMenu_->addSeparator();
   workplaneMenu_->addAction(dbAct_);
   workplaneMenu_->addAction(degreesAct_);

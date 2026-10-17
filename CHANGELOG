@@ -64,6 +64,10 @@ QSapecNG CHANGELOG
       log or linear axes (kept between sessions). The separate Gain and
       Loss plots, the Data box and the result tooltip are gone; values
       come from the schematic
+    o Plots: mouse wheel zooms around the pointer (Shift: frequency only,
+      Ctrl: vertical only), middle button pans, WorkPlane > Reset View
+      (Home); WorkPlane > Vertical Range sets a fixed or automatic range,
+      kept per quantity (dB, linear, degrees, radians; both Bode axes)
     o WorkPlane > Frequency Range: automatic (a decade beyond the poles
       and zeros, the default) or start/stop as typed (10k, 1MEG), with
       log-spaced points per decade instead of a fixed step
