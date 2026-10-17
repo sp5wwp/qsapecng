@@ -64,7 +64,6 @@
   <file>images/symbols/voltage.svg</file>
   <file>images/symbols/voltmeter.svg</file>
   <file>images/symbols/wire.svg</file>
-  <file>images/symbols/wirecross.svg</file>
   <file>images/symbols/xccs.svg</file>
   <file>images/symbols/xcvs.svg</file>
 
@@ -86,7 +85,6 @@
 <!-- tools toolbar -->
   <file>images/cursor.png</file>
   <file>images/symbols/wire.png</file>
-  <file>images/symbols/wirecross.png</file>
   <file>images/symbols/ground.png</file>
   <file>images/symbols/port.png</file>
   <file>images/symbols/out.png</file>

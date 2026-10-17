@@ -839,7 +839,6 @@ void QSapecNGWindow::updateMenus()
 
   cursorAct_->setEnabled(hasEditor);
   userdefAct_->setEnabled(hasEditor);
-  connectedWireSessionAct_->setEnabled(hasEditor);
   disconnectedWireSessionAct_->setEnabled(hasEditor);
   groundSessionAct_->setEnabled(hasEditor);
   portSessionAct_->setEnabled(hasEditor);
@@ -1132,13 +1131,6 @@ void QSapecNGWindow::createActions()
   userdefAct_->setStatusTip(tr("User def"));
   connect(userdefAct_, SIGNAL(triggered()), this, SLOT(userDefRequested()));
 
-  connectedWireSessionAct_ =
-    new QAction(theme::symbolIcon("wirecross"), tr("Wire c&ross"), this);
-  connectedWireSessionAct_->setStatusTip(tr("Draw wires that also connect "
-    "where other wires cross them; same controls as Wire (W)"));
-  connect(connectedWireSessionAct_, SIGNAL(triggered()),
-    this, SLOT(connectedWireSessionRequested()));
-
   disconnectedWireSessionAct_ =
     new QAction(theme::symbolIcon("wire"), tr("&Wire"), this);
   disconnectedWireSessionAct_->setShortcut(Qt::Key_W);
@@ -1387,7 +1379,6 @@ void QSapecNGWindow::createMenus()
   toolMenu_->addAction(labelSessionAct_);
   toolMenu_->addSeparator();
   toolMenu_->addAction(userdefAct_);
-  toolMenu_->addAction(connectedWireSessionAct_);
   toolMenu_->addAction(disconnectedWireSessionAct_);
   toolMenu_->addAction(groundSessionAct_);
   toolMenu_->addAction(portSessionAct_);
@@ -1523,7 +1514,6 @@ void QSapecNGWindow::createToolBars()
   toolToolBar_->addAction(labelSessionAct_);
   toolToolBar_->addSeparator();
   toolToolBar_->addAction(userdefAct_);
-  toolToolBar_->addAction(connectedWireSessionAct_);
   toolToolBar_->addAction(disconnectedWireSessionAct_);
   toolToolBar_->addAction(groundSessionAct_);
   toolToolBar_->addAction(portSessionAct_);
@@ -1542,7 +1532,9 @@ void QSapecNGWindow::createStatusBar()
   progressBar_ = new QProgressBar;
   statusBar()->insertPermanentWidget(0, progressBar_, 0);
   progressBar_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
+  progressBar_->setMaximumWidth(160);
   progressBar_->reset();
+  progressBar_->hide();   // only while a Resolve is running
 }
 
 
@@ -1815,15 +1807,6 @@ void QSapecNGWindow::userDefRequested()
 }
 
 
-void QSapecNGWindow::connectedWireSessionRequested()
-{
-  SchematicEditor* editor = activeEditor();
-
-  if(editor)
-    editor->scene().setWireSessionRequest(true);
-}
-
-
 void QSapecNGWindow::disconnectedWireSessionRequested()
 {
   SchematicEditor* editor = activeEditor();
@@ -1932,11 +1915,13 @@ void QSapecNGWindow::subWindowActivated(QMdiSubWindow* window)
 {
   progressBar_->setRange(0, 1);
   progressBar_->reset();
+  progressBar_->hide();
 
   if(window) {
     SchematicEditor* editor = qobject_cast<SchematicEditor*>(window);
     if(editor && editor->isRunning()) {
       progressBar_->setRange(0, 0);
+      progressBar_->show();
       undoRedoGroup_->setActiveStack(0);
     }
   }

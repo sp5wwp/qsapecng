@@ -22,6 +22,8 @@
 #define RESULTPANEL_H
 
 
+#include "gui/formula.h"
+
 #include <QString>
 #include <QWidget>
 
@@ -34,13 +36,13 @@ namespace qsapecng
 {
 
 
-// Output of one Resolve, as plain expressions (metacircuit::as_string).
+// Output of one Resolve.
 struct SolveResult
 {
   QString file;
-  QString mixedNum, mixedDen;   // "Result": symbolic components by name
-  QString rawNum, rawDen;       // every component by name
-  QString digitNum, digitDen;   // numeric
+  formula::Fraction mixed;   // "Result": symbolic components by name
+  formula::Fraction raw;     // every component by name
+  formula::Fraction digit;   // numeric
 };
 
 

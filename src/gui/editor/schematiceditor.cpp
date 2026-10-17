@@ -426,16 +426,13 @@ void SchematicEditor::setDirty()
 void SchematicEditor::showResult()
 {
   // results are displayed by the main window's Result panel
-  auto str = [](const sapecng::metacircuit::expression& e)
-    { return QString::fromStdString(sapecng::metacircuit::as_string(e)); };
-
   lastResult_.file = currentFile();
-  lastResult_.mixedNum = str(solver_.mixed_numerator());
-  lastResult_.mixedDen = str(solver_.mixed_denominator());
-  lastResult_.rawNum = str(solver_.raw_numerator());
-  lastResult_.rawDen = str(solver_.raw_denominator());
-  lastResult_.digitNum = str(solver_.digit_numerator());
-  lastResult_.digitDen = str(solver_.digit_denominator());
+  lastResult_.mixed = formula::simplified(
+    solver_.mixed_numerator(), solver_.mixed_denominator());
+  lastResult_.raw = formula::simplified(
+    solver_.raw_numerator(), solver_.raw_denominator());
+  lastResult_.digit = formula::simplified(
+    solver_.digit_numerator(), solver_.digit_denominator());
   hasResult_ = true;
 
   emit solved();

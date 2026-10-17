@@ -76,6 +76,8 @@ public:
 
   // wires / pins meeting here (see paint)
   int branchCount() const;
+  // 2 for a point inside a wire, 1 for a wire end or a pin
+  int branches() const;
   inline void setTap(bool tap) { tap_ = tap; }
 
   void showNodeValue();
@@ -91,8 +93,6 @@ private:
   void updateLabelPosition();
 
 private:
-  int branches() const;
-
   Item* owner_;
 
   bool colliding_;

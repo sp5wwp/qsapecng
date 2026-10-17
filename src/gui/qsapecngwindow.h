@@ -135,7 +135,6 @@ private slots:
   void about();
 
   void userDefRequested();
-  void connectedWireSessionRequested();
   void disconnectedWireSessionRequested();
   void groundSessionRequested();
   void portSessionRequested();
@@ -280,7 +279,6 @@ private:
   QAction* aboutAct_;
   QAction* aboutQtAct_;
   QAction* userdefAct_;
-  QAction* connectedWireSessionAct_;
   QAction* disconnectedWireSessionAct_;
   QAction* groundSessionAct_;
   QAction* portSessionAct_;

@@ -2029,6 +2029,7 @@ void SchematicScene::resetStatus()
   userDefMD5_ = QByteArray();
   userDefSize_ = 0;
 
+  endWireChainMacro();
   wireSessionRequested_ = false;
   delete preWireItem_;
   delete postWireItem_;
@@ -2163,6 +2164,11 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
         const bool ends = wireInProgress_ || isConnectionPoint(point);
         const bool modifying = (wireInProgress_ != 0);
         setPrePostWireLine(event->scenePos());
+        if(!modifying && !chainMacroOpen_) {
+          // all segments of the wire are one undo step
+          undoRedoStack_->beginMacro(tr("Add wire"));
+          chainMacroOpen_ = true;
+        }
         addWires();
         if(ends || modifying) {
           finishWireChain();
@@ -2193,6 +2199,34 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
   }
 
   QGraphicsScene::mousePressEvent(event);
+
+  selectWireRunAt(event);
+}
+
+
+void SchematicScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
+{
+  QGraphicsScene::mouseReleaseEvent(event);
+  // a click without a move ends with only the clicked item selected
+  selectWireRunAt(event);
+}
+
+
+void SchematicScene::selectWireRunAt(QGraphicsSceneMouseEvent* event)
+{
+  // a bent wire is one object: clicking a segment (de)selects them all
+  if(hasActiveItem() || hasUserDefReq() || hasPendingWire()
+      || event->button() != Qt::LeftButton)
+    return;
+
+  QGraphicsItem* hit = itemAt(event->scenePos(), QTransform());
+  while(hit && !dynamic_cast<Wire*>(hit))
+    hit = hit->parentItem();
+  if(Wire* wire = dynamic_cast<Wire*>(hit)) {
+    const bool selected = wire->isSelected();
+    foreach(Wire* segment, wireRun(wire))
+      segment->setSelected(selected);
+  }
 }
 
 
@@ -2606,8 +2640,60 @@ bool SchematicScene::isConnectionPoint(const QPointF& point) const
 }
 
 
+void SchematicScene::endWireChainMacro()
+{
+  if(chainMacroOpen_) {
+    chainMacroOpen_ = false;
+    undoRedoStack_->endMacro();
+  }
+}
+
+
+QList<Wire*> SchematicScene::wireRun(Wire* start) const
+{
+  QList<Wire*> run;
+  if(!start)
+    return run;
+
+  QList<Wire*> todo = { start };
+  while(!todo.isEmpty()) {
+    Wire* wire = todo.takeLast();
+    if(run.contains(wire))
+      continue;
+    run.append(wire);
+
+    const QPointF ends[] = { wire->mapToScene(wire->fromPoint()),
+                             wire->mapToScene(wire->toPoint()) };
+    for(const QPointF& end : ends)
+    {
+      // what meets at this end
+      QList<GraphicsNode*> here;
+      const QRectF probe(end - QPointF(0.5, 0.5), QSizeF(1, 1));
+      foreach(QGraphicsItem* item, items(probe))
+        if(GraphicsNode* node = dynamic_cast<GraphicsNode*>(item))
+          if(QLineF(node->scenePos(), end).length() < 0.5)
+            here.append(node);
+
+      int branches = 0;
+      foreach(GraphicsNode* node, here)
+        branches += node->branches();
+      if(branches != 2)
+        continue;   // open end, junction
+
+      // a plain bend: continue along the other wire
+      foreach(GraphicsNode* node, here)
+        if(Wire* next = dynamic_cast<Wire*>(node->owner()))
+          if(next != wire && !run.contains(next))
+            todo.append(next);
+    }
+  }
+  return run;
+}
+
+
 void SchematicScene::finishWireChain()
 {
+  endWireChainMacro();
   hasValidFromPoint_ = false;
   bendDecided_ = false;
   if(preWireItem_) {

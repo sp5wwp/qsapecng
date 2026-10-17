@@ -214,6 +214,7 @@ signals:
 protected:
   void drawBackground(QPainter* painter, const QRectF& rect);
   void mousePressEvent(QGraphicsSceneMouseEvent* event);
+  void mouseReleaseEvent(QGraphicsSceneMouseEvent* event);
   void mouseMoveEvent(QGraphicsSceneMouseEvent* event);
   void mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event);
   void contextMenuEvent(QGraphicsSceneContextMenuEvent* event);
@@ -239,6 +240,11 @@ private:
   // ends the chain being drawn; the wire tool stays active
   void finishWireChain();
   void flipWireBend();
+  // the segments of a bent wire: all wires joined end to end through plain
+  // bends (two branches), up to junctions and pins
+  QList<Wire*> wireRun(Wire* wire) const;
+  void selectWireRunAt(QGraphicsSceneMouseEvent* event);
+  void endWireChainMacro();
 
 private:
   bool gridVisible_;
@@ -252,6 +258,7 @@ private:
 
   bool wireSessionRequested_;
   bool horizontalFirst_;
+  bool chainMacroOpen_ = false;   // one undo step per drawn wire
   bool bendDecided_ = false;   // set by the first move or by flipping
   bool hasValidFromPoint_;
   bool connectedWire_;

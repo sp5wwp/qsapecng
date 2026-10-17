@@ -41,6 +41,15 @@ QSapecNG CHANGELOG
       bends and wire ends on pins have none
     o Picking a component with no schematic open starts a new one
     o Settings > Show splash screen; the splash stays up about 2.5 s
+    o A bent wire acts as one object: clicking a segment selects the whole
+      run up to junctions and pins (move, delete), and a wire drawn in one
+      go is one undo step. "Wire cross" removed (W draws all wires)
+    o Box selection as in CAD: dragging right selects what is entirely
+      inside (blue box), dragging left also what the box touches (green)
+    o Results simplified for reading: a numeric denominator is divided out
+      ((-V1) / 0.1 -> -10 V1), minus signs instead of "( - x )",
+      parentheses only around a sum multiplied by s
+    o The status bar progress indicator only appears while solving
     o Settings > Component labels: name only (default) or name and value,
       e.g. "C1 / 1 µF"
     o Side panels start closed except Components and Messages (Window >

@@ -24,6 +24,8 @@
 #include "gui/theme.h"
 
 #include <QEvent>
+#include <QMouseEvent>
+#include <QPalette>
 #include <QGraphicsView>
 #include <QResizeEvent>
 
@@ -88,6 +90,47 @@ public slots:
     ensureVisible(sceneRect());
     centerOn(sceneRect().center());
   }
+
+protected:
+  // CAD-style box selection: dragging to the right selects what lies
+  // entirely inside the box (blue), dragging to the left also what it
+  // touches (green)
+  void mousePressEvent(QMouseEvent* event) override
+  {
+    boxStart_ = event->position().toPoint();
+    boxDirection_ = 0;
+    QGraphicsView::mousePressEvent(event);
+  }
+
+  void mouseMoveEvent(QMouseEvent* event) override
+  {
+    if(event->buttons() & Qt::LeftButton) {
+      const int dir = event->position().x() >= boxStart_.x() ? 1 : -1;
+      if(dir != boxDirection_) {
+        boxDirection_ = dir;
+        setRubberBandSelectionMode(dir > 0
+          ? Qt::ContainsItemShape : Qt::IntersectsItemShape);
+        QPalette pal = viewport()->palette();
+        pal.setColor(QPalette::Highlight, dir > 0
+          ? QColor(0x25, 0x63, 0xeb) : QColor(0x16, 0xa3, 0x4a));
+        viewport()->setPalette(pal);
+      }
+    }
+    QGraphicsView::mouseMoveEvent(event);
+  }
+
+  void mouseReleaseEvent(QMouseEvent* event) override
+  {
+    QGraphicsView::mouseReleaseEvent(event);
+    if(boxDirection_ != 0) {
+      boxDirection_ = 0;
+      viewport()->setPalette(QPalette());   // follow the theme again
+    }
+  }
+
+private:
+  QPoint boxStart_;
+  int boxDirection_ = 0;
 
 protected:
 //   void resizeEvent(QResizeEvent* event)
