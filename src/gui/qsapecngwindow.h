@@ -110,6 +110,7 @@ private slots:
   void fit();
 
   void wave();
+  void showPlots();
   void assignNodes();
   void resolve();
   void plot(int f);
@@ -137,8 +138,6 @@ private slots:
   void paste();
   void rotate();
   void mirror();
-  void bringToFront();
-  void sendToBack();
 
   void license();
   void about();
@@ -243,6 +242,8 @@ private:
   WorkPlane* createPlot(SchematicEditor* editor, const PlotSettings& settings);
   void updatePlotTitle(WorkPlane* plane);
   void refreshPlots(SchematicEditor* editor);
+  // names of the outputs a plot can show (its schematic's last result)
+  QStringList plotOutputs(WorkPlane* plane) const;
 
 
   QMenu* fileMenu_;
@@ -289,8 +290,6 @@ private:
   QAction* rotateAct_;
   QAction* mirrorAct_;
   QAction* flipVAct_;
-  QAction* bringToFrontAct_;
-  QAction* sendToBackAct_;
   QAction* zoomInAct_;
   QAction* zoomOutAct_;
   QAction* zoomNormalAct_;
@@ -298,6 +297,7 @@ private:
   QAction* nodeAct_;
   QAction* resolveAct_;
   QAction* waveAct_;
+  QAction* plotsAct_;
   QAction* toggleScreenModeAct_;
   QAction* configureAppAct_;
   QAction* closeAct_;

@@ -449,9 +449,12 @@ QColor readableOn(const QColor& color)
 
 QColor sheetGrid()
 {
-  // between the sheet and its ink, by the chosen strength
-  static const qreal mix[] = { 0.18, 0.32, 0.55 };
-  const qreal k = mix[qBound(0, gridStrength(), 2)];
+  // between the sheet and its ink, by the chosen strength. Dots get more
+  // ink than lines: a one-pixel dot is far less visible than a line
+  static const qreal lineMix[] = { 0.18, 0.32, 0.55 };
+  static const qreal dotMix[] = { 0.18, 0.50, 0.72 };
+  const int s = qBound(0, gridStrength(), 2);
+  const qreal k = gridStyle() == GridStyle::Dots ? dotMix[s] : lineMix[s];
   const QColor a = sheetBackground(), b = sheetForeground();
   return QColor::fromRgbF(
     a.redF() + (b.redF() - a.redF()) * k,

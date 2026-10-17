@@ -272,53 +272,6 @@ private:
 };
 
 
-class BringToFrontItem: public QUndoCommand
-{
-
-public:
-  BringToFrontItem(
-      QGraphicsItem* item,
-      QUndoCommand* parent = 0
-    );
-
-  enum { ID = 23 };
-
-  virtual void undo();
-  virtual void redo();
-
-  inline int id() const { return ID; }
-  bool mergeWith(const QUndoCommand* command);
-
-private:
-  QGraphicsItem* item_;
-  qreal oldZValue_;
-  qreal zValue_;
-
-};
-
-
-class SendToBackItem: public QUndoCommand
-{
-
-public:
-  SendToBackItem(QGraphicsItem* item, QUndoCommand* parent = 0);
-
-  enum { ID = 29 };
-
-  virtual void undo();
-  virtual void redo();
-
-  inline int id() const { return ID; }
-  bool mergeWith(const QUndoCommand* command);
-
-private:
-  QGraphicsItem* item_;
-  qreal oldZValue_;
-  qreal zValue_;
-
-};
-
-
 class MoveItems: public QUndoCommand
 {
 

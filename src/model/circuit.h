@@ -77,6 +77,11 @@ public:
   inline vertex_descriptor outNode() const
     { return out_; }
 
+  // every output of the netlist (Out markers, voltmeters, ammeters) in the
+  // order met; outNode() is the one chosen when the circuit was built
+  inline const std::vector<std::string>& outputNames() const
+    { return outputNames_; }
+
 private:
   std::map<std::string,std::string> props_;
 
@@ -87,6 +92,7 @@ private:
 
   vertex_descriptor reference_;
   vertex_descriptor out_;
+  std::vector<std::string> outputNames_;
 
 };
 
@@ -96,7 +102,9 @@ class circuit_builder: public abstract_builder
 {
 
 public:
-  circuit_builder(circuit& circuit);
+  // output: which of the netlist's outputs (Out markers, voltmeters,
+  // ammeters, in the order met) the transfer function is for
+  circuit_builder(circuit& circuit, unsigned int output = 0);
 
   void add_circuit_properties(std::map<std::string,std::string> map);
   void add_circuit_property(std::string name, std::string value);
@@ -208,6 +216,8 @@ private:
 
   void try_add_block();
   void replace_requested(circuit::vertex_descriptor vertex);
+  void add_output(circuit::vertex_descriptor vertex, const std::string& name,
+      const char* prefix);
 
   void add_edge(
       circuit::vertex_descriptor iva,
@@ -226,6 +236,8 @@ private:
   circuit& circuit_;
   std::list<circuit::vertex_descriptor> requested_;
   bool has_block_;
+  unsigned int output_;
+  std::vector<circuit::vertex_descriptor> outputs_;
 
   std::string prefix_;
   std::vector<std::string> pstack_;

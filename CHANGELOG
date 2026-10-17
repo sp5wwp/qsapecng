@@ -227,6 +227,33 @@ QSapecNG CHANGELOG
     o Result panel: the Result, Raw and Digit sections sit side by side
       when they fit the panel's width
     o README: Quick start instead of the old Usage and Translations
+    o Several outputs: every Out marker, voltmeter and ammeter is solved,
+      each with a name (Out1, Out2, VM1, AM1 ... kept in the file); the
+      Result panel has a tab per output, and a plot shows the output chosen
+      in New Plot or in the Plot Settings panel (and in its tab title).
+      Placing a second output no longer dims the first. Older versions
+      read the first Out marker of such a file; .crc netlists keep one
+    o The Out tag grows with its name
+    o Fixed: a meter's output could be lost when the netlist numbered a
+      node after it (the solver moved the meter's internal node but kept
+      the output on the old one)
+    o Run > Plots (F9) brings up the plots of the schematic, or asks for a
+      new one when it has none; New Plot moves to Ctrl+F9 (Plot menu and
+      the plot window)
+    o Automatic vertical range of the plots: one major step of margin
+      above and below the curves
+    o Grid dots are stronger at medium and strong strength
+    o Flip Vertically has an icon; the Flip Horizontally icon now shows the
+      vertical axis it flips about
+    o The Label tool places one label, then the pointer is back to normal;
+      Ctrl+Enter finishes the label's text
+    o Right-click menu: options that do nothing for the selection are left
+      out (Reverse Polarity without a meter, Reset Label Position without a
+      part, Properties for parts without parameters)
+    o Labels beside a part (sources, meters) keep a little more distance
+    o Save As has Ctrl+Shift+S on desktops without a standard key for it
+    o Bring to front / Send to back removed: the stacking order of items
+      changes nothing in a schematic
 
  * 2.1.1
     o Porting to Qwt6

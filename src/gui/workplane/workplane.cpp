@@ -66,6 +66,7 @@
 #include <qwt_plot_renderer.h>
 #include <qwt_plot_panner.h>
 #include <qwt_scale_engine.h>
+#include <qwt_scale_div.h>
 #include <qwt_curve_fitter.h>
 #include <qwt_weeding_curve_fitter.h>
 #include <qwt_text.h>
@@ -897,9 +898,48 @@ void WorkPlane::setYRange(const QString& key, const YRange& r)
 void WorkPlane::applyYRange(int axis, const QString& key)
 {
   const YRange r = yRange(key);
-  if(r.automatic)
-    plot_->setAxisAutoScale(axis);
-  else
+  if(r.automatic) {
+    // the range of the curves rounded out to major ticks, plus one major
+    // step above and below: a curve never runs along the frame
+    double lo = 0., hi = 0.;
+    bool any = false;
+    for(QwtPlotItem* item : plot_->itemList(QwtPlotItem::Rtti_PlotCurve)) {
+      if(!item->isVisible() || item->yAxis() != axis)
+        continue;
+      const QRectF b = static_cast<QwtPlotCurve*>(item)->boundingRect();
+      if(!b.isValid() || !std::isfinite(b.top()) || !std::isfinite(b.bottom()))
+        continue;
+      lo = any ? qMin(lo, b.top()) : b.top();
+      hi = any ? qMax(hi, b.bottom()) : b.bottom();
+      any = true;
+    }
+    QwtScaleEngine* engine = plot_->axisScaleEngine(axis);
+    const bool log = engine && dynamic_cast<QwtLogScaleEngine*>(engine);
+    if(!any || !engine || (log && lo <= 0.)) {
+      plot_->setAxisAutoScale(axis);
+      return;
+    }
+    double step = 0.;
+    engine->autoScale(plot_->axisMaxMajor(axis), lo, hi, step);
+    const QwtScaleDiv div = engine->divideScale(lo, hi,
+      plot_->axisMaxMajor(axis), plot_->axisMaxMinor(axis), step);
+    const QList<double> majors = div.ticks(QwtScaleDiv::MajorTick);
+    if(majors.size() >= 2)
+      step = log ? std::log10(majors.at(1) / majors.at(0))
+                 : majors.at(1) - majors.at(0);
+    if(!(step > 0.)) {
+      plot_->setAxisAutoScale(axis);
+      return;
+    }
+    if(log) {
+      lo /= std::pow(10., step);
+      hi *= std::pow(10., step);
+    } else {
+      lo -= step;
+      hi += step;
+    }
+    plot_->setAxisScale(axis, lo, hi, log ? 0. : step);
+  } else
     plot_->setAxisScale(axis, r.min, r.max);
 }
 
@@ -1115,6 +1155,7 @@ PlotSettings WorkPlane::settings() const
   p.fStart = fStart_;
   p.fStop = fStop_;
   p.pointsPerDecade = pointsPerDecade_;
+  p.output = output_;
   return p;
 }
 
@@ -1127,6 +1168,7 @@ void WorkPlane::applySettings(const PlotSettings& p)
     || p.phaseDegrees != phaseDegrees_;
 
   kind_ = p.kind;
+  output_ = p.output;
   magnitudeDb_ = p.magnitudeDb;
   phaseDegrees_ = p.phaseDegrees;
   angular_ = p.angular;

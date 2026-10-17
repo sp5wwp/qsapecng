@@ -87,6 +87,7 @@ private:
   QList<Item*> items_;
   int discard_;
   bool skipFloating_ = false;
+  bool warned_ = false;   // floating parts reported (first parse)
 
 };
 

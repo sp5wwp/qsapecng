@@ -382,7 +382,11 @@ void crc_builder::add_out_component(
     std::map<std::string, std::string> props
   )
 {
-  out_ = v;
+  // the format has one output: the first
+  if(!hasOut_) {
+    out_ = v;
+    hasOut_ = true;
+  }
 }
 
 

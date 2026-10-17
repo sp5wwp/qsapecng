@@ -28,6 +28,11 @@
 #include <QThread>
 #include <QMutex>
 
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
 
 namespace qsapecng
 {
@@ -39,44 +44,71 @@ class MetaCircuit_Thread: public QThread
   Q_OBJECT
 
 public:
-  MetaCircuit_Thread(QObject* parent = 0): QThread(parent)
-    { circuit_ = new sapecng::circuit; }
-  ~MetaCircuit_Thread() { delete circuit_; }
+  MetaCircuit_Thread(QObject* parent = 0): QThread(parent) { }
 
+  // builds one circuit per output of the netlist (Out markers, voltmeters,
+  // ammeters): the parser is run once per output
   inline void apply(sapecng::abstract_parser& parser)
     {
       QMutexLocker locker(&mutex_);
-      sapecng::abstract_builder* builder =
-        new sapecng::circuit_builder(*circuit_);
-      parser.parse(*builder);
-      delete builder;
+      outputs_.clear();
+      unsigned int count = 1;
+      for(unsigned int k = 0; k < count; ++k) {
+        Output out;
+        out.circuit.reset(new sapecng::circuit);
+        out.meta.reset(new sapecng::metacircuit);
+        sapecng::circuit_builder builder(*out.circuit, k);
+        parser.parse(builder);
+        if(k == 0)
+          count = std::max<std::size_t>(1, out.circuit->outputNames().size());
+        if(k < out.circuit->outputNames().size())
+          out.name = out.circuit->outputNames().at(k);
+        outputs_.push_back(std::move(out));
+      }
     }
 
-  inline sapecng::metacircuit::expression raw_numerator()
-    { QMutexLocker locker(&mutex_); return meta_.raw().first; }
-  inline sapecng::metacircuit::expression raw_denominator()
-    { QMutexLocker locker(&mutex_); return meta_.raw().second; }
-  inline sapecng::metacircuit::expression digit_numerator()
-    { QMutexLocker locker(&mutex_); return meta_.digit().first; }
-  inline sapecng::metacircuit::expression digit_denominator()
-    { QMutexLocker locker(&mutex_); return meta_.digit().second; }
-  inline sapecng::metacircuit::expression mixed_numerator()
-    { QMutexLocker locker(&mutex_); return meta_.mixed().first; }
-  inline bool singular()
-    { QMutexLocker locker(&mutex_); return meta_.singular(); }
-  inline sapecng::metacircuit::expression mixed_denominator()
-    { QMutexLocker locker(&mutex_); return meta_.mixed().second; }
+  inline int outputCount()
+    { QMutexLocker locker(&mutex_); return int(outputs_.size()); }
+  inline std::string outputName(int k)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].name : std::string(); }
+
+  inline sapecng::metacircuit::expression raw_numerator(int k = 0)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].meta->raw().first : empty(); }
+  inline sapecng::metacircuit::expression raw_denominator(int k = 0)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].meta->raw().second : empty(); }
+  inline sapecng::metacircuit::expression digit_numerator(int k = 0)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].meta->digit().first : empty(); }
+  inline sapecng::metacircuit::expression digit_denominator(int k = 0)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].meta->digit().second : empty(); }
+  inline sapecng::metacircuit::expression mixed_numerator(int k = 0)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].meta->mixed().first : empty(); }
+  inline sapecng::metacircuit::expression mixed_denominator(int k = 0)
+    { QMutexLocker locker(&mutex_); return valid(k) ? outputs_[k].meta->mixed().second : empty(); }
+  inline bool singular(int k = 0)
+    { QMutexLocker locker(&mutex_); return !valid(k) || outputs_[k].meta->singular(); }
 
 protected:
   void run()
   {
     QMutexLocker locker(&mutex_);
-    meta_(*circuit_);
+    for(Output& out : outputs_)
+      (*out.meta)(*out.circuit);
   }
 
 private:
-  sapecng::metacircuit meta_;
-  sapecng::circuit* circuit_;
+  struct Output
+  {
+    std::string name;
+    std::unique_ptr<sapecng::circuit> circuit;
+    std::unique_ptr<sapecng::metacircuit> meta;
+  };
+
+  inline bool valid(int k) const
+    { return k >= 0 && k < int(outputs_.size()); }
+  static sapecng::metacircuit::expression empty()
+    { return sapecng::metacircuit::expression(); }
+
+  std::vector<Output> outputs_;
   QMutex mutex_;
 
 };

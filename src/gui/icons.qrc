@@ -1,13 +1,13 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource prefix="/icons">
   <file alias="bin.svg">icons/bin.svg</file>
-  <file alias="bringfront.svg">icons/bringfront.svg</file>
   <file alias="configuration.svg">icons/configuration.svg</file>
   <file alias="copy.svg">icons/copy.svg</file>
   <file alias="cross.svg">icons/cross.svg</file>
   <file alias="cursor.svg">icons/cursor.svg</file>
   <file alias="cut.svg">icons/cut.svg</file>
   <file alias="fit.svg">icons/fit.svg</file>
+  <file alias="flipv.svg">icons/flipv.svg</file>
   <file alias="font.svg">icons/font.svg</file>
   <file alias="grid.svg">icons/grid.svg</file>
   <file alias="info.svg">icons/info.svg</file>
@@ -25,7 +25,6 @@
   <file alias="rotate.svg">icons/rotate.svg</file>
   <file alias="save.svg">icons/save.svg</file>
   <file alias="schematic.svg">icons/schematic.svg</file>
-  <file alias="sendback.svg">icons/sendback.svg</file>
   <file alias="undo.svg">icons/undo.svg</file>
   <file alias="wave.svg">icons/wave.svg</file>
   <file alias="zoomin.svg">icons/zoomin.svg</file>

@@ -59,9 +59,12 @@ void ir_parser::parse_rec(
       builder.add_circuit_properties(cmap);
     }
 
-    if(head->get_child_optional("out")) {
-      boost::property_tree::ptree& o =
-        head->get_child("out");
+    // one "out" per Out marker (older files, and older versions, have or
+    // read only the first)
+    BOOST_FOREACH(boost::property_tree::ptree::value_type& oc, *head) {
+      if(oc.first != "out")
+        continue;
+      boost::property_tree::ptree& o = oc.second;
 
       unsigned int node =
         boost::lexical_cast<unsigned int>(o.get("node", "0"));
@@ -410,7 +413,7 @@ void ir_builder::add_out_component(
     }
   }
 
-  head_->put_child("out", cc);
+  head_->add_child("out", cc);
 }
 
 

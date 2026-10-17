@@ -160,6 +160,9 @@ struct PlotSettings
   double fStart = 1.;           // Hz
   double fStop = 1e5;           // Hz
   int pointsPerDecade = 100;
+  // which output of the circuit (Out1, VM1 ...; empty: the first). Not
+  // kept as a default for the next plot
+  QString output;
 
   // last used, as defaults for the next plot
   static PlotSettings load();
@@ -202,6 +205,7 @@ public:
 
   inline void setContextMenu(QMenu* menu) { plot_->setContextMenu(menu); }
   PlotSettings settings() const;
+  inline QString output() const { return output_; }
   inline int kind() const { return kind_; }
   inline bool hasPlot() const { return lastId_ != NOOP; }
   inline QMenu* contextMenu() const { return plot_->contextMenu(); }
@@ -274,6 +278,7 @@ private:
   bool xLog_ = true;   // user's x-axis log-scale choice
   bool yLog_ = false;  // user's y-axis log-scale choice (linear magnitude)
   int kind_ = MagnitudeKind;
+  QString output_;   // the output of the circuit shown
   bool magnitudeDb_ = true;
   bool phaseDegrees_ = true;
   bool angular_ = false;   // frequency axis in rad/s instead of Hz

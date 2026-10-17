@@ -63,7 +63,11 @@ public:
   inline bool hasResult() const { return hasResult_; }
   inline const SolveResult& lastResult() const { return lastResult_; }
 
-  bool accept(WorkPlane& workplane);
+  // the result for one output (by name; the first when empty or gone)
+  // into a plot
+  bool accept(WorkPlane& workplane, const QString& output = QString());
+  // names of the outputs of the last result
+  QStringList resultOutputs() const;
 
 public slots:
   bool save();

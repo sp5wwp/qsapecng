@@ -29,6 +29,7 @@
 #include <QPalette>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QTabBar>
 #include <QTextBrowser>
 #include <cmath>
 #include <QTimer>
@@ -103,8 +104,22 @@ ResultPanel::ResultPanel(QWidget* parent)
   connect(view_, &QTextBrowser::anchorClicked,
     this, &ResultPanel::linkClicked);
 
+  tabs_ = new QTabBar;
+  tabs_->setDocumentMode(true);
+  tabs_->setExpanding(false);
+  tabs_->setDrawBase(true);
+  tabs_->hide();
+  connect(tabs_, &QTabBar::currentChanged, this, [this](int index) {
+      if(index < 0 || index >= result_.outputs.size())
+        return;
+      currentName_ = result_.outputs.at(index).name;
+      render();
+    });
+
   QVBoxLayout* layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
+  layout->setSpacing(0);
+  layout->addWidget(tabs_);
   layout->addWidget(view_);
 
   render();
@@ -116,6 +131,7 @@ void ResultPanel::showResult(const SolveResult& result, bool outOfDate)
   result_ = result;
   hasResult_ = true;
   outOfDate_ = outOfDate;
+  updateTabs();
   render();
 }
 
@@ -124,7 +140,48 @@ void ResultPanel::showPlaceholder()
 {
   hasResult_ = false;
   outOfDate_ = false;
+  result_ = SolveResult();
+  updateTabs();
   render();
+}
+
+
+void ResultPanel::updateTabs()
+{
+  QSignalBlocker block(tabs_);
+  while(tabs_->count())
+    tabs_->removeTab(0);
+
+  int index = 0;
+  for(int i = 0; i < result_.outputs.size(); ++i) {
+    const OutputResult& o = result_.outputs.at(i);
+    tabs_->addTab(o.name);
+    if(o.singular)
+      tabs_->setTabToolTip(i, tr("No unique solution"));
+    if(o.name == currentName_)
+      index = i;
+  }
+  tabs_->setCurrentIndex(index);
+  if(index < result_.outputs.size())
+    currentName_ = result_.outputs.at(index).name;
+  // tabs only when there is a choice
+  tabs_->setVisible(hasResult_ && result_.outputs.size() > 1);
+}
+
+
+const OutputResult* ResultPanel::current() const
+{
+  const int index = tabs_->currentIndex();
+  if(index >= 0 && index < result_.outputs.size())
+    return &result_.outputs.at(index);
+  return result_.outputs.isEmpty() ? nullptr : &result_.outputs.first();
+}
+
+
+QString ResultPanel::currentOutput() const
+{
+  const OutputResult* out = current();
+  return out ? out->name : QString();
 }
 
 
@@ -156,14 +213,17 @@ void ResultPanel::linkClicked(const QUrl& url)
   if(!latex && url.scheme() != QLatin1String("copy"))
     return;
 
+  const OutputResult* out = current();
+  if(!out)
+    return;
   const QString which = url.path();
   const formula::Fraction* f = 0;
   if(which == QLatin1String("result"))
-    f = &result_.mixed;
+    f = &out->mixed;
   else if(which == QLatin1String("raw"))
-    f = &result_.raw;
+    f = &out->raw;
   else if(which == QLatin1String("digit"))
-    f = &result_.digit;
+    f = &out->digit;
   if(!f)
     return;
 
@@ -207,10 +267,22 @@ void ResultPanel::render()
               "Resolve again (F8) to update."));
   }
 
+  const OutputResult* out = current();
+  QString caption = QFileInfo(result_.file).fileName().toHtmlEscaped();
+  // the output's name, unless the tabs already say it
+  if(out && !out->name.isEmpty() && result_.outputs.size() == 1)
+    caption = (caption.isEmpty() ? QString() : caption + QStringLiteral(" · "))
+      + tr("output %1").arg(out->name.toHtmlEscaped());
   html += QStringLiteral("<p style='color:%1; margin: 0;'>%2</p>")
-    .arg(dimCss, QFileInfo(result_.file).fileName().toHtmlEscaped());
+    .arg(dimCss, caption);
 
-  if(result_.singular) {
+  if(!out) {
+    html += QStringLiteral("</body></html>");
+    view_->setHtml(html);
+    return;
+  }
+
+  if(out->singular) {
     const QColor fg = theme::isDark() ? QColor(0xff, 0x9a, 0x8a)
                                       : QColor(0xa0, 0x1b, 0x10);
     html += QStringLiteral("<p style='margin: 12px 0 0 0; color:%1;'><b>%2</b></p>"
@@ -234,13 +306,13 @@ void ResultPanel::render()
   const Section sections[] = {
     { QStringLiteral("result"), tr("Result"),
       tr("symbolic components by name, the others by value"),
-      result_.mixed },
+      out->mixed },
     { QStringLiteral("raw"), tr("Raw"),
       tr("every component by name"),
-      result_.raw },
+      out->raw },
     { QStringLiteral("digit"), tr("Digit"),
       tr("numeric"),
-      result_.digit }
+      out->digit }
   };
 
   QStringList blocks;

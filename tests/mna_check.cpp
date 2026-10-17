@@ -60,6 +60,22 @@ struct Netlist
 {
   std::vector<Element> elements;
   unsigned int out = 0;
+  // several Out markers (when not empty): out is outs[outIndex], the one
+  // the engine is asked for; the others, and any voltmeter or ammeter,
+  // must not change it
+  std::vector<unsigned int> outs;
+  unsigned int outIndex = 0;
+
+  // the engine's output index: meters come first (replayed with the
+  // elements), then the Out markers
+  unsigned int engineOutput() const
+  {
+    unsigned int meters = 0;
+    for(const Element& e : elements)
+      if(!e.quad && (e.type == abstract_builder::VM || e.type == abstract_builder::AM))
+        ++meters;
+    return meters + (outs.empty() ? 0 : outIndex);
+  }
 
   void replay(abstract_builder& b) const
   {
@@ -73,7 +89,10 @@ struct Netlist
           static_cast<abstract_builder::dual_component_type>(e.type),
           e.name, e.value, e.symbolic, e.n[0], e.n[1], e.props);
     }
-    if(out)
+    if(!outs.empty())
+      for(unsigned int o : outs)
+        b.add_out_component(o);
+    else if(out)
       b.add_out_component(out);
     b.flush();
   }
@@ -92,7 +111,14 @@ struct Netlist
         s << "  " << p.first << "=" << p.second;
       s << "\n";
     }
-    s << "  out " << out << "\n";
+    s << "  out " << out;
+    if(!outs.empty()) {
+      s << "  (outputs";
+      for(unsigned int o : outs)
+        s << " " << o;
+      s << ", engine output " << engineOutput() << ")";
+    }
+    s << "\n";
     return s.str();
   }
 };
@@ -190,7 +216,8 @@ public:
     // count branch currents
     int extra = 0;
     for(const Element& e : net_.elements) {
-      if(!e.quad && e.type == abstract_builder::V) ++extra;
+      if(!e.quad && (e.type == abstract_builder::V || e.type == abstract_builder::AM))
+        ++extra;
       if(e.quad) {
         switch(e.type) {
         case abstract_builder::VCVS: extra += 1; break;
@@ -264,6 +291,13 @@ public:
           addBranch(b, a, k, 1.);
           addVoltage(k, b, a, 1.);
           A[k][N] += v;
+          ++k;
+          break;
+        case abstract_builder::AM:
+          // an ideal ammeter is a short: a 0 V source (a voltmeter is
+          // open and adds nothing)
+          addBranch(b, a, k, 1.);
+          addVoltage(k, b, a, 1.);
           ++k;
           break;
         case abstract_builder::I:
@@ -412,7 +446,7 @@ EngineResult solveEngine(const Netlist& net)
 {
   EngineResult r;
   sapecng::circuit circ;
-  sapecng::circuit_builder builder(circ);
+  sapecng::circuit_builder builder(circ, net.engineOutput());
   net.replay(builder);
   sapecng::metacircuit meta;
   meta(circ);
@@ -605,6 +639,28 @@ Netlist randomCircuit(Gen& g, bool active, bool extended = false)
       net.elements.push_back(i);
   }
   net.out = unsigned(g.uni(2 <= nodes ? 2 : 1, nodes));
+  if(extended && g.uni(0, 2) == 0) {
+    // more outputs: Out markers on other nodes and now and then an ideal
+    // voltmeter or ammeter; the engine is asked for net.out
+    const int more = g.uni(1, 2);
+    net.outs.push_back(net.out);
+    for(int i = 0; i < more; ++i)
+      net.outs.push_back(unsigned(g.uni(1, nodes)));
+    std::swap(net.outs[0], net.outs[g.uni(0, int(net.outs.size()) - 1)]);
+    for(unsigned int i = 0; i < net.outs.size(); ++i)
+      if(net.outs[i] == net.out) { net.outIndex = i; break; }
+    if(g.uni(0, 1)) {
+      Element m;
+      m.type = g.uni(0, 1) ? abstract_builder::VM : abstract_builder::AM;
+      m.n[0] = unsigned(g.uni(0, nodes));
+      m.n[1] = unsigned(g.uni(0, nodes));
+      if(m.n[0] != m.n[1]) {
+        m.name = m.type == abstract_builder::VM ? "VM1" : "AM1";
+        m.value = 1.;
+        net.elements.push_back(m);
+      }
+    }
+  }
   if(std::getenv("SPARSE_NODES")) {
     // netlists written by hand: any node numbers (1, 7, 42 ...)
     std::vector<unsigned> map(nodes + 1, 0);
@@ -620,6 +676,8 @@ Netlist randomCircuit(Gen& g, bool active, bool extended = false)
       for(int j = 0; j < 4; ++j)
         e.n[j] = map[e.n[j]];
     net.out = map[net.out];
+    for(unsigned int& o : net.outs)
+      o = map[o];
   }
   return net;
 }

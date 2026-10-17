@@ -25,6 +25,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
@@ -84,8 +85,17 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   QGroupBox* axesBox = new QGroupBox(tr("Vertical axes"));
   axesBox->setLayout(axes);
 
+  output_ = new QComboBox;
+  output_->setToolTip(tr("Which output of the circuit (Out marker, "
+                         "voltmeter or ammeter) to plot"));
+  outputLabel_ = new QLabel(tr("O&utput:"));
+  outputLabel_->setBuddy(output_);
+
   QFormLayout* top = new QFormLayout;
   top->addRow(tr("P&lot:"), kind_);
+  top->addRow(outputLabel_, output_);
+  outputLabel_->hide();
+  output_->hide();
 
   QVBoxLayout* layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
@@ -108,6 +118,7 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   for(QCheckBox* c : { autoRange_, angular_, xLog_, db_, yLog_, degrees_ })
     connect(c, &QCheckBox::toggled, this, edited);
   connect(kind_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
+  connect(output_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
   connect(start_, &QLineEdit::editingFinished, this, edited);
   connect(stop_, &QLineEdit::editingFinished, this, edited);
   connect(start_, &QLineEdit::textChanged, this, &PlotSettingsWidget::update);
@@ -123,6 +134,7 @@ void PlotSettingsWidget::setSettings(const PlotSettings& s)
 {
   filling_ = true;
   kind_->setCurrentIndex(qMax(0, kind_->findData(s.kind)));
+  output_->setCurrentIndex(qMax(0, output_->findText(s.output)));
   autoRange_->setChecked(s.autoRange);
   start_->setText(units::formatForEdit(QString::number(s.fStart, 'g', 8)));
   stop_->setText(units::formatForEdit(QString::number(s.fStop, 'g', 8)));
@@ -135,6 +147,21 @@ void PlotSettingsWidget::setSettings(const PlotSettings& s)
   settle_->stop();
   filling_ = false;
   update();
+}
+
+
+void PlotSettingsWidget::setOutputs(const QStringList& names)
+{
+  const bool filling = filling_;
+  filling_ = true;
+  const QString current = output_->currentText();
+  output_->clear();
+  output_->addItems(names);
+  output_->setCurrentIndex(qMax(0, output_->findText(current)));
+  const bool choice = names.size() > 1;
+  outputLabel_->setVisible(choice);
+  output_->setVisible(choice);
+  filling_ = filling;
 }
 
 
@@ -159,6 +186,7 @@ PlotSettings PlotSettingsWidget::settings() const
 {
   PlotSettings s;
   s.kind = kind_->currentData().toInt();
+  s.output = output_->currentText();
   s.autoRange = autoRange_->isChecked();
   units::parse(start_->text(), "Hz", &s.fStart);
   units::parse(stop_->text(), "Hz", &s.fStop);
@@ -169,6 +197,15 @@ PlotSettings PlotSettingsWidget::settings() const
   s.yLog = yLog_->isChecked() && !s.magnitudeDb;
   s.phaseDegrees = degrees_->isChecked();
   return s;
+}
+
+
+void PlotDialog::setOutputs(const QStringList& names, const QString& current)
+{
+  form_->setOutputs(names);
+  PlotSettings s = form_->settings();
+  s.output = current;
+  form_->setSettings(s);
 }
 
 

@@ -79,7 +79,7 @@ QString SchematicEditor::currentFile() const
 }
 
 
-bool SchematicEditor::accept(WorkPlane& workplane)
+bool SchematicEditor::accept(WorkPlane& workplane, const QString& output)
 {
   if(!solved_) {
     QMessageBox::StandardButton ret;
@@ -99,8 +99,15 @@ bool SchematicEditor::accept(WorkPlane& workplane)
     }
   }
 
+  // the output by name (the order may change between results); the
+  // first when it is gone
+  int k = 0;
+  for(int i = 0; i < solver_.outputCount(); ++i)
+    if(QString::fromStdString(solver_.outputName(i)) == output)
+      k = i;
+
   // no transfer function to plot
-  if(solver_.singular())
+  if(solver_.singular(k))
     return false;
 
   // the numeric result (every value already in): what the Result panel
@@ -109,11 +116,20 @@ bool SchematicEditor::accept(WorkPlane& workplane)
   // parts, where any name not found counted as 0)
   workplane.setData(
       std::map<std::string, double>(),
-      solver_.digit_numerator(),
-      solver_.digit_denominator()
+      solver_.digit_numerator(k),
+      solver_.digit_denominator(k)
     );
 
   return true;
+}
+
+
+QStringList SchematicEditor::resultOutputs() const
+{
+  QStringList names;
+  for(const OutputResult& o : lastResult_.outputs)
+    names << o.name;
+  return names;
 }
 
 
@@ -411,14 +427,22 @@ void SchematicEditor::showResult()
   std::set<std::string> sources;
   foreach(const QString& name, scene_->sourceNames())
     sources.insert(name.toStdString());
-  lastResult_.mixed = formula::simplified(
-    solver_.mixed_numerator(), solver_.mixed_denominator(), sources);
-  lastResult_.raw = formula::simplified(
-    solver_.raw_numerator(), solver_.raw_denominator(), sources);
-  lastResult_.digit = formula::simplified(
-    solver_.digit_numerator(), solver_.digit_denominator());
-  lastResult_.singular = solver_.singular();
-  if(lastResult_.singular)
+  lastResult_.outputs.clear();
+  bool singular = false;
+  for(int k = 0; k < solver_.outputCount(); ++k) {
+    OutputResult out;
+    out.name = QString::fromStdString(solver_.outputName(k));
+    out.mixed = formula::simplified(
+      solver_.mixed_numerator(k), solver_.mixed_denominator(k), sources);
+    out.raw = formula::simplified(
+      solver_.raw_numerator(k), solver_.raw_denominator(k), sources);
+    out.digit = formula::simplified(
+      solver_.digit_numerator(k), solver_.digit_denominator(k));
+    out.singular = solver_.singular(k);
+    singular = singular || out.singular;
+    lastResult_.outputs.append(out);
+  }
+  if(singular)
     QLogger::warning(QObject::tr("The circuit has no unique solution (its "
       "determinant is zero): look for a loop of voltage sources or "
       "inductors-only paths, current sources in series, a part or node "

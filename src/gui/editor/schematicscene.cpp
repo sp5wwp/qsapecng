@@ -22,6 +22,9 @@
 #include "parser/parser_factory.h"
 
 #include "gui/editor/schematicscene.h"
+#include <QFontMetricsF>
+#include <QShortcut>
+#include <cmath>
 #include <QGraphicsLineItem>
 #include <QInputDialog>
 #include <utility>
@@ -133,11 +136,22 @@ QPainterPath SchematicScene::portPath()
 }
 
 
-QPainterPath SchematicScene::outPath()
+QPainterPath SchematicScene::outPath(const QString& text)
 {
   // tag pointing at its terminal (0, step): <| Out |
   QPainterPath path;
   const qreal step = GridStep;
+
+  // 3.4 steps long, longer when the caption needs it (Out12); the caption
+  // is drawn 70 % of the tag's height (Component::paint)
+  qreal length = 3.4 * step;
+  if(!text.isEmpty()) {
+    QFont font = theme::schematicFont(10);
+    font.setPixelSize(qRound(1.4 * step * 0.7));
+    const qreal needed = 0.7 * step + QFontMetricsF(font).horizontalAdvance(text)
+      + 0.9 * step;
+    length = qMax(length, qreal(std::ceil(needed)));
+  }
 
   // 1.4 steps high, 3.4 long, centred on the terminal. The edges stay on
   // whole pixels at 100 % (3 and 17): at 2.8 / 17.2 they were smeared
@@ -145,8 +159,8 @@ QPainterPath SchematicScene::outPath()
   const qreal top = 0.3 * step, bottom = 1.7 * step;
   path.moveTo(0, step);
   path.lineTo(0.7 * step, top);
-  path.lineTo(3.4 * step, top);
-  path.lineTo(3.4 * step, bottom);
+  path.lineTo(length, top);
+  path.lineTo(length, bottom);
   path.lineTo(0.7 * step, bottom);
   path.closeSubpath();
 
@@ -1180,8 +1194,7 @@ QList<Item*> SchematicScene::activeItems() const
   items.append(userDefList_);
   items.append(wireList_);
   items.append(labelList_);
-  if(out_)
-    items.append(out_);
+  items.append(outputList_);
 
   return items;
 }
@@ -1324,12 +1337,11 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
       case VoltmeterItemType:
       case AmmeterItemType:
         {
-          if(!out_) {
-            out_ = item;
-          } else {
-            out_->setOpacity(0.5);
-            outList_.push_back(out_);
-            out_ = item;
+          // every Out marker and meter is an output of its own
+          if(!outputList_.contains(item)) {
+            outputList_.push_back(item);
+            Component* c = static_cast<Component*>(item);
+            setOutputName(c, uniqueOutputName(type, outputName(c), c));
           }
           break;
         }
@@ -1559,20 +1571,7 @@ void SchematicScene::removeSupportedItem(QGraphicsItem* gItem)
       case VoltmeterItemType:
       case AmmeterItemType:
         {
-          if(out_ == item) {
-            if(outList_.isEmpty()) {
-              out_ = 0;
-            } else {
-              out_ = outList_.back();
-              outList_.pop_back();
-              out_->setOpacity(1.0);
-            }
-          } else {
-            if(outList_.contains(item)) {
-              item->setOpacity(1.0);
-              outList_.removeAll(item);
-            }
-          }
+          outputList_.removeAll(item);
           break;
         }
       case WireItemType:
@@ -1673,20 +1672,7 @@ void SchematicScene::clearSupportedItem(QGraphicsItem* gItem)
       case VoltmeterItemType:
       case AmmeterItemType:
         {
-          if(out_ == item) {
-            if(outList_.isEmpty()) {
-              out_ = 0;
-            } else {
-              out_ = outList_.back();
-              outList_.pop_back();
-              out_->setOpacity(1.0);
-            }
-          } else {
-            if(outList_.contains(item)) {
-              item->setOpacity(1.0);
-              outList_.removeAll(item);
-            }
-          }
+          outputList_.removeAll(item);
           break;
         }
       case WireItemType:
@@ -1877,10 +1863,18 @@ bool SchematicScene::reverseSelectedMeters()
 bool SchematicScene::editLabelText(Label* label, bool fresh)
 {
   QWidget* parent = views().isEmpty() ? 0 : views().first()->window();
-  bool ok = false;
-  const QString text = QInputDialog::getMultiLineText(parent,
-    fresh ? tr("New Label") : tr("Edit Label"), tr("Text:"),
-    fresh ? QString() : label->text(), &ok);
+  QInputDialog dialog(parent);
+  dialog.setWindowTitle(fresh ? tr("New Label") : tr("Edit Label"));
+  dialog.setLabelText(tr("Text (Ctrl+Enter to finish):"));
+  dialog.setOption(QInputDialog::UsePlainTextEditForTextInput);
+  dialog.setTextValue(fresh ? QString() : label->text());
+  // Enter starts a new line; Ctrl+Enter is OK
+  for(const QKeySequence& key : { QKeySequence(Qt::CTRL | Qt::Key_Return),
+                                  QKeySequence(Qt::CTRL | Qt::Key_Enter) })
+    QObject::connect(new QShortcut(key, &dialog), &QShortcut::activated,
+      &dialog, &QDialog::accept);
+  const bool ok = dialog.exec() == QDialog::Accepted;
+  const QString text = dialog.textValue();
   if(!ok || text.trimmed().isEmpty())
     return false;
   if(text != label->text())
@@ -2228,8 +2222,7 @@ void SchematicScene::splitAtJunctions(QList<Wire*> fresh)
       }
       QList<Item*> parts;
       parts << standardList_ << groundList_ << portList_ << userDefList_;
-      if(out_)
-        parts << out_;
+      parts << outputList_;
       foreach(Item* item, parts)
         if(const Component* c = dynamic_cast<const Component*>(item))
           foreach(const QPointF& pin, c->pinPoints())
@@ -2491,6 +2484,54 @@ QString SchematicScene::uniqueName(SupportedItemType type,
 }
 
 
+QStringList SchematicScene::outputNames() const
+{
+  QStringList names;
+  foreach(Item* item, outputList_)
+    names << outputName(static_cast<Component*>(item));
+  return names;
+}
+
+
+QString SchematicScene::outputName(const Component* output)
+{
+  return output ? output->data(OutputNameKey).toString() : QString();
+}
+
+
+void SchematicScene::setOutputName(Component* output, const QString& name)
+{
+  output->setData(OutputNameKey, name);
+  if(itemType(output) == OutItemType) {
+    output->setPath(outPath(name));
+    output->setTag(name, outPivotRect());
+  }
+  else {
+    output->label()->setPlainText(name);
+    output->resetLabelPosition();
+  }
+}
+
+
+QString SchematicScene::uniqueOutputName(SupportedItemType type,
+    const QString& wanted, const Component* self) const
+{
+  const QString prefix = type == VoltmeterItemType ? QStringLiteral("VM")
+    : type == AmmeterItemType ? QStringLiteral("AM") : QStringLiteral("Out");
+  QSet<QString> taken;
+  foreach(Item* item, outputList_)
+    if(item != self)
+      taken.insert(outputName(static_cast<Component*>(item)));
+  if(!wanted.isEmpty() && !taken.contains(wanted))
+    return wanted;
+  for(int n = 1; ; ++n) {
+    const QString name = prefix + QString::number(n);
+    if(!taken.contains(name))
+      return name;
+  }
+}
+
+
 QString SchematicScene::toolHint() const
 {
   if(hasPendingWire()) {
@@ -2693,32 +2734,6 @@ void SchematicScene::binSelectedItems()
 }
 
 
-void SchematicScene::bringToFrontSelectedItem()
-{
-  QGraphicsItem* item = itemAt(lastMousePressPos_, QTransform());
-  if(!item)
-    return;
-
-  clearSelection();
-  item->setSelected(true);
-  BringToFrontItem* command = new BringToFrontItem(item);
-  undoRedoStack_->push(command);
-}
-
-
-void SchematicScene::sendToBackSelectedItem()
-{
-  QGraphicsItem* item = itemAt(lastMousePressPos_, QTransform());
-  if(!item)
-    return;
-
-  clearSelection();
-  item->setSelected(true);
-  SendToBackItem* command = new SendToBackItem(item);
-  undoRedoStack_->push(command);
-}
-
-
 void SchematicScene::clearSchematicScene()
 {
   QList<QGraphicsItem*> itemList = items();
@@ -2756,8 +2771,8 @@ void SchematicScene::assignNodes(int seed)
     seed = static_cast<Component*>(item)->propagate(seed);
   foreach(Item* item, userDefList_)
     seed = static_cast<Component*>(item)->propagate(seed);
-  if(out_)
-    seed = static_cast<Component*>(out_)->propagate(seed);
+  foreach(Item* item, outputList_)
+    seed = static_cast<Component*>(item)->propagate(seed);
 
   numberNetLabels();
 
@@ -2781,8 +2796,7 @@ void SchematicScene::numberNetLabels()
   QList<int> order;
   QList<Item*> parts;
   parts << standardList_ << portList_ << userDefList_;
-  if(out_)
-    parts << out_;
+  parts << outputList_;
   foreach(Item* item, parts)
     foreach(int net, static_cast<Component*>(item)->nodes()) {
       if(!pins.contains(net))
@@ -2846,8 +2860,8 @@ void SchematicScene::resetNodes()
     static_cast<Component*>(item)->invalidate();
   foreach(Item* item, userDefList_)
     static_cast<Component*>(item)->invalidate();
-  if(out_)
-    static_cast<Component*>(out_)->invalidate();
+  foreach(Item* item, outputList_)
+    static_cast<Component*>(item)->invalidate();
 
   // sub-circuits reset
   foreach(Item* item, userDefList_)
@@ -3008,6 +3022,8 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
         undoRedoStack_->endMacro();
         if(!ok)
           undoRedoStack_->undo();
+        // one label at a time: back to the normal pointer
+        resetStatus();
         event->accept();
         return;
       }
@@ -3442,7 +3458,6 @@ void SchematicScene::dropEvent(QGraphicsSceneDragDropEvent* event)
 
 void SchematicScene::init()
 {
-  out_ = 0;
   contextMenu_ = 0;
   validNode_ = false;
   gridVisible_ = true;
@@ -3603,8 +3618,7 @@ bool SchematicScene::connectionAt(const QPointF& point, QPointF* exact) const
     };
   QList<Item*> parts;
   parts << standardList_ << groundList_ << portList_ << userDefList_;
-  if(out_)
-    parts << out_;
+  parts << outputList_;
   foreach(Item* item, parts) {
     const Component* c = dynamic_cast<const Component*>(item);
     if(!c || !c->isVisible())

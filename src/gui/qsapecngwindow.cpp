@@ -281,14 +281,37 @@ void QSapecNGWindow::fit()
 }
 
 
+void QSapecNGWindow::showPlots()
+{
+  SchematicEditor* editor = activeEditor();
+  if(!editor)
+    return;
+
+  // the most recent plot of this schematic to the front
+  QWidget* last = nullptr;
+  for(const PlotEntry& e : plots_)
+    if(e.editor == editor && e.plane)
+      last = e.plane;
+  if(!last) {
+    wave();
+    return;
+  }
+  plotTabs_->setCurrentWidget(last);
+  showPlotWindow();
+}
+
+
 void QSapecNGWindow::wave()
 {
-  // Run > New Plot (F9)
+  // Plot > New Plot (Ctrl+F9)
   SchematicEditor* editor = activeEditor();
   if(!editor)
     return;
 
   PlotDialog dialog(PlotSettings::load(), true, this);
+  // the output shown in the Result panel, unless the schematic changed
+  // its outputs since
+  dialog.setOutputs(editor->scene().outputNames(), resultPanel_->currentOutput());
   if(dialog.exec() != QDialog::Accepted)
     return;
   const PlotSettings settings = dialog.settings();
@@ -309,7 +332,7 @@ WorkPlane* QSapecNGWindow::createPlot(SchematicEditor* editor,
 {
   WorkPlane* plane = new WorkPlane;
   plane->setContextMenu(workplaneMenu_);
-  if(!editor->accept(*plane)) {
+  if(!editor->accept(*plane, settings.output)) {
     delete plane;
     return 0;
   }
@@ -370,8 +393,10 @@ void QSapecNGWindow::createPlotWindow()
     });
   connect(plotTabs_, &QTabWidget::currentChanged, this, [this]() {
       currentPlot_ = qobject_cast<WorkPlane*>(plotTabs_->currentWidget());
-      if(currentPlot_ && plotSettingsForm_)
+      if(currentPlot_ && plotSettingsForm_) {
+        plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
         plotSettingsForm_->setSettings(currentPlot_->settings());
+      }
       updateMenus();
     });
 
@@ -419,6 +444,11 @@ void QSapecNGWindow::createPlotWindow()
         return;
       const PlotSettings s = plotSettingsForm_->settings();
       s.save();
+      // another output: its transfer function
+      if(s.output != currentPlot_->output())
+        for(const PlotEntry& e : plots_)
+          if(e.plane == currentPlot_ && e.editor)
+            e.editor->accept(*currentPlot_, s.output);
       currentPlot_->applySettings(s);
       updatePlotTitle(currentPlot_);
     });
@@ -457,6 +487,9 @@ void QSapecNGWindow::updatePlotTitle(WorkPlane* plane)
       QT_TR_NOOP("Poles and zeros"), QT_TR_NOOP("Bode plot") };
     const int k = qBound(0, plane->kind(), 3);
     QString title = tr(kinds[k]);
+    if(e.editor && e.editor->resultOutputs().size() > 1)
+      title += QStringLiteral(" - ") + (plane->output().isEmpty()
+        ? e.editor->resultOutputs().first() : plane->output());
     if(e.editor)
       title += QStringLiteral(" - ")
         + QFileInfo(e.editor->currentFile()).fileName();
@@ -469,12 +502,21 @@ void QSapecNGWindow::updatePlotTitle(WorkPlane* plane)
 }
 
 
+QStringList QSapecNGWindow::plotOutputs(WorkPlane* plane) const
+{
+  for(const PlotEntry& e : plots_)
+    if(e.plane == plane && e.editor)
+      return e.editor->resultOutputs();
+  return QStringList();
+}
+
+
 void QSapecNGWindow::refreshPlots(SchematicEditor* editor)
 {
   // a new result: every plot of this schematic recomputes
   for(const PlotEntry& e : plots_)
     if(e.editor == editor && e.plane) {
-      editor->accept(*e.plane);
+      editor->accept(*e.plane, e.plane->output());
       e.plane->applySettings(e.plane->settings());
       updatePlotTitle(e.plane);
     }
@@ -484,8 +526,10 @@ void QSapecNGWindow::refreshPlots(SchematicEditor* editor)
 void QSapecNGWindow::editPlotSettings()
 {
   createPlotWindow();
-  if(currentPlot_)
+  if(currentPlot_) {
+    plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
     plotSettingsForm_->setSettings(currentPlot_->settings());
+  }
   plotSettingsDock_->show();
   plotSettingsDock_->raise();
   showPlotWindow();
@@ -890,24 +934,6 @@ void QSapecNGWindow::mirror()
 }
 
 
-void QSapecNGWindow::bringToFront()
-{
-  SchematicEditor* editor = activeEditor();
-
-  if(editor)
-    editor->scene().bringToFrontSelectedItem();
-}
-
-
-void QSapecNGWindow::sendToBack()
-{
-  SchematicEditor* editor = activeEditor();
-
-  if(editor)
-    editor->scene().sendToBackSelectedItem();
-}
-
-
 void QSapecNGWindow::license()
 {
   QString title = tr("License");
@@ -1042,8 +1068,6 @@ void QSapecNGWindow::sceneSelectionChanged()
     || (editor && editor->scene().isPlacingItem()));
   flipVAct_->setEnabled(hasSelectedItems
     || (editor && editor->scene().isPlacingItem()));
-  bringToFrontAct_->setEnabled(hasSelectedItems);
-  sendToBackAct_->setEnabled(hasSelectedItems);
 }
 
 
@@ -1069,6 +1093,7 @@ void QSapecNGWindow::updateMenus()
   nodeAct_->setEnabled(hasEditor);
   resolveAct_->setEnabled(hasEditor);
   waveAct_->setEnabled(hasEditor);
+  plotsAct_->setEnabled(hasEditor);
 
   cursorAct_->setEnabled(hasEditor);
   userdefAct_->setEnabled(hasEditor);
@@ -1187,6 +1212,9 @@ void QSapecNGWindow::createActions()
 
   saveAsAct_ = new QAction(tr("Save &As..."), this);
   saveAsAct_->setShortcuts(QKeySequence::SaveAs);
+  // some desktops have no standard key for it
+  if(saveAsAct_->shortcuts().isEmpty())
+    saveAsAct_->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_S);
   saveAsAct_->setStatusTip(tr("Save As..."));
   connect(saveAsAct_, SIGNAL(triggered()), this, SLOT(saveAs()));
 
@@ -1264,7 +1292,7 @@ void QSapecNGWindow::createActions()
         editor->scene().mirrorPlacedOrSelected(false);
     });
 
-  flipVAct_ = new QAction(tr("Flip &Vertically"), this);
+  flipVAct_ = new QAction(theme::icon("flipv"), tr("Flip &Vertically"), this);
   flipVAct_->setShortcut(QKeySequence(Qt::Key_V));
   flipVAct_->setStatusTip(
     tr("Flip the selected items, or the item being placed, upside down (V)"));
@@ -1272,16 +1300,6 @@ void QSapecNGWindow::createActions()
       if(SchematicEditor* editor = activeEditor())
         editor->scene().mirrorPlacedOrSelected(true);
     });
-
-  bringToFrontAct_ =
-    new QAction(theme::icon("bringfront"), tr("Bring to &front"), this);
-  bringToFrontAct_->setStatusTip(tr("Bring to front"));
-  connect(bringToFrontAct_, SIGNAL(triggered()), this, SLOT(bringToFront()));
-
-  sendToBackAct_ =
-    new QAction(theme::icon("sendback"), tr("Send to &back"), this);
-  sendToBackAct_->setStatusTip(tr("Send to back"));
-  connect(sendToBackAct_, SIGNAL(triggered()), this, SLOT(sendToBack()));
 
   zoomInAct_ = new QAction(theme::icon("zoomin"), tr("Zoom &In"), this);
   zoomInAct_->setShortcuts(QKeySequence::ZoomIn);
@@ -1312,10 +1330,18 @@ void QSapecNGWindow::createActions()
   connect(resolveAct_, SIGNAL(triggered()), this, SLOT(resolve()));
 
   waveAct_ = new QAction(theme::icon("wave"), tr("&New Plot..."), this);
-  waveAct_->setShortcut(tr("F9"));
+  waveAct_->setShortcut(tr("Ctrl+F9"));
   waveAct_->setStatusTip(tr("Plot the result: frequency or phase response, "
-                            "Bode plot, poles and zeros (F9)"));
+                            "Bode plot, poles and zeros (Ctrl+F9)"));
   connect(waveAct_, SIGNAL(triggered()), this, SLOT(wave()));
+
+  // the main window's way to the plots: the ones of this schematic, or a
+  // new one when it has none
+  plotsAct_ = new QAction(theme::icon("wave"), tr("&Plots"), this);
+  plotsAct_->setShortcut(tr("F9"));
+  plotsAct_->setStatusTip(tr("Show the plots of this schematic; with none "
+                             "yet, make one (F9)"));
+  connect(plotsAct_, &QAction::triggered, this, &QSapecNGWindow::showPlots);
 
   toggleScreenModeAct_ = new QAction(tr("F&ull Screen Mode"), this);
   toggleScreenModeAct_->setStatusTip(tr("Switch to Full Screen Mode"));
@@ -1588,8 +1614,6 @@ void QSapecNGWindow::createMenus()
   editMenu_->addAction(rotateAct_);
   editMenu_->addAction(mirrorAct_);
   editMenu_->addAction(flipVAct_);
-  editMenu_->addAction(bringToFrontAct_);
-  editMenu_->addAction(sendToBackAct_);
   editMenu_->addSeparator();
   editMenu_->addAction(binAct_);
 
@@ -1603,7 +1627,7 @@ void QSapecNGWindow::createMenus()
   runMenu_ = menuBar()->addMenu(tr("&Run"));
   runMenu_->addAction(nodeAct_);
   runMenu_->addAction(resolveAct_);
-  runMenu_->addAction(waveAct_);
+  runMenu_->addAction(plotsAct_);
 
   workplaneMenu_ = menuBar()->addMenu(tr("&Plot"));
   workplaneMenu_->addAction(waveAct_);
@@ -1680,9 +1704,30 @@ void QSapecNGWindow::createMenus()
   sceneMenu_->addAction(pasteAct_);
   sceneMenu_->addAction(binAct_);
   sceneMenu_->addSeparator();
-  sceneMenu_->addAction(bringToFrontAct_);
-  sceneMenu_->addAction(sendToBackAct_);
   QAction* reverseMeters = sceneMenu_->addAction(tr("Reverse &Polarity"));
+  // only with a voltmeter or an ammeter selected
+  connect(sceneMenu_, &QMenu::aboutToShow, this, [this, reverseMeters]() {
+      bool meter = false;
+      if(SchematicEditor* editor = activeEditor())
+        foreach(QGraphicsItem* item, editor->scene().selectedItems()) {
+          const SchematicScene::SupportedItemType type =
+            SchematicScene::itemType(item);
+          meter = meter || type == SchematicScene::VoltmeterItemType
+            || type == SchematicScene::AmmeterItemType;
+        }
+      reverseMeters->setVisible(meter);
+
+      // Properties only for parts that have parameters (not for meters,
+      // Out, ground, wires); the Edit menu keeps it
+      bool params = false;
+      if(SchematicEditor* editor = activeEditor())
+        foreach(QGraphicsItem* item, editor->scene().selectedItems())
+          params = params || SchematicScene::itemProperties(item);
+      propsAct_->setVisible(params || !propsAct_->isEnabled());
+    });
+  connect(sceneMenu_, &QMenu::aboutToHide, this, [this]() {
+      propsAct_->setVisible(true);
+    });
   reverseMeters->setStatusTip(tr("Voltmeter: swap + and -; ammeter: the "
     "arrow the other way (the result changes sign)"));
   connect(reverseMeters, &QAction::triggered, this, [this]() {
@@ -1691,6 +1736,15 @@ void QSapecNGWindow::createMenus()
           statusBar()->showMessage(tr("Select a voltmeter or an ammeter first"), 3000);
     });
   QAction* resetLabels = sceneMenu_->addAction(tr("Reset &Label Position"));
+  // only with a part (or its label) selected
+  connect(sceneMenu_, &QMenu::aboutToShow, this, [this, resetLabels]() {
+      bool part = false;
+      if(SchematicEditor* editor = activeEditor())
+        foreach(QGraphicsItem* item, editor->scene().selectedItems())
+          part = part || dynamic_cast<Component*>(item)
+            || (item->parentItem() && dynamic_cast<Component*>(item->parentItem()));
+      resetLabels->setVisible(part);
+    });
   resetLabels->setStatusTip(tr("Put the labels of the selected parts back "
                                "beside them"));
   connect(resetLabels, &QAction::triggered, this, [this]() {
@@ -1756,7 +1810,7 @@ void QSapecNGWindow::createToolBars()
   runToolBar_->setObjectName(QStringLiteral("runToolBar"));
   runToolBar_->addAction(nodeAct_);
   runToolBar_->addAction(resolveAct_);
-  runToolBar_->addAction(waveAct_);
+  runToolBar_->addAction(plotsAct_);
 
   toolToolBar_ = addToolBar(tr("Tools"));
   toolToolBar_->setObjectName(QStringLiteral("toolToolBar"));
@@ -2026,6 +2080,12 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     else if(!hasPlot) {
       PlotSettings bode = PlotSettings::load();
       bode.kind = WorkPlane::BodeKind;
+      // the first output with a transfer function
+      for(const OutputResult& o : editor->lastResult().outputs)
+        if(!o.singular) {
+          bode.output = o.name;
+          break;
+        }
       createPlot(editor, bode);
     }
   });
@@ -2245,8 +2305,8 @@ void QSapecNGWindow::updateStatus()
                               : tr("%1 items selected").arg(selected))
         + tr(" - drag to move, R rotates, Del deletes, double-click edits");
     else if(editor->isSolved())
-      status = editor->lastResult().singular
-        ? tr("Solved - the circuit has no unique solution (see the Result panel)")
+      status = editor->lastResult().anySingular()
+        ? tr("Solved - no unique solution (see the Result panel)")
         : tr("Solved - the transfer function is in the Result panel");
     else if(editor->hasResult())
       status = tr("Changed since the last Resolve - press F8 to update the "

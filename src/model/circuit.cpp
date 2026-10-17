@@ -18,6 +18,7 @@
 
 
 #include "model/circuit.h"
+#include <cstring>
 
 #include <cmath>
 #include <sstream>
@@ -48,10 +49,11 @@ double to_double(const std::string& text)
 }
 
 
-circuit_builder::circuit_builder(circuit& circuit)
-  : circuit_(circuit), has_block_(false), prefix_("")
+circuit_builder::circuit_builder(circuit& circuit, unsigned int output)
+  : circuit_(circuit), has_block_(false), output_(output), prefix_("")
 {
   circuit_.props_.clear();
+  circuit_.outputNames_.clear();
 
   if(circuit_.iG_)
     (circuit_.iG_)->clear();
@@ -120,8 +122,24 @@ void circuit_builder::add_out_component(
 {
   v = node(v);
   replace_requested(v);
-  if(!circuit_.out_)
-    circuit_.out_ = v;
+  add_output(v, props["name"], "Out");
+}
+
+
+void circuit_builder::add_output(circuit::vertex_descriptor vertex,
+  const std::string& name, const char* prefix)
+{
+  // the vertex may still move (replace_requested); out_ is chosen in flush
+  outputs_.push_back(vertex);
+  std::string shown = name;
+  if(shown.empty()) {
+    unsigned int n = 0;
+    for(const std::string& other : circuit_.outputNames_)
+      if(other.compare(0, std::strlen(prefix), prefix) == 0)
+        ++n;
+    shown = prefix + std::to_string(n + 1);
+  }
+  circuit_.outputNames_.push_back(shown);
 }
 
 
@@ -247,8 +265,7 @@ void circuit_builder::add_dual(
           "", 1., 0, true, props
         );
 
-      if(!circuit_.out_)
-        circuit_.out_ = v_;
+      add_output(v_, name, "VM");
 
       break;
     }
@@ -266,8 +283,7 @@ void circuit_builder::add_dual(
           "", 1., 0, true, props
         );
 
-      if(!circuit_.out_)
-        circuit_.out_ = v_;
+      add_output(v_, name, "AM");
 
       break;
     }
@@ -649,6 +665,9 @@ void circuit_builder::add_quad(
 
 void circuit_builder::flush()
 {
+  circuit_.out_ = GROUND;
+  if(output_ < outputs_.size())
+    circuit_.out_ = outputs_[output_];
   try_add_block();
 }
 
@@ -744,6 +763,10 @@ void circuit_builder::replace_requested(circuit::vertex_descriptor vertex)
 
     if(circuit_.reference_ == vertex)
       circuit_.reference_ = ireq;
+    // a meter's output vertex moved too
+    for(circuit::vertex_descriptor& o : outputs_)
+      if(o == vertex)
+        o = ireq;
 
     requested_.remove(vertex);
     requested_.push_front(ireq);

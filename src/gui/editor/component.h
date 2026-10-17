@@ -87,6 +87,7 @@ public:
   virtual void rotate();
 
   inline PropertyTextItem* label() const { return label_; }
+  inline QString tag() const { return tag_; }
 
   // The label is anchored at its centre: by default beside the body,
   // perpendicular to the terminals; a dragged label keeps its anchor.

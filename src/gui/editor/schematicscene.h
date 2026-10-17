@@ -75,6 +75,7 @@ class SchematicScene: public QGraphicsScene
 public:
   enum { Ground = 0 };
   enum { GridStep = 10 };
+  enum { OutputNameKey = 3 };   // item data: the name of an output
 
   enum SupportedItemType {
     NilItemType = 0,
@@ -114,7 +115,7 @@ public:
   static QPainterPath groundPath();
   static QPainterPath portPath();
   static QRectF outPivotRect();
-  static QPainterPath outPath();
+  static QPainterPath outPath(const QString& text = QString());
   static QPainterPath singleVoltageSourcePath();
   static QPainterPath voltmeterPath();
   static QPainterPath ammeterPath();
@@ -220,13 +221,20 @@ public:
   // wanted, unless another part already has that name: then the next free
   // one (pasted parts must not repeat names)
   QString uniqueName(SupportedItemType type, const QString& wanted, Item* self);
+
+  // outputs (Out markers, voltmeters, ammeters): each is solved on its own
+  // and has a name - Out1, VM1, AM1 ... - shown on the sheet and in the
+  // Result panel
+  QStringList outputNames() const;
+  static QString outputName(const Component* output);
+  void setOutputName(Component* output, const QString& name);
+  QString uniqueOutputName(SupportedItemType type, const QString& wanted,
+    const Component* self) const;
   inline bool hasActiveItemType() const { return activeItem_ != NilItemType; }
   inline bool isPlacingItem() const
     { return hasActiveItem() || hasUserDefReq(); }
   void mirrorSelectedItems();
   void binSelectedItems();
-  void bringToFrontSelectedItem();
-  void sendToBackSelectedItem();
   void clearSchematicScene();
 
   inline void setContextMenu(QMenu* menu) { contextMenu_ = menu; }
@@ -321,8 +329,7 @@ private:
   Wire* wireInProgress_;
   QPen wirePen_;
 
-  Item* out_;
-  QList<Item*> outList_;
+  QList<Item*> outputList_;   // Out markers, voltmeters, ammeters
   QList<Item*> portList_;
   QList<Item*> groundList_;
   QList<Item*> standardList_;

@@ -87,13 +87,16 @@ void SchematicSceneParser::parse(
   foreach(Item* item, items_) {
     if(floating.contains(item)) {
       QtProperty* properties = SchematicScene::itemProperties(item);
-      QLogger::warning(QObject::tr("%1 is not connected to the rest of the "
+      // once, not for every output the circuit is built for
+      if(!warned_)
+        QLogger::warning(QObject::tr("%1 is not connected to the rest of the "
         "circuit and was left out").arg(properties ? properties->valueText()
                                                    : QObject::tr("A part")));
       continue;
     }
     parse_item(builder, item);
   }
+  warned_ = true;
 
   builder.flush();
 }
@@ -279,6 +282,7 @@ void SchematicSceneParser::parse_item(
     {
       if(!discard_) {
         Component* out = static_cast<Component*>(item);
+        props["name"] = SchematicScene::outputName(out).toStdString();
 
         builder.add_out_component(out->nodes().front(), props);
       }
@@ -296,7 +300,8 @@ void SchematicSceneParser::parse_item(
       if(reversed)
         props["reversed"] = "1";
       builder.add_dual_component(
-        dualMap_[type], "", 1., true,
+        dualMap_[type], SchematicScene::outputName(component).toStdString(),
+        1., true,
         reversed ? nodes.at(0) : nodes.at(1),
         reversed ? nodes.at(1) : nodes.at(0),
         props
@@ -545,6 +550,9 @@ void SchematicSceneBuilder::add_out_component(
   if(!discard(props)) {
     Item* item = static_cast<Item*>(
       SchematicScene::itemByType(SchematicScene::OutItemType));
+    // its name (older files have none: Out1, Out2 ... are given)
+    item->setData(SchematicScene::OutputNameKey,
+      QString::fromStdString(props["name"]));
 
     scene_->addSupportedItem(item, false);
     grid_coordinate(item, props);
@@ -630,6 +638,10 @@ void SchematicSceneBuilder::add_dual_component(
     }
 
     if(component) {
+      if(c_type == sapecng::abstract_builder::VM
+          || c_type == sapecng::abstract_builder::AM)
+        component->setData(SchematicScene::OutputNameKey,
+          QString::fromStdString(name));
       scene_->addSupportedItem(component, false);
       grid_coordinate(component, props);
       setup_properties(component, name, value, symbolic, props);

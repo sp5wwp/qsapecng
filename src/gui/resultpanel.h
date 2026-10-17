@@ -24,10 +24,12 @@
 
 #include "gui/formula.h"
 
+#include <QList>
 #include <QString>
 #include <QWidget>
 
 
+class QTabBar;
 class QTextBrowser;
 class QUrl;
 
@@ -36,14 +38,30 @@ namespace qsapecng
 {
 
 
-// Output of one Resolve.
-struct SolveResult
+// The transfer function to one output (Out marker, voltmeter, ammeter).
+struct OutputResult
 {
-  QString file;
+  QString name;              // Out1, VM1 ...; empty when the circuit has none
   formula::Fraction mixed;   // "Result": symbolic components by name
   formula::Fraction raw;     // every component by name
   formula::Fraction digit;   // numeric
   bool singular = false;     // no unique solution: the fractions mean nothing
+};
+
+
+// Output of one Resolve: one result per output.
+struct SolveResult
+{
+  QString file;
+  QList<OutputResult> outputs;
+
+  bool anySingular() const
+    {
+      for(const OutputResult& o : outputs)
+        if(o.singular)
+          return true;
+      return false;
+    }
 };
 
 
@@ -60,6 +78,10 @@ public:
   void showResult(const SolveResult& result, bool outOfDate);
   void showPlaceholder();
 
+  // the output whose result is shown (one tab per output when there are
+  // several)
+  QString currentOutput() const;
+
 signals:
   // a Plot link was clicked (WorkPlane::Kind)
   void plotRequested(int function);
@@ -73,7 +95,11 @@ private slots:
 
 private:
   void render();
+  void updateTabs();
+  const OutputResult* current() const;
 
+  QTabBar* tabs_;
+  QString currentName_;   // kept across results
   QTextBrowser* view_;
   bool sideBySide_ = false;
   SolveResult result_;

@@ -439,8 +439,9 @@ QPointF Component::defaultLabelAnchor(
                        + qAbs(onSheet.y()) * textSize.height() / 2.;
 
   // the text box has a little air of its own (document margin, line
-  // spacing): a small gap is enough
-  const qreal gap = 1.;
+  // spacing): a small gap is enough above a part; beside a round symbol
+  // (sources, meters) a little more, or the first letter touches it
+  const qreal gap = side.x() != 0. ? 3. : 1.;
   return centre + side * (halfBody + gap + halfText);
 }
 

@@ -39,10 +39,12 @@ Pre-compiled packages will also be available from the projects' pages.
 ## Quick start
 
 1. Draw the circuit: pick parts in the Components list (or with their keys),
-   W draws wires, mark the output with Out (O).
+   W draws wires, mark the output with Out (O). Several Out markers,
+   voltmeters or ammeters give one result each.
 2. Press F8 (Run > Resolve): the transfer function appears in the Result
    panel and a Bode plot opens.
-3. Run > New Plot (F9) for other plots; click a plot to place markers.
+3. Run > Plots (F9) shows the plots; Plot > New Plot (Ctrl+F9) adds
+   others. Click a plot to place markers.
 
 
 ## Installation

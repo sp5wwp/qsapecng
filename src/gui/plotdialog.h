@@ -30,6 +30,7 @@
 class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
+class QLabel;
 class QLineEdit;
 class QSpinBox;
 class QTimer;
@@ -53,6 +54,9 @@ public:
   PlotSettings settings() const;
   void setSettings(const PlotSettings& settings);   // no changed()
   bool isValid() const;
+  // the outputs of the circuit; the choice is shown when there are two or
+  // more (no changed())
+  void setOutputs(const QStringList& names);
 
 signals:
   // an edit (typing is reported when it ends; spin steps a moment later)
@@ -63,6 +67,8 @@ private slots:
 
 private:
   QComboBox* kind_;
+  QLabel* outputLabel_;
+  QComboBox* output_;
   QCheckBox* autoRange_;
   QLineEdit* start_;
   QLineEdit* stop_;
@@ -88,6 +94,7 @@ public:
   PlotDialog(const PlotSettings& settings, bool newPlot, QWidget* parent = 0);
 
   PlotSettings settings() const { return form_->settings(); }
+  void setOutputs(const QStringList& names, const QString& current);
 
 private:
   PlotSettingsWidget* form_;
