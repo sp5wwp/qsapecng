@@ -295,7 +295,7 @@ void applyPlotStyle(
 
   for(int i = 0; i < curves.size(); ++i) {
     QwtPlotCurve* curve = curves[i].first;
-    curve->setRenderHint(QwtPlotItem::RenderAntialiased, true);
+    curve->setRenderHint(QwtPlotItem::RenderAntialiased, WorkPlane::antialiased());
 
     if(i == zerosId) {
       curve->setSymbol(new QwtSymbol(QwtSymbol::Ellipse,
@@ -791,6 +791,9 @@ void WorkPlane::relabel(F f)
       r = r > 0 ? r * 1.25 : 1.;
       plot_->setAxisScale(QwtPlot::xBottom, -r, r);
       plot_->setAxisScale(QwtPlot::yLeft, -r, r);
+      // the same scale on both axes (a circle stays a circle), once the
+      // canvas has its size
+      QTimer::singleShot(0, this, [this]() { equalizeAxes(); });
     }
     plot_->setAxisTitle(QwtPlot::xBottom, tr("Real part (rad/s)"));
     plot_->setAxisTitle(QwtPlot::yLeft, tr("Imaginary part (rad/s)"));
@@ -992,8 +995,35 @@ void WorkPlane::editVerticalRange()
 }
 
 
+void WorkPlane::equalizeAxes()
+{
+  // pole-zero map: equal units per pixel on both axes, the larger of the
+  // two, around the present centre
+  if(lastId_ != ZEROS && lastId_ != POLES)
+    return;
+  const QWidget* canvas = plot_->canvas();
+  const double w = canvas->width(), h = canvas->height();
+  if(w < 10 || h < 10)
+    return;
+  const QwtInterval xi = plot_->axisInterval(QwtPlot::xBottom);
+  const QwtInterval yi = plot_->axisInterval(QwtPlot::yLeft);
+  const double u = qMax(xi.width() / w, yi.width() / h);
+  if(!(u > 0) || !std::isfinite(u))
+    return;
+  const double cx = (xi.minValue() + xi.maxValue()) / 2;
+  const double cy = (yi.minValue() + yi.maxValue()) / 2;
+  plot_->setAxisScale(QwtPlot::xBottom, cx - u * w / 2, cx + u * w / 2);
+  plot_->setAxisScale(QwtPlot::yLeft, cy - u * h / 2, cy + u * h / 2);
+  plot_->replot();
+}
+
+
 bool WorkPlane::eventFilter(QObject* watched, QEvent* event)
 {
+  if(watched == plot_->canvas() && event->type() == QEvent::Resize
+      && (lastId_ == ZEROS || lastId_ == POLES))
+    QTimer::singleShot(0, this, [this]() { equalizeAxes(); });
+
   if(watched == plot_->canvas() && event->type() == QEvent::Wheel) {
     QWheelEvent* wheel = static_cast<QWheelEvent*>(event);
     const int delta = wheel->angleDelta().y();
@@ -1138,6 +1168,8 @@ bool WorkPlane::markerValues(double hz, double* magnitude, double* phase) const
 
 QString WorkPlane::magnitudeText(double v) const
 {
+  if(std::fabs(v) < 5e-3 && magnitudeDb_)
+    v = 0.;     // no "-0.00 dB"
   return magnitudeDb_ ? QStringLiteral("%1 dB").arg(v, 0, 'f', 2)
                       : units::format(QString::number(v, 'g', 6), "");
 }
@@ -1145,6 +1177,8 @@ QString WorkPlane::magnitudeText(double v) const
 
 QString WorkPlane::phaseText(double v) const
 {
+  if(std::fabs(v) < (phaseDegrees_ ? 0.05 : 5e-4))
+    v = 0.;     // no "-0.0°"
   return phaseDegrees_ ? QStringLiteral("%1°").arg(v, 0, 'f', 1)
                        : QStringLiteral("%1 rad").arg(v, 0, 'f', 3);
 }
@@ -1261,6 +1295,7 @@ void WorkPlane::refreshMarkers()
     lastPx[row] = px;
     line->setLabelAlignment(rows[row] | Qt::AlignRight);
     line->setZ(30);
+    line->setRenderHint(QwtPlotItem::RenderAntialiased, antialiased());
     line->attach(plot_);
     markerLines_.append(line);
   }
@@ -1304,10 +1339,173 @@ void WorkPlane::removeMarker(int row)
 }
 
 
+double WorkPlane::magnitudeAt(double hz) const
+{
+  // |H(j 2 pi f)|, linear
+  if(num_.empty() || !(hz > 0))
+    return NAN;
+  const std::pair<double, double> at(hz, hz * 1.000001);
+  std::pair< std::vector<double>, std::vector<double> > m =
+    sapecng::magnitude(at, 1., true)(num_, den_, values_);
+  return m.second.empty() ? NAN : m.second.front();
+}
+
+
+QVector<QPointF> WorkPlane::magnitudeGrid() const
+{
+  // log(f), |H| over the plotted range, 400 points per decade
+  QVector<QPointF> grid;
+  const double a = std::log10(fStart_), b = std::log10(fStop_);
+  const int n = qBound(50, int((b - a) * 400), 20000);
+  grid.reserve(n + 1);
+  for(int i = 0; i <= n; ++i) {
+    const double lf = a + (b - a) * i / n;
+    grid.append(QPointF(lf, magnitudeAt(std::pow(10., lf))));
+  }
+  return grid;
+}
+
+
+void WorkPlane::markerToPeak(int direction)
+{
+  const int row = selectedMarker();
+  if(row < 0) {
+    markerNote_->setText(tr("Select a marker first."));
+    return;
+  }
+  const double f0 = markers_.at(row);
+  const QVector<QPointF> g = magnitudeGrid();
+  const double l0 = std::log10(f0);
+
+  int found = -1;
+  if(direction > 0) {
+    for(int i = 1; i + 1 < g.size(); ++i)
+      if(g[i].x() > l0 + 1e-6 && g[i].y() > g[i - 1].y() && g[i].y() >= g[i + 1].y()) {
+        found = i;
+        break;
+      }
+  } else {
+    for(int i = g.size() - 2; i >= 1; --i)
+      if(g[i].x() < l0 - 1e-6 && g[i].y() > g[i + 1].y() && g[i].y() >= g[i - 1].y()) {
+        found = i;
+        break;
+      }
+  }
+  if(found < 0) {
+    markerNote_->setText(direction > 0
+      ? tr("No peak to the right in the plotted range.")
+      : tr("No peak to the left in the plotted range."));
+    return;
+  }
+
+  // refine between the neighbours (golden section on log f)
+  double lo = g[found - 1].x(), hi = g[found + 1].x();
+  const double phi = (std::sqrt(5.) - 1) / 2;
+  for(int k = 0; k < 60; ++k) {
+    const double c = hi - phi * (hi - lo), d = lo + phi * (hi - lo);
+    if(magnitudeAt(std::pow(10., c)) > magnitudeAt(std::pow(10., d)))
+      hi = d;
+    else
+      lo = c;
+  }
+  const double hz = QString::number(std::pow(10., (lo + hi) / 2), 'g', 6).toDouble();
+  setMarker(row, hz);
+  markerNote_->clear();
+  refreshMarkers();
+  markerTable_->selectRow(markers_.indexOf(hz));
+}
+
+
+void WorkPlane::markerMinus3dB()
+{
+  const int row = selectedMarker();
+  if(row < 0) {
+    markerNote_->setText(tr("Select a marker first."));
+    return;
+  }
+  const double f0 = markers_.at(row);
+  const double m0 = magnitudeAt(f0);
+  if(!(m0 > 0)) {
+    markerNote_->setText(tr("No magnitude at the selected marker."));
+    return;
+  }
+  // 20 log10(m / m0) = -3.0103 dB  <=>  m = m0 / sqrt(2)
+  const double target = m0 / std::sqrt(2.);
+  const QVector<QPointF> g = magnitudeGrid();
+  const double l0 = std::log10(f0);
+
+  // nearest crossing of the target on each side
+  auto crossing = [&](int dir, double* lf) {
+      int start = 0;
+      while(start < g.size() && g[start].x() < l0) ++start;
+      if(dir < 0) --start;
+      double prevL = l0, prevM = m0;
+      for(int i = start; i >= 0 && i < g.size(); i += dir) {
+        const double m = g[i].y();
+        if(std::isfinite(m) && (prevM - target) * (m - target) <= 0 && prevM != m) {
+          // bisection between prevL and g[i].x()
+          double a = prevL, b = g[i].x();
+          for(int k = 0; k < 60; ++k) {
+            const double c = (a + b) / 2;
+            if((magnitudeAt(std::pow(10., a)) - target)
+                * (magnitudeAt(std::pow(10., c)) - target) <= 0)
+              b = c;
+            else
+              a = c;
+          }
+          *lf = (a + b) / 2;
+          return true;
+        }
+        prevL = g[i].x();
+        prevM = m;
+      }
+      return false;
+    };
+  double up = 0., down = 0.;
+  const bool hasUp = crossing(1, &up), hasDown = crossing(-1, &down);
+  if(!hasUp && !hasDown) {
+    markerNote_->setText(tr("The magnitude does not fall 3 dB below the "
+                            "selected marker in the plotted range."));
+    return;
+  }
+  const double lf = (hasUp && (!hasDown || up - l0 <= l0 - down)) ? up : down;
+  const double hz = QString::number(std::pow(10., lf), 'g', 6).toDouble();
+  refHz_ = f0;
+  markerNote_->clear();
+  addMarker(hz);
+}
+
+
+bool WorkPlane::antialiased()
+{
+  return QSettings().value(QStringLiteral("Plot/antialiased"), true).toBool();
+}
+
+
+void WorkPlane::setAntialiasedDefault(bool on)
+{
+  QSettings().setValue(QStringLiteral("Plot/antialiased"), on);
+}
+
+
+void WorkPlane::applyAntialiasing()
+{
+  const bool on = antialiased();
+  foreach(QwtPlotItem* item, plot_->itemList())
+    item->setRenderHint(QwtPlotItem::RenderAntialiased, on);
+  plot_->replot();
+}
+
+
 void WorkPlane::addMarker(double hz)
 {
   if(!(hz > 0) || !std::isfinite(hz))
     return;
+  // the panel (closed at first) opens with the first marker
+  if(markers_.isEmpty() && !markersPanelWanted_) {
+    markersPanelWanted_ = true;
+    emit markersPanelChanged(true);
+  }
   markers_.append(hz);
   std::sort(markers_.begin(), markers_.end());
   refreshMarkers();
@@ -1375,6 +1573,7 @@ void WorkPlane::plotClicked(const QPointF& pos)
 void WorkPlane::setMarkersPanelVisible(bool visible)
 {
   markersPanelWanted_ = visible;
+  emit markersPanelChanged(visible);
   refreshMarkers();
 }
 
@@ -1677,12 +1876,38 @@ void WorkPlane::createMainLayout()
   move->addWidget(new QLabel(tr("Hz")));
   move->addStretch();
 
+  // searches: peaks of the magnitude, the -3 dB point
+  QPushButton* prevPeak = new QPushButton(tr("◀ Peak"));
+  prevPeak->setToolTip(tr("Move the selected marker to the previous peak of "
+                          "the magnitude"));
+  connect(prevPeak, &QPushButton::clicked, this, [this]() { markerToPeak(-1); });
+  QPushButton* nextPeak = new QPushButton(tr("Peak ▶"));
+  nextPeak->setToolTip(tr("Move the selected marker to the next peak of the "
+                          "magnitude"));
+  connect(nextPeak, &QPushButton::clicked, this, [this]() { markerToPeak(1); });
+  QPushButton* minus3 = new QPushButton(tr("−3 dB"));
+  minus3->setToolTip(tr("A marker where the magnitude is 3 dB below the "
+    "selected marker (the nearest, on either side); the selected marker "
+    "becomes the reference, so the difference columns show the bandwidth"));
+  connect(minus3, &QPushButton::clicked, this, &WorkPlane::markerMinus3dB);
+  QHBoxLayout* search = new QHBoxLayout;
+  search->addWidget(prevPeak);
+  search->addWidget(nextPeak);
+  search->addWidget(minus3);
+  markerNote_ = new QLabel;
+  markerNote_->setWordWrap(true);
+  QFont small = markerNote_->font();
+  small.setPointSizeF(small.pointSizeF() * 0.9);
+  markerNote_->setFont(small);
+
   QVBoxLayout* panelLayout = new QVBoxLayout;
   panelLayout->setContentsMargins(4, 4, 4, 4);
   panelLayout->addWidget(new QLabel(tr("<b>Markers</b>")));
   panelLayout->addWidget(markerTable_, 1);
   panelLayout->addLayout(buttons);
+  panelLayout->addLayout(search);
   panelLayout->addLayout(move);
+  panelLayout->addWidget(markerNote_);
   markerPanel_ = new QWidget;
   markerPanel_->setLayout(panelLayout);
   markerPanel_->setMinimumWidth(260);

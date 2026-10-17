@@ -17,7 +17,6 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "gui/plotdialog.h"
 #include "gui/units.h"
 
@@ -29,6 +28,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTimer>
 #include <QVBoxLayout>
 
 
@@ -36,38 +36,32 @@ namespace qsapecng
 {
 
 
-PlotDialog::PlotDialog(const PlotSettings& s, bool newPlot, QWidget* parent)
-  : QDialog(parent)
+PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
+  : QWidget(parent)
 {
-  setWindowTitle(newPlot ? tr("New Plot") : tr("Plot Settings"));
-
   kind_ = new QComboBox;
   kind_->addItem(tr("Frequency response (magnitude)"), WorkPlane::MagnitudeKind);
   kind_->addItem(tr("Phase response"), WorkPlane::PhaseKind);
   kind_->addItem(tr("Bode plot (magnitude and phase)"), WorkPlane::BodeKind);
   kind_->addItem(tr("Poles and zeros"), WorkPlane::PoleZeroKind);
-  kind_->setCurrentIndex(qMax(0, kind_->findData(s.kind)));
 
   // frequency sweep
-  autoRange_ = new QCheckBox(tr("&Automatic: a decade beyond the poles and zeros"));
-  autoRange_->setChecked(s.autoRange);
-  auto field = [](double value) {
-    QLineEdit* edit = new QLineEdit(
-      units::formatForEdit(QString::number(value, 'g', 8)));
+  autoRange_ = new QCheckBox(tr("&Automatic range"));
+  autoRange_->setToolTip(tr("From a decade below the lowest to a decade "
+                            "above the highest pole or zero"));
+  auto field = []() {
+    QLineEdit* edit = new QLineEdit;
     edit->setValidator(new units::ValueValidator(QStringLiteral("Hz"), edit));
     edit->setToolTip(tr("Frequency in Hz; prefixes allowed: 10, 1k, 2.5MEG"));
     return edit;
   };
-  start_ = field(s.fStart);
-  stop_ = field(s.fStop);
+  start_ = field();
+  stop_ = field();
   points_ = new QSpinBox;
   points_->setRange(10, 10000);
-  points_->setValue(s.pointsPerDecade);
   points_->setToolTip(tr("Points per decade, spaced logarithmically"));
   angular_ = new QCheckBox(tr("Frequency in &rad/s"));
-  angular_->setChecked(s.angular);
   xLog_ = new QCheckBox(tr("Logarithmic &frequency axis"));
-  xLog_->setChecked(s.xLog);
 
   QFormLayout* sweep = new QFormLayout;
   sweep->addRow(autoRange_);
@@ -81,11 +75,8 @@ PlotDialog::PlotDialog(const PlotSettings& s, bool newPlot, QWidget* parent)
 
   // vertical axes
   db_ = new QCheckBox(tr("Magnitude in &dB"));
-  db_->setChecked(s.magnitudeDb);
   yLog_ = new QCheckBox(tr("&Logarithmic magnitude axis"));
-  yLog_->setChecked(s.yLog);
   degrees_ = new QCheckBox(tr("Phase in de&grees"));
-  degrees_->setChecked(s.phaseDegrees);
   QVBoxLayout* axes = new QVBoxLayout;
   axes->addWidget(db_);
   axes->addWidget(yLog_);
@@ -93,44 +84,78 @@ PlotDialog::PlotDialog(const PlotSettings& s, bool newPlot, QWidget* parent)
   QGroupBox* axesBox = new QGroupBox(tr("Vertical axes"));
   axesBox->setLayout(axes);
 
-  buttons_ = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-  if(newPlot)
-    buttons_->button(QDialogButtonBox::Ok)->setText(tr("&Plot"));
-  connect(buttons_, &QDialogButtonBox::accepted, this, &QDialog::accept);
-  connect(buttons_, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
   QFormLayout* top = new QFormLayout;
   top->addRow(tr("P&lot:"), kind_);
 
   QVBoxLayout* layout = new QVBoxLayout(this);
+  layout->setContentsMargins(0, 0, 0, 0);
   layout->addLayout(top);
   layout->addWidget(sweepBox);
   layout->addWidget(axesBox);
-  layout->addWidget(buttons_);
+  layout->addStretch();
 
-  for(QCheckBox* c : { autoRange_, db_ })
-    connect(c, &QCheckBox::toggled, this, &PlotDialog::validate);
-  connect(start_, &QLineEdit::textChanged, this, &PlotDialog::validate);
-  connect(stop_, &QLineEdit::textChanged, this, &PlotDialog::validate);
-  validate();
+  // spin steps settle before they count (each one recomputes the plot)
+  settle_ = new QTimer(this);
+  settle_->setSingleShot(true);
+  settle_->setInterval(350);
+  connect(settle_, &QTimer::timeout, this, [this]() { emit changed(); });
+
+  auto edited = [this]() {
+      update();
+      if(!filling_ && isValid())
+        emit changed();
+    };
+  for(QCheckBox* c : { autoRange_, angular_, xLog_, db_, yLog_, degrees_ })
+    connect(c, &QCheckBox::toggled, this, edited);
+  connect(kind_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
+  connect(start_, &QLineEdit::editingFinished, this, edited);
+  connect(stop_, &QLineEdit::editingFinished, this, edited);
+  connect(start_, &QLineEdit::textChanged, this, &PlotSettingsWidget::update);
+  connect(stop_, &QLineEdit::textChanged, this, &PlotSettingsWidget::update);
+  connect(points_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+    [this]() { if(!filling_) settle_->start(); });
+
+  setSettings(s);
 }
 
 
-void PlotDialog::validate()
+void PlotSettingsWidget::setSettings(const PlotSettings& s)
+{
+  filling_ = true;
+  kind_->setCurrentIndex(qMax(0, kind_->findData(s.kind)));
+  autoRange_->setChecked(s.autoRange);
+  start_->setText(units::formatForEdit(QString::number(s.fStart, 'g', 8)));
+  stop_->setText(units::formatForEdit(QString::number(s.fStop, 'g', 8)));
+  points_->setValue(s.pointsPerDecade);
+  angular_->setChecked(s.angular);
+  xLog_->setChecked(s.xLog);
+  db_->setChecked(s.magnitudeDb);
+  yLog_->setChecked(s.yLog);
+  degrees_->setChecked(s.phaseDegrees);
+  settle_->stop();
+  filling_ = false;
+  update();
+}
+
+
+void PlotSettingsWidget::update()
 {
   start_->setEnabled(!autoRange_->isChecked());
   stop_->setEnabled(!autoRange_->isChecked());
   yLog_->setEnabled(!db_->isChecked());   // dB values can be negative
-
-  double a = 0., b = 0.;
-  const bool ok = autoRange_->isChecked()
-    || (units::parse(start_->text(), "Hz", &a)
-        && units::parse(stop_->text(), "Hz", &b) && a > 0 && b > a);
-  buttons_->button(QDialogButtonBox::Ok)->setEnabled(ok);
 }
 
 
-PlotSettings PlotDialog::settings() const
+bool PlotSettingsWidget::isValid() const
+{
+  double a = 0., b = 0.;
+  return autoRange_->isChecked()
+    || (units::parse(start_->text(), "Hz", &a)
+        && units::parse(stop_->text(), "Hz", &b) && a > 0 && b > a);
+}
+
+
+PlotSettings PlotSettingsWidget::settings() const
 {
   PlotSettings s;
   s.kind = kind_->currentData().toInt();
@@ -144,6 +169,33 @@ PlotSettings PlotDialog::settings() const
   s.yLog = yLog_->isChecked() && !s.magnitudeDb;
   s.phaseDegrees = degrees_->isChecked();
   return s;
+}
+
+
+PlotDialog::PlotDialog(const PlotSettings& s, bool newPlot, QWidget* parent)
+  : QDialog(parent)
+{
+  setWindowTitle(newPlot ? tr("New Plot") : tr("Plot Settings"));
+
+  form_ = new PlotSettingsWidget(s);
+  buttons_ = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  if(newPlot)
+    buttons_->button(QDialogButtonBox::Ok)->setText(tr("&Plot"));
+  connect(buttons_, &QDialogButtonBox::accepted, this, &QDialog::accept);
+  connect(buttons_, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+  QVBoxLayout* layout = new QVBoxLayout(this);
+  layout->addWidget(form_);
+  layout->addWidget(buttons_);
+
+  auto validate = [this]() {
+      buttons_->button(QDialogButtonBox::Ok)->setEnabled(form_->isValid());
+    };
+  for(QLineEdit* e : form_->findChildren<QLineEdit*>())
+    connect(e, &QLineEdit::textChanged, this, validate);
+  for(QCheckBox* c : form_->findChildren<QCheckBox*>())
+    connect(c, &QCheckBox::toggled, this, validate);
+  validate();
 }
 
 

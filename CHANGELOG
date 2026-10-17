@@ -68,6 +68,17 @@ QSapecNG CHANGELOG
       first Resolve opens a Bode plot; Plot > Plot Settings changes the
       current one, Window > Plots Window (Ctrl+Shift+P) brings it back;
       size and place are remembered
+    o Plot Settings is a panel beside the plots (Plot > Plot Settings):
+      it shows the current plot's settings and applies every change at
+      once; Run > New Plot keeps its dialog
+    o Markers panel: closed until the first marker is placed; the Peak
+      buttons move the selected marker to the previous / next peak of the
+      magnitude; -3 dB places
+      a marker where the magnitude is 3 dB below the selected one and makes
+      that the reference (bandwidth in the difference columns)
+    o Pole-zero map: the same scale on both axes, whatever the window's
+      shape
+    o Plot > Antialiasing: smooth curves on or off (kept)
     o Differential markers: Reference makes the selected marker the
       reference; the others show their difference from it in magnitude
       and phase (in the panel and on the plot) and in frequency

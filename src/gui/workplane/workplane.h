@@ -44,6 +44,7 @@ class QHBoxLayout;
 class QDoubleSpinBox;
 class QTableWidget;
 class QLineEdit;
+class QLabel;
 
 class QwtPlotGrid;
 class QwtPickerMachine;
@@ -207,6 +208,9 @@ public:
 
   const QwtPlot& const_plot() const { return *plot_; }
 
+signals:
+  void markersPanelChanged(bool visible);
+
 public slots:
   void setDirty();
   void xAxisLogScale(bool log = true);
@@ -229,6 +233,18 @@ public slots:
   void editVerticalRange();
   // WorkPlane > Reset View: undo zooming and panning
   void resetView();
+
+public:
+  // smooth curves and lines (Plot > Antialiasing, kept between sessions)
+  static bool antialiased();
+  static void setAntialiasedDefault(bool on);
+  void applyAntialiasing();
+  void equalizeAxes();
+  // marker searches (Markers panel)
+  double magnitudeAt(double hz) const;
+  QVector<QPointF> magnitudeGrid() const;
+  void markerToPeak(int direction);
+  void markerMinus3dB();
   // markers (frequencies, Hz) and their panel
   void addMarker(double hz);
   void setMarkersPanelVisible(bool visible);
@@ -298,7 +314,8 @@ protected:
   QTableWidget* markerTable_ = nullptr;
   QLineEdit* stepEdit_ = nullptr;
   bool fillingTable_ = false;
-  bool markersPanelWanted_ = true;
+  bool markersPanelWanted_ = false;   // opens with the first marker
+  QLabel* markerNote_ = nullptr;      // what a marker search found (or not)
   double refHz_ = 0.;                     // reference marker (0: none)
   void setMarker(int row, double hz);
   void removeMarker(int row);

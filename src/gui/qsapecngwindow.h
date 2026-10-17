@@ -75,6 +75,7 @@ class QLogPolicy;
 class SchematicEditor;
 class SideBarModel;
 class SideBarView;
+class PlotSettingsWidget;
 
 class Item;
 
@@ -234,6 +235,8 @@ private:
   // plots live in their own window, one tab each
   QMainWindow* plotWindow_ = nullptr;
   QTabWidget* plotTabs_ = nullptr;
+  QDockWidget* plotSettingsDock_ = nullptr;
+  PlotSettingsWidget* plotSettingsForm_ = nullptr;
   QAction* showPlotsAct_ = nullptr;
   void createPlotWindow();
   void showPlotWindow();
@@ -323,6 +326,7 @@ private:
   QAction* plotSettingsAct_;
   QAction* clearMarkersAct_;
   QAction* markersPanelAct_;
+  QAction* antialiasAct_;
   QAction* printPlotAct_;
   QAction* resetViewAct_;
   /* plotter noop acts */

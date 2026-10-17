@@ -51,6 +51,8 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QSignalBlocker>
+#include <QScrollArea>
 #include <QMainWindow>
 #include <QFileDialog>
 #include <QDir>
@@ -180,6 +182,8 @@ void QSapecNGWindow::closeEvent(QCloseEvent* event)
     if(plotWindow_) {
       QSettings().setValue(QStringLiteral("PlotWindow/geometry"),
         plotWindow_->saveGeometry());
+      QSettings().setValue(QStringLiteral("PlotWindow/state"),
+        plotWindow_->saveState());
       plotWindow_->close();
       delete plotWindow_;
       plotWindow_ = nullptr;
@@ -297,6 +301,12 @@ WorkPlane* QSapecNGWindow::createPlot(SchematicEditor* editor,
   plane->applySettings(settings);
 
   createPlotWindow();
+  connect(plane, &WorkPlane::markersPanelChanged, this, [this, plane](bool on) {
+      if(plane != currentPlot_)
+        return;
+      QSignalBlocker block(markersPanelAct_);
+      markersPanelAct_->setChecked(on);
+    });
   PlotEntry entry{ plane, editor };
   plots_.append(entry);
   const int index = plotTabs_->addTab(plane, QString());
@@ -345,6 +355,8 @@ void QSapecNGWindow::createPlotWindow()
     });
   connect(plotTabs_, &QTabWidget::currentChanged, this, [this]() {
       currentPlot_ = qobject_cast<WorkPlane*>(plotTabs_->currentWidget());
+      if(currentPlot_ && plotSettingsForm_)
+        plotSettingsForm_->setSettings(currentPlot_->settings());
       updateMenus();
     });
 
@@ -367,7 +379,38 @@ void QSapecNGWindow::createPlotWindow()
   // F8 (resolve the schematic) also from here
   plotWindow_->addAction(resolveAct_);
 
+  // settings of the current plot, applied as they are changed
+  plotSettingsForm_ = new PlotSettingsWidget(PlotSettings::load());
+  QScrollArea* scroll = new QScrollArea;
+  scroll->setWidget(plotSettingsForm_);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  QWidget* holder = new QWidget;
+  QVBoxLayout* holderLayout = new QVBoxLayout(holder);
+  holderLayout->setContentsMargins(8, 8, 8, 8);
+  holderLayout->addWidget(scroll);
+  plotSettingsDock_ = new QDockWidget(tr("Plot Settings"), plotWindow_);
+  plotSettingsDock_->setObjectName(QStringLiteral("plotSettingsDock"));
+  plotSettingsDock_->setWidget(holder);
+  plotSettingsDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  plotWindow_->addDockWidget(Qt::RightDockWidgetArea, plotSettingsDock_);
+  plotSettingsDock_->hide();
+  connect(plotSettingsDock_, &QDockWidget::visibilityChanged, this, [this]() {
+      QSignalBlocker block(plotSettingsAct_);
+      plotSettingsAct_->setChecked(plotSettingsDock_->isVisible());
+    });
+  connect(plotSettingsForm_, &PlotSettingsWidget::changed, this, [this]() {
+      if(!currentPlot_ || !plotSettingsForm_->isValid())
+        return;
+      const PlotSettings s = plotSettingsForm_->settings();
+      s.save();
+      currentPlot_->applySettings(s);
+      updatePlotTitle(currentPlot_);
+    });
+
   QSettings settings;
+  plotWindow_->restoreState(
+    settings.value(QStringLiteral("PlotWindow/state")).toByteArray());
   if(!plotWindow_->restoreGeometry(
       settings.value(QStringLiteral("PlotWindow/geometry")).toByteArray()))
   {
@@ -425,14 +468,12 @@ void QSapecNGWindow::refreshPlots(SchematicEditor* editor)
 
 void QSapecNGWindow::editPlotSettings()
 {
-  if(!currentPlot_)
-    return;
-  PlotDialog dialog(currentPlot_->settings(), false, this);
-  if(dialog.exec() != QDialog::Accepted)
-    return;
-  dialog.settings().save();
-  currentPlot_->applySettings(dialog.settings());
-  updatePlotTitle(currentPlot_);
+  createPlotWindow();
+  if(currentPlot_)
+    plotSettingsForm_->setSettings(currentPlot_->settings());
+  plotSettingsDock_->show();
+  plotSettingsDock_->raise();
+  showPlotWindow();
 }
 
 
@@ -1388,11 +1429,16 @@ void QSapecNGWindow::createActions()
 
   // plots (each in its own dock); the unit and range choices are in the
   // plot dialog
-  plotSettingsAct_ = new QAction(tr("Plot &Settings..."), this);
-  plotSettingsAct_->setStatusTip(tr("What the current plot shows, its "
-    "frequency range and units"));
-  connect(plotSettingsAct_, &QAction::triggered,
-    this, &QSapecNGWindow::editPlotSettings);
+  plotSettingsAct_ = new QAction(tr("Plot &Settings"), this);
+  plotSettingsAct_->setCheckable(true);
+  plotSettingsAct_->setStatusTip(tr("A panel beside the plots: what the "
+    "current plot shows, its frequency range and units (applied at once)"));
+  connect(plotSettingsAct_, &QAction::toggled, this, [this](bool on) {
+      if(on)
+        editPlotSettings();
+      else if(plotSettingsDock_)
+        plotSettingsDock_->hide();
+    });
 
   vrangeAct_ = new QAction(tr("&Vertical Range..."), this);
   vrangeAct_->setStatusTip(tr("Fixed or automatic range of the vertical axis"));
@@ -1415,11 +1461,22 @@ void QSapecNGWindow::createActions()
 
   markersPanelAct_ = new QAction(tr("&Markers Panel"), this);
   markersPanelAct_->setCheckable(true);
-  markersPanelAct_->setChecked(true);
+  markersPanelAct_->setChecked(false);
   markersPanelAct_->setShortcut(Qt::CTRL | Qt::Key_M);
   markersPanelAct_->setStatusTip(tr("Show or hide the list of markers beside the plot"));
   connect(markersPanelAct_, &QAction::toggled, this,
     [this](bool on) { if(currentPlot_) currentPlot_->setMarkersPanelVisible(on); });
+
+  antialiasAct_ = new QAction(tr("&Antialiasing"), this);
+  antialiasAct_->setCheckable(true);
+  antialiasAct_->setChecked(WorkPlane::antialiased());
+  antialiasAct_->setStatusTip(tr("Smooth curves and lines in the plots"));
+  connect(antialiasAct_, &QAction::toggled, this, [this](bool on) {
+      WorkPlane::setAntialiasedDefault(on);
+      for(const PlotEntry& e : plots_)
+        if(e.plane)
+          e.plane->applyAntialiasing();
+    });
 
   printPlotAct_ = new QAction(theme::icon("print"), tr("&Print Plot..."), this);
   printPlotAct_->setStatusTip(tr("Print the current plot"));
@@ -1542,6 +1599,7 @@ void QSapecNGWindow::createMenus()
   workplaneMenu_->addAction(resetViewAct_);
   workplaneMenu_->addAction(clearMarkersAct_);
   workplaneMenu_->addAction(markersPanelAct_);
+  workplaneMenu_->addAction(antialiasAct_);
   workplaneMenu_->addSeparator();
   workplaneMenu_->addAction(replotAct_);
   workplaneMenu_->addAction(printPlotAct_);

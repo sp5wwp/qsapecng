@@ -17,7 +17,6 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #ifndef PLOTDIALOG_H
 #define PLOTDIALOG_H
 
@@ -25,6 +24,7 @@
 #include "gui/workplane/workplane.h"
 
 #include <QDialog>
+#include <QWidget>
 
 
 class QCheckBox;
@@ -32,26 +32,34 @@ class QComboBox;
 class QDialogButtonBox;
 class QLineEdit;
 class QSpinBox;
+class QTimer;
 
 
 namespace qsapecng
 {
 
 
-// Run > New Plot and Plot > Settings: what to plot, the frequency sweep
-// and the units of the axes.
-class PlotDialog: public QDialog
+// What to plot, the frequency sweep and the units of the axes: the form
+// of Run > New Plot and of the Plot Settings panel (which applies every
+// change at once).
+class PlotSettingsWidget: public QWidget
 {
 
   Q_OBJECT
 
 public:
-  PlotDialog(const PlotSettings& settings, bool newPlot, QWidget* parent = 0);
+  PlotSettingsWidget(const PlotSettings& settings, QWidget* parent = 0);
 
   PlotSettings settings() const;
+  void setSettings(const PlotSettings& settings);   // no changed()
+  bool isValid() const;
+
+signals:
+  // an edit (typing is reported when it ends; spin steps a moment later)
+  void changed();
 
 private slots:
-  void validate();
+  void update();
 
 private:
   QComboBox* kind_;
@@ -64,6 +72,25 @@ private:
   QCheckBox* db_;
   QCheckBox* yLog_;
   QCheckBox* degrees_;
+  QTimer* settle_;
+  bool filling_ = false;
+
+};
+
+
+// Run > New Plot
+class PlotDialog: public QDialog
+{
+
+  Q_OBJECT
+
+public:
+  PlotDialog(const PlotSettings& settings, bool newPlot, QWidget* parent = 0);
+
+  PlotSettings settings() const { return form_->settings(); }
+
+private:
+  PlotSettingsWidget* form_;
   QDialogButtonBox* buttons_;
 
 };
