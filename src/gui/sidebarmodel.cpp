@@ -151,6 +151,16 @@ void SideBarModel::setupSideBar()
   voltageSourceItemData[Qt::UserRole] = SchematicScene::VoltageSourceItemType;
   componentList_.append(voltageSourceItemData);
 
+  QMap<int, QVariant> singleSourceItemData;
+  singleSourceItemData[Qt::DisplayRole] = tr("Voltage Source (1-pin)");
+  singleSourceItemData[Qt::DecorationRole] =
+    theme::symbolPixmap("voltage-1pin", QSize(32, 32));
+  singleSourceItemData[Qt::ToolTipRole] =
+    tr("Voltage source with one pin; the other end is the ground");
+  singleSourceItemData[Qt::UserRole] =
+    SchematicScene::SingleVoltageSourceItemType;
+  componentList_.append(singleSourceItemData);
+
   QMap<int, QVariant> currentSourceItemData;
   currentSourceItemData[Qt::DisplayRole] = tr("Current Source");
   currentSourceItemData[Qt::DecorationRole] =
@@ -219,6 +229,7 @@ void SideBarModel::refreshSymbols()
     { SchematicScene::InductorItemType, "inductor" },
     { SchematicScene::CapacitorItemType, "capacitor" },
     { SchematicScene::VoltageSourceItemType, "voltage" },
+    { SchematicScene::SingleVoltageSourceItemType, "voltage-1pin" },
     { SchematicScene::CurrentSourceItemType, "current" },
     { SchematicScene::VCVSItemType, "vcvs" },
     { SchematicScene::CCVSItemType, "ccvs" },

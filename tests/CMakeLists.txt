@@ -43,3 +43,8 @@ add_test(NAME opamp_finite_gain
   COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/opamp-finite-gain.info
     "A1 * R2 * V1 / ( ( - 0.031831 * R2 ) + ( - 0.031831 * R1 ) ) * s + ( ( - R2 ) + ( - A1 * R1 ) + ( - R1 ) )"
     "1 / ( - 1.7507e-07 ) * s + ( - 0.100005 )")
+# one-pin voltage source (saved as V from ground to the pin, type 22)
+add_test(NAME single_pin_source
+  COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/single-pin-source.info
+    "V1 / C1 * R1 * s + 1"
+    "1 / 0.001 * s + 1")

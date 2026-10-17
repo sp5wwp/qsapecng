@@ -252,6 +252,25 @@ void SchematicSceneParser::parse_item(
 
       break;
     }
+  case SchematicScene::SingleVoltageSourceItemType:
+    {
+      // saved as a voltage source from the ground (-) to the pin (+); the
+      // "type" property brings the one-pin symbol back on loading
+      Component* component = static_cast<Component*>(item);
+      QVector<int> nodes = component->nodes();
+      storeLabel(props, component);
+
+      builder.add_dual_component(
+        sapecng::abstract_builder::V,
+        subproperties.value("__NAME").toStdString(),
+        subproperties.value("Value").toDouble(),
+        QVariant(subproperties.value("Symbolic")).toBool(),
+        SchematicScene::Ground, nodes.at(0),
+        props
+      );
+
+      break;
+    }
   case SchematicScene::CCCSItemType:
   case SchematicScene::CCVSItemType:
   case SchematicScene::VCCSItemType:
@@ -492,8 +511,12 @@ void SchematicSceneBuilder::add_dual_component(
       }
     case sapecng::abstract_builder::V:
       {
-        component = static_cast<Component*>(
-          SchematicScene::itemByType(SchematicScene::VoltageSourceItemType));
+        // a one-pin (to ground) source is a V with its own "type"
+        const bool single = QString::fromStdString(props["type"]).toInt()
+          == SchematicScene::SingleVoltageSourceItemType;
+        component = static_cast<Component*>(SchematicScene::itemByType(
+          single ? SchematicScene::SingleVoltageSourceItemType
+                 : SchematicScene::VoltageSourceItemType));
         break;
       }
     case sapecng::abstract_builder::I:

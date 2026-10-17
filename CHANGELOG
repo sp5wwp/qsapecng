@@ -73,6 +73,11 @@ QSapecNG CHANGELOG
       (100dB, 200V/mV, 1e5V/V or a number; can stay symbolic) and an
       optional gain-bandwidth product (single-pole model)
     o Gain values accept dB, V/mV and V/V
+    o Voltage Source (1-pin): a source from the ground to its one pin,
+      drawn as a lead ending in a small circle (saved as a voltage source plus
+      its own type, so older versions open it as a two-pin source)
+    o Repository cleanup: unused bitmap icons and symbols (no longer built
+      into the program), old SapecNG images, macOS leftovers, the 2014 TODO
     o Settings > Component labels: name only (default) or name and value,
       e.g. "C1 / 1 µF"
     o Side panels start closed except Components and Messages (Window >

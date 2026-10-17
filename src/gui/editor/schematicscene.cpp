@@ -149,6 +149,25 @@ QPainterPath SchematicScene::outPath()
 }
 
 
+QPainterPath SchematicScene::singleVoltageSourcePath()
+{
+  // lead from the pin (bottom) ending in a small open circle (as in the
+  // Falstad simulator's rail symbol)
+  QPainterPath path;
+  const qreal step = GridStep;
+
+  // 2 steps from the pin to the top of the circle
+  path.moveTo(step, 2 * step);
+  path.lineTo(step, 0.6 * step);
+  path.addEllipse(QPointF(step, 0.3 * step), 0.3 * step, 0.3 * step);
+  // invisible marks: a 2 x 2 step box, so rotation keeps the pin on grid
+  path.addRect(0, 0, 1E-99, 1E-99);
+  path.addRect(2 * step, 2 * step, 1E-99, 1E-99);
+
+  return path;
+}
+
+
 QRectF SchematicScene::outPivotRect()
 {
   // the box of the old round Out marker: rotation turns around it, so
@@ -801,6 +820,13 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
       item = new Component(vcvsPath(), nodes);
       break;
     }
+  case SingleVoltageSourceItemType:
+    {
+      // one pin at the bottom; the other end is the ground
+      item = new Component(singleVoltageSourcePath(),
+        QPointF(GridStep, 2 * GridStep));
+      break;
+    }
   case VoltageSourceItemType:
     {
       QList<QPointF> nodes;
@@ -915,6 +941,8 @@ QString SchematicScene::itemNameByType(SchematicScene::SupportedItemType type)
     return QString(QObject::tr("Capacitor"));
   case VoltageSourceItemType:
     return QString(QObject::tr("Voltage Source"));
+  case SingleVoltageSourceItemType:
+    return QString(QObject::tr("Voltage Source (1-pin)"));
   case TransformerItemType:
     return QString(QObject::tr("Ideal Transformer"));
   case MutualInductanceItemType:
@@ -954,6 +982,7 @@ QChar SchematicScene::itemIdByType(SchematicScene::SupportedItemType type)
   case CapacitorItemType:
     return QChar('C');
   case VoltageSourceItemType:
+  case SingleVoltageSourceItemType:
     return QChar('V');
   case TransformerItemType:
     return QChar('n');
@@ -1293,6 +1322,7 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
       case OpAmplItemType:
       case CurrentSourceItemType:
       case VoltageSourceItemType:
+      case SingleVoltageSourceItemType:
       case TransformerItemType:
       case MutualInductanceItemType:
         {
@@ -1516,6 +1546,7 @@ void SchematicScene::removeSupportedItem(QGraphicsItem* gItem)
       case VCVSItemType:
       case CurrentSourceItemType:
       case VoltageSourceItemType:
+      case SingleVoltageSourceItemType:
       case TransformerItemType:
       case MutualInductanceItemType:
       case OpAmplItemType:
@@ -1629,6 +1660,7 @@ void SchematicScene::clearSupportedItem(QGraphicsItem* gItem)
       case VCVSItemType:
       case CurrentSourceItemType:
       case VoltageSourceItemType:
+      case SingleVoltageSourceItemType:
       case TransformerItemType:
       case MutualInductanceItemType:
       case OpAmplItemType:
@@ -1909,7 +1941,8 @@ QStringList SchematicScene::sourceNames() const
   QStringList names;
   foreach(Item* item, standardList_) {
     const SupportedItemType type = itemType(item);
-    if(type == VoltageSourceItemType || type == CurrentSourceItemType)
+    if(type == VoltageSourceItemType || type == SingleVoltageSourceItemType
+        || type == CurrentSourceItemType)
       if(QtProperty* prop = item->data(1).value<QtProperty*>())
         names << prop->valueText();
   }
@@ -1952,6 +1985,7 @@ QString SchematicScene::valueUnit(SchematicScene::SupportedItemType type)
   case CapacitorItemType:
     return QStringLiteral("F");
   case VoltageSourceItemType:
+  case SingleVoltageSourceItemType:
     return QStringLiteral("V");
   case CurrentSourceItemType:
     return QStringLiteral("A");
@@ -2660,6 +2694,10 @@ void SchematicScene::setupProperties()
   typeRootMap_[VCVSItemType] =
     groupManager_->addProperty(itemNameByType(VCVSItemType));
 //   properties_->addSubProperty(typeRootMap_[VCVSItemType]);
+
+  itemCntMap_[SingleVoltageSourceItemType] = 0;
+  typeRootMap_[SingleVoltageSourceItemType] =
+    groupManager_->addProperty(itemNameByType(SingleVoltageSourceItemType));
 
   itemCntMap_[VoltageSourceItemType] = 0;
   typeRootMap_[VoltageSourceItemType] =

@@ -65,6 +65,7 @@ ValueMeaning valueMeaning(SchematicScene::SupportedItemType type)
   case SchematicScene::CapacitorItemType:
     return { QObject::tr("Capacitance"), SchematicScene::valueUnit(type) };
   case SchematicScene::VoltageSourceItemType:
+  case SchematicScene::SingleVoltageSourceItemType:
     return { QObject::tr("Voltage"), SchematicScene::valueUnit(type) };
   case SchematicScene::CurrentSourceItemType:
     return { QObject::tr("Current"), SchematicScene::valueUnit(type) };

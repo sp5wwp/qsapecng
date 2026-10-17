@@ -101,6 +101,9 @@ public:
     WireItemType,
 
     LabelItemType,
+
+    // new types go last: the numbers are saved in files
+    SingleVoltageSourceItemType,
   };
 
   static QPainterPath nilPath();
@@ -109,6 +112,7 @@ public:
   static QPainterPath portPath();
   static QRectF outPivotRect();
   static QPainterPath outPath();
+  static QPainterPath singleVoltageSourcePath();
   static QPainterPath voltmeterPath();
   static QPainterPath ammeterPath();
 
