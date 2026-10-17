@@ -32,6 +32,7 @@
 class QWidget;
 
 class QProgressBar;
+class QLabel;
 
 class QMdiArea;
 class QMdiSubWindow;
@@ -153,6 +154,7 @@ private slots:
   void setActiveSubWindow(QWidget* window);
   void syncWithCurrentEditor();
   void updateResultPanel();
+  void updateStatus();
   void setResistorStyle(theme::ResistorStyle style);
   void setShowComponentValues(bool show);
   void subWindowActivated(QMdiSubWindow* window);
@@ -188,6 +190,10 @@ private:
 
 private:
   QProgressBar* progressBar_;
+  QLabel* statusLabel_;
+  QLabel* countLabel_;
+  QLabel* zoomLabel_;
+  QLabel* positionLabel_;
 
   SideBarModel* sideBarModel_;
   SideBarView* sideBarView_;
@@ -291,14 +297,11 @@ private:
 
   QSignalMapper* fMapper_;
   QAction* magnitudeAct_;
-  QAction* magnitudeRadAct_;
   QAction* phaseAct_;
-  QAction* phaseRadAct_;
-  QAction* gainAct_;
-  QAction* gainRadAct_;
-  QAction* lossAct_;
-  QAction* lossRadAct_;
   QAction* zerosPolesAct_;
+  QAction* dbAct_;
+  QAction* degreesAct_;
+  QAction* angularAct_;
   /* plotter noop acts */
   QAction* xLogAct_;
   QAction* yLogAct_;

@@ -79,6 +79,10 @@ protected:
     }
   }
 
+signals:
+  void zoomChanged(qreal factor);          // 1 = 100 %
+  void cursorMoved(const QPointF& scenePos);
+
 public slots:
   void zoomIn()
     { zoomBy(1.2); }
@@ -87,7 +91,7 @@ public slots:
     { zoomBy(1 / 1.2); }
 
   void normalSize()
-    { resetTransform(); updateCanvas(); }
+    { resetTransform(); updateCanvas(); emit zoomChanged(1.); }
 
   // the scrollable area: the drawing plus a screenful around it, so there
   // is always room to pan, place parts and zoom towards an edge
@@ -113,6 +117,7 @@ public slots:
     zoomBy(1.);
     updateCanvas();
     centerOn(drawing.center());
+    emit zoomChanged(qAbs(transform().m11()) + qAbs(transform().m12()));
   }
 
 protected:
@@ -165,6 +170,7 @@ protected:
 
   void mouseMoveEvent(QMouseEvent* event) override
   {
+    emit cursorMoved(mapToScene(event->position().toPoint()));
     if(panning_) {
       const QPoint p = event->position().toPoint();
       const QPoint d = p - panFrom_;
@@ -216,6 +222,7 @@ private:
       return;
     scale(factor, factor);
     updateCanvas();
+    emit zoomChanged(target);
   }
 
   QPoint boxStart_;

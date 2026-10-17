@@ -57,6 +57,12 @@ QSapecNG CHANGELOG
     o The Out marker is a tag ("Out") pointing at its terminal
     o Plot markers: click a curve to pin a labelled marker, click it again
       to remove it; WorkPlane > Clear Markers
+    o WorkPlane: Magnitude, Phase and Poles & Zeros, with units on the
+      axes; options for magnitude in dB or linear, phase in degrees or
+      radians, frequency in Hz or rad/s, and log or linear axes (kept
+      between sessions). The separate Gain and Loss plots are gone
+    o Status bar: what is going on and what the active tool expects, the
+      number of parts and wires, zoom and pointer position
     o Settings > Component labels: name only (default) or name and value,
       e.g. "C1 / 1 µF"
     o Side panels start closed except Components and Messages (Window >
@@ -70,6 +76,9 @@ QSapecNG CHANGELOG
     o Fixed: after switching from dark to light (or back) with no
       schematic open, the editor background and the component icons kept
       the old colours
+    o Fixed: Poles & Zeros crashed for a constant transfer function (e.g. an
+      inverting amplifier); it now says there are none. Roots at s = 0 are
+      no longer counted twice
     o Fixed: segmentation fault on Resolve when terms cancel out in the
       transfer function (issue #6): the solver advanced an erased iterator
     o Fixed: saving without a known extension wrote an empty file and

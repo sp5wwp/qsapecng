@@ -154,6 +154,8 @@ class WorkPlane: public QWidget
   Q_OBJECT
 
 public:
+  enum Kind { MagnitudeKind = 0, PhaseKind = 1, PoleZeroKind = 2 };
+
   enum F
   {
     MAGNITUDE,
@@ -191,6 +193,12 @@ public slots:
   void plot(int f);
   void redraw();
   void clearMarkers();
+
+  // what is plotted (WorkPlane::Kind), independent of its units
+  void showKind(int kind);
+  void setMagnitudeDb(bool db);
+  void setPhaseDegrees(bool degrees);
+  void setAngularFrequency(bool radPerSecond);
   void print(QPrinter& printer);
 
 private:
@@ -214,7 +222,14 @@ private:
   QwtPlotPicker* tracker_;
   F lastId_;
   bool xLog_ = true;   // user's x-axis log-scale choice
-  bool yLog_ = false;  // user's y-axis log-scale choice
+  bool yLog_ = false;  // user's y-axis log-scale choice (linear magnitude)
+  int kind_ = MagnitudeKind;
+  bool magnitudeDb_ = true;
+  bool phaseDegrees_ = true;
+  bool angular_ = false;   // frequency axis in rad/s instead of Hz
+
+  F currentF() const;
+  void relabel(F f);
 
   void applyAxisScales(bool forceLinear);
 

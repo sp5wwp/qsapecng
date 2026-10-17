@@ -135,11 +135,13 @@ QPainterPath SchematicScene::outPath()
   QPainterPath path;
   const qreal step = GridStep;
 
+  // 1.8 steps high, centred on the terminal
+  const qreal top = 0.1 * step, bottom = 1.9 * step;
   path.moveTo(0, step);
-  path.lineTo(0.8 * step, 0);
-  path.lineTo(4 * step, 0);
-  path.lineTo(4 * step, 2 * step);
-  path.lineTo(0.8 * step, 2 * step);
+  path.lineTo(0.8 * step, top);
+  path.lineTo(4 * step, top);
+  path.lineTo(4 * step, bottom);
+  path.lineTo(0.8 * step, bottom);
   path.closeSubpath();
 
   return path;
@@ -1838,6 +1840,43 @@ QString SchematicScene::nextFreeName(SupportedItemType type)
     name = itemIdByType(type) + QString::number(++itemCntMap_[type]);
   } while(used.contains(name));
   return name;
+}
+
+
+QString SchematicScene::toolHint() const
+{
+  if(hasPendingWire()) {
+    if(wireInProgress_)
+      return tr("Editing a wire: click where it should end - Esc cancels");
+    if(hasValidFromPoint_)
+      return tr("Wire: click to add a corner; ending on a pin or a wire "
+                "(or a double-click) finishes it - / flips the bend, "
+                "Esc stops");
+    return tr("Wire: click where the wire starts - Esc leaves the tool");
+  }
+  if(hasUserDefReq())
+    return tr("Placing a sub-circuit: click to place it - R rotates, "
+              "Esc cancels");
+  if(hasActiveItem())
+    return tr("Placing %1: click to place it - R rotates, Esc cancels")
+      .arg(itemNameByType(activeItem_).toLower());
+  return QString();
+}
+
+
+int SchematicScene::partCount() const
+{
+  return standardList_.size() + userDefList_.size();
+}
+
+
+int SchematicScene::wireCount() const
+{
+  int n = 0;
+  foreach(QGraphicsItem* item, items())
+    if(!item->parentItem() && dynamic_cast<Wire*>(item))
+      ++n;
+  return n;
 }
 
 

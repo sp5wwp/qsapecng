@@ -483,7 +483,11 @@ void WorkPlane::applyAxisScales(bool forceLinear)
   else
     plot_->setAxisScaleEngine(QwtPlot::xBottom, new QwtLinearScaleEngine);
 
-  if(yLog_ && !forceLinear)
+  // dB, phase and pole/zero values can be negative: log only for a
+  // linear magnitude
+  const bool linearMagnitude =
+    lastId_ == MAGNITUDE || lastId_ == MAGNITUDE_RAD;
+  if(yLog_ && !forceLinear && linearMagnitude)
     plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLogScaleEngine(10));
   else
     plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLinearScaleEngine);
@@ -589,6 +593,9 @@ void WorkPlane::plot(WorkPlane::F f)
         plot_->setAxisTitle(QwtPlot::xBottom,
           functor_traits<sapecng::phase>::xLabel + tr(" (rad/s)"));
 
+      if(phaseDegrees_)
+        for(double& v : res.second)
+          v *= 180. / (4. * std::atan(1.));
       setupCurve(res, PHASE);
       std::vector<double> rad = res.first;
       for(std::vector<double>::iterator i = rad.begin(); i < rad.end(); ++i)
@@ -736,11 +743,123 @@ void WorkPlane::plot(WorkPlane::F f)
     break;
   }
 
+  relabel(f);
+
   plot_->setFocus(Qt::OtherFocusReason);
   plot_->updateAxes();
   plot_->replot();
 
   setEnabled(true);
+}
+
+
+WorkPlane::F WorkPlane::currentF() const
+{
+  switch(kind_) {
+  case PhaseKind:
+    return angular_ ? PHASE_RAD : PHASE;
+  case PoleZeroKind:
+    return ZEROS;
+  default:
+    if(magnitudeDb_)
+      return angular_ ? GAIN_RAD : GAIN;
+    return angular_ ? MAGNITUDE_RAD : MAGNITUDE;
+  }
+}
+
+
+void WorkPlane::relabel(F f)
+{
+  // titles and axes with units
+  const QString freq = (f == MAGNITUDE_RAD || f == PHASE_RAD
+      || f == GAIN_RAD || f == LOSS_RAD)
+    ? tr("Angular frequency (rad/s)") : tr("Frequency (Hz)");
+  const QString xUnit = (f == MAGNITUDE_RAD || f == PHASE_RAD
+      || f == GAIN_RAD || f == LOSS_RAD) ? QStringLiteral("rad/s")
+                                         : QStringLiteral("Hz");
+  QString title, yTitle, yUnit;
+
+  switch(f) {
+  case MAGNITUDE:
+  case MAGNITUDE_RAD:
+    title = tr("Magnitude");
+    yTitle = tr("Magnitude");
+    break;
+  case GAIN:
+  case GAIN_RAD:
+    title = tr("Magnitude");
+    yTitle = tr("Magnitude (dB)");
+    yUnit = QStringLiteral("dB");
+    break;
+  case LOSS:
+  case LOSS_RAD:
+    title = tr("Loss");
+    yTitle = tr("Loss (dB)");
+    yUnit = QStringLiteral("dB");
+    break;
+  case PHASE:
+  case PHASE_RAD:
+    title = tr("Phase");
+    yTitle = phaseDegrees_ ? tr("Phase (°)") : tr("Phase (rad)");
+    yUnit = phaseDegrees_ ? QStringLiteral("°") : QStringLiteral("rad");
+    break;
+  case ZEROS:
+  case POLES:
+    {
+      const bool none = curves_[ZEROS].first->dataSize() == 0
+        && curves_[POLES].first->dataSize() == 0;
+      plot_->setTitle(none
+        ? tr("No poles or zeros: the transfer function is a constant")
+        : tr("Poles (×) and zeros (o)"));
+    }
+    plot_->setAxisTitle(QwtPlot::xBottom, tr("Real part (rad/s)"));
+    plot_->setAxisTitle(QwtPlot::yLeft, tr("Imaginary part (rad/s)"));
+    return;
+  default:
+    return;
+  }
+
+  plot_->setTitle(title);
+  plot_->setAxisTitle(QwtPlot::xBottom, freq);
+  plot_->setAxisTitle(QwtPlot::yLeft, yTitle);
+  if(MarkableCurve* mc = dynamic_cast<MarkableCurve*>(curves_[f].first))
+    mc->setUnits(xUnit, yUnit);
+}
+
+
+void WorkPlane::showKind(int kind)
+{
+  kind_ = kind;
+  plot(currentF());
+}
+
+
+void WorkPlane::setMagnitudeDb(bool db)
+{
+  magnitudeDb_ = db;
+  if(lastId_ != NOOP && kind_ == MagnitudeKind)
+    plot(currentF());
+}
+
+
+void WorkPlane::setPhaseDegrees(bool degrees)
+{
+  if(phaseDegrees_ == degrees)
+    return;
+  phaseDegrees_ = degrees;
+  // phase curves hold converted values: compute them again
+  curves_[PHASE].second = false;
+  curves_[PHASE_RAD].second = false;
+  if(lastId_ != NOOP && kind_ == PhaseKind)
+    plot(currentF());
+}
+
+
+void WorkPlane::setAngularFrequency(bool radPerSecond)
+{
+  angular_ = radPerSecond;
+  if(lastId_ != NOOP && kind_ != PoleZeroKind)
+    plot(currentF());
 }
 
 

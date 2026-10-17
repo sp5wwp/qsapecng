@@ -153,9 +153,8 @@ void Component::paint(
     painter->translate(box.center());
     painter->setTransform(upright, true);
     const QRectF r = upright.inverted().mapRect(QRectF(QPointF(0, 0), box.size()));
-    QFont font = theme::schematicFont(8);
-    font.setBold(true);
-    painter->setFont(font);
+    // the font of the component names and values
+    painter->setFont(theme::schematicFont(10));
     painter->setPen(text);
     painter->drawText(r.translated(-r.width() / 2, -r.height() / 2),
       Qt::AlignCenter, tag_);

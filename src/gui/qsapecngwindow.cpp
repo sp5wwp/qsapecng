@@ -139,6 +139,9 @@ QSapecNGWindow::QSapecNGWindow()
   workplane_->setContextMenu(workplaneMenu_);
   workplane_->xAxisLogScale(xLogAct_->isChecked());
   workplane_->yAxisLogScale(yLogAct_->isChecked());
+  workplane_->setMagnitudeDb(dbAct_->isChecked());
+  workplane_->setPhaseDegrees(degreesAct_->isChecked());
+  workplane_->setAngularFrequency(angularAct_->isChecked());
   workplane_->setData(
       std::map<std::string, double>(),
       sapecng::metacircuit::expression(),
@@ -157,6 +160,8 @@ QSapecNGWindow::QSapecNGWindow()
     this, SLOT(updateMenus()));
   connect(central_, SIGNAL(currentChanged(int)),
     this, SLOT(updateDocks()));
+  connect(central_, &QTabWidget::currentChanged,
+    this, &QSapecNGWindow::updateStatus);
 
   setCentralWidget(central_);
 
@@ -176,6 +181,7 @@ QSapecNGWindow::QSapecNGWindow()
   updateMenus();
   updateDocks();
   loadRecentFileList();
+  updateStatus();
 
   setWindowIcon(QIcon(":/images/qsapecng.png"));
   setWindowTitle(QString("%1 - %2")
@@ -855,13 +861,7 @@ void QSapecNGWindow::updateMenus()
   previousAct_->setEnabled(hasEditor);
 
   magnitudeAct_->setEnabled(hasWorkplane);
-  magnitudeRadAct_->setEnabled(hasWorkplane);
   phaseAct_->setEnabled(hasWorkplane);
-  phaseRadAct_->setEnabled(hasWorkplane);
-  gainAct_->setEnabled(hasWorkplane);
-  gainRadAct_->setEnabled(hasWorkplane);
-  lossAct_->setEnabled(hasWorkplane);
-  lossRadAct_->setEnabled(hasWorkplane);
   zerosPolesAct_->setEnabled(hasWorkplane);
 
   xLogAct_->setEnabled(hasWorkplane);
@@ -1188,62 +1188,73 @@ void QSapecNGWindow::createActions()
     this, SIGNAL(toggleGrid(bool)));
   toggleGridAct_->setChecked(true);
 
-  magnitudeAct_ = new QAction(tr("&Magnitude"), this);
-  magnitudeAct_->setStatusTip(tr("Magnitude function"));
-  connect(magnitudeAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(magnitudeAct_, WorkPlane::MAGNITUDE);
+  // what to plot; units and scales are options of the WorkPlane menu
+  QSettings plotSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
 
-  magnitudeRadAct_ = new QAction(tr("Magnitude (rad/s)"), this);
-  magnitudeRadAct_->setStatusTip(tr("Magnitude function"));
-  connect(magnitudeRadAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(magnitudeRadAct_, WorkPlane::MAGNITUDE_RAD);
+  magnitudeAct_ = new QAction(tr("&Magnitude"), this);
+  magnitudeAct_->setStatusTip(tr("Plot the magnitude of the transfer function"));
+  connect(magnitudeAct_, &QAction::triggered, this,
+    [this]() { workplane_->showKind(WorkPlane::MagnitudeKind); });
 
   phaseAct_ = new QAction(tr("&Phase"), this);
-  phaseAct_->setStatusTip(tr("Phase function"));
-  connect(phaseAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(phaseAct_, WorkPlane::PHASE);
+  phaseAct_->setStatusTip(tr("Plot the phase of the transfer function"));
+  connect(phaseAct_, &QAction::triggered, this,
+    [this]() { workplane_->showKind(WorkPlane::PhaseKind); });
 
-  phaseRadAct_ = new QAction(tr("Phase (rad/s)"), this);
-  phaseRadAct_->setStatusTip(tr("Phase function"));
-  connect(phaseRadAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(phaseRadAct_, WorkPlane::PHASE_RAD);
+  zerosPolesAct_ = new QAction(tr("P&oles && Zeros"), this);
+  zerosPolesAct_->setStatusTip(tr("Plot the poles and zeros in the s-plane"));
+  connect(zerosPolesAct_, &QAction::triggered, this,
+    [this]() { workplane_->showKind(WorkPlane::PoleZeroKind); });
 
-  gainAct_ = new QAction(tr("&Gain"), this);
-  gainAct_->setStatusTip(tr("Gain function"));
-  connect(gainAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(gainAct_, WorkPlane::GAIN);
+  dbAct_ = new QAction(tr("Magnitude in &dB"), this);
+  dbAct_->setCheckable(true);
+  dbAct_->setChecked(plotSettings.value("Workplane/magnitudeDb", true).toBool());
+  connect(dbAct_, &QAction::toggled, this, [this](bool on) {
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue("Workplane/magnitudeDb", on);
+      workplane_->setMagnitudeDb(on);
+    });
 
-  gainRadAct_ = new QAction(tr("Gain (rad/s)"), this);
-  gainRadAct_->setStatusTip(tr("Gain function"));
-  connect(gainRadAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(gainRadAct_, WorkPlane::GAIN_RAD);
+  degreesAct_ = new QAction(tr("Phase in de&grees"), this);
+  degreesAct_->setCheckable(true);
+  degreesAct_->setChecked(
+    plotSettings.value("Workplane/phaseDegrees", true).toBool());
+  connect(degreesAct_, &QAction::toggled, this, [this](bool on) {
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue("Workplane/phaseDegrees", on);
+      workplane_->setPhaseDegrees(on);
+    });
 
-  lossAct_ = new QAction(tr("&Loss"), this);
-  lossAct_->setStatusTip(tr("Loss function"));
-  connect(lossAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(lossAct_, WorkPlane::LOSS);
+  angularAct_ = new QAction(tr("Frequency in &rad/s"), this);
+  angularAct_->setCheckable(true);
+  angularAct_->setChecked(
+    plotSettings.value("Workplane/angularFrequency", false).toBool());
+  connect(angularAct_, &QAction::toggled, this, [this](bool on) {
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue("Workplane/angularFrequency", on);
+      workplane_->setAngularFrequency(on);
+    });
 
-  lossRadAct_ = new QAction(tr("Loss (rad/s)"), this);
-  lossRadAct_->setStatusTip(tr("Loss function"));
-  connect(lossRadAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(lossRadAct_, WorkPlane::LOSS_RAD);
-
-  zerosPolesAct_ = new QAction(tr("&Zeros/Poles"), this);
-  zerosPolesAct_->setStatusTip(tr("Zero/Poles function"));
-  connect(zerosPolesAct_, SIGNAL(triggered()), fMapper_, SLOT(map()));
-  fMapper_->setMapping(zerosPolesAct_, WorkPlane::ZEROS);
-
-  xLogAct_ = new QAction(tr("&x-axis log scale"), this);
-  xLogAct_->setStatusTip(tr("Toggle x-scale"));
+  xLogAct_ = new QAction(tr("Logarithmic &frequency axis"), this);
+  xLogAct_->setStatusTip(tr("Logarithmic or linear frequency axis"));
   xLogAct_->setCheckable(true);
-  connect(xLogAct_, SIGNAL(triggered(bool)), this, SLOT(xAxisLogScale(bool)));
-  xLogAct_->setChecked(true);
+  xLogAct_->setChecked(plotSettings.value("Workplane/xLog", true).toBool());
+  connect(xLogAct_, &QAction::toggled, this, [this](bool on) {
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue("Workplane/xLog", on);
+      xAxisLogScale(on);
+    });
 
-  yLogAct_ = new QAction(tr("&y-axis log scale"), this);
-  yLogAct_->setStatusTip(tr("Toggle y-scale"));
+  yLogAct_ = new QAction(tr("Logarithmic &magnitude axis"), this);
+  yLogAct_->setStatusTip(
+    tr("Logarithmic or linear axis for a linear (not dB) magnitude"));
   yLogAct_->setCheckable(true);
-  connect(yLogAct_, SIGNAL(triggered(bool)), this, SLOT(yAxisLogScale(bool)));
-  yLogAct_->setChecked(false);
+  yLogAct_->setChecked(plotSettings.value("Workplane/yLog", false).toBool());
+  connect(yLogAct_, &QAction::toggled, this, [this](bool on) {
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue("Workplane/yLog", on);
+      yAxisLogScale(on);
+    });
 
   replotAct_ = new QAction(tr("&Replot"), this);
   replotAct_->setStatusTip(tr("Replot function"));
@@ -1288,10 +1299,10 @@ void QSapecNGWindow::createDockWidgets()
   resultDock_ = new QDockWidget(tr("Result"), this);
   resultDock_->setAllowedAreas(Qt::AllDockWidgetAreas);
   resultPanel_ = new ResultPanel;
-  connect(resultPanel_, &ResultPanel::plotRequested, this, [this](int f) {
+  connect(resultPanel_, &ResultPanel::plotRequested, this, [this](int kind) {
       wave();
       if(central_->currentWidget() == workplane_)
-        plot(f);
+        workplane_->showKind(kind);
     });
   resultDock_->setWidget(resultPanel_);
 
@@ -1360,14 +1371,12 @@ void QSapecNGWindow::createMenus()
 
   workplaneMenu_ = menuBar()->addMenu(tr("W&orkPlane"));
   workplaneMenu_->addAction(magnitudeAct_);
-  workplaneMenu_->addAction(magnitudeRadAct_);
   workplaneMenu_->addAction(phaseAct_);
-  workplaneMenu_->addAction(phaseRadAct_);
-  workplaneMenu_->addAction(gainAct_);
-  workplaneMenu_->addAction(gainRadAct_);
-  workplaneMenu_->addAction(lossAct_);
-  workplaneMenu_->addAction(lossRadAct_);
   workplaneMenu_->addAction(zerosPolesAct_);
+  workplaneMenu_->addSeparator();
+  workplaneMenu_->addAction(dbAct_);
+  workplaneMenu_->addAction(degreesAct_);
+  workplaneMenu_->addAction(angularAct_);
   workplaneMenu_->addSeparator();
   workplaneMenu_->addAction(xLogAct_);
   workplaneMenu_->addAction(yLogAct_);
@@ -1535,7 +1544,27 @@ void QSapecNGWindow::createToolBars()
 
 void QSapecNGWindow::createStatusBar()
 {
-  statusBar()->showMessage(tr("Ready"));
+  // left: what is going on and what the active tool expects; right: size
+  // of the drawing, zoom and pointer position. Transient messages
+  // (showMessage) cover the left part for a moment.
+  statusLabel_ = new QLabel;
+  statusLabel_->setTextFormat(Qt::PlainText);
+  statusBar()->addWidget(statusLabel_, 1);
+
+  auto field = [](const QString& tip) {
+    QLabel* label = new QLabel;
+    label->setToolTip(tip);
+    label->setContentsMargins(8, 0, 8, 0);
+    return label;
+  };
+  countLabel_ = field(tr("Parts and wires in the schematic"));
+  zoomLabel_ = field(tr("Zoom (mouse wheel)"));
+  positionLabel_ = field(tr("Pointer position on the sheet (grid units)"));
+  positionLabel_->setMinimumWidth(
+    positionLabel_->fontMetrics().horizontalAdvance("x -0000  y -0000") + 16);
+  statusBar()->addPermanentWidget(countLabel_);
+  statusBar()->addPermanentWidget(zoomLabel_);
+  statusBar()->addPermanentWidget(positionLabel_);
   
   progressBar_ = new QProgressBar;
   statusBar()->insertPermanentWidget(0, progressBar_, 0);
@@ -1709,6 +1738,22 @@ SchematicEditor* QSapecNGWindow::createSchematicEditor()
 
 void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
 {
+  // status bar: follow the tool, selection, solve state, zoom and pointer
+  connect(&editor->scene(), &QGraphicsScene::changed,
+    this, [this, editor]() { if(editor == activeEditor()) updateStatus(); });
+  connect(&editor->scene(), &QGraphicsScene::selectionChanged,
+    this, [this, editor]() { if(editor == activeEditor()) updateStatus(); });
+  connect(&editor->view(), &SchematicView::zoomChanged,
+    this, [this, editor]() { if(editor == activeEditor()) updateStatus(); });
+  connect(&editor->view(), &SchematicView::cursorMoved,
+    this, [this, editor](const QPointF& p) {
+      if(editor != activeEditor())
+        return;
+      const int step = SchematicScene::GridStep;
+      positionLabel_->setText(QStringLiteral("x %1  y %2")
+        .arg(qRound(p.x() / step)).arg(qRound(p.y() / step)));
+    });
+
   editor->scene().setGridVisible(toggleGridAct_->isChecked());
   editor->scene().setContextMenu(sceneMenu_);
 
@@ -1721,12 +1766,15 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     if(editor != activeEditor())
       return;
     updateResultPanel();
+    updateStatus();
     resultDock_->show();
     resultDock_->raise();
   });
   connect(editor, &SchematicEditor::dirtyChanged, this, [this, editor]() {
-    if(editor == activeEditor())
+    if(editor == activeEditor()) {
       updateResultPanel();
+      updateStatus();
+    }
   });
   connect(&(editor->scene()), &SchematicScene::placementChanged,
       this, &QSapecNGWindow::sceneSelectionChanged);
@@ -1906,6 +1954,60 @@ void QSapecNGWindow::syncWithCurrentEditor()
   updateMenus();
   updateDocks();
   updateResultPanel();
+  updateStatus();
+}
+
+
+void QSapecNGWindow::updateStatus()
+{
+  SchematicEditor* editor = activeEditor();
+  const bool onWorkplane = central_->currentWidget() == workplane_;
+
+  QString status;
+  if(onWorkplane) {
+    status = tr("Workplane - click a curve to place a marker, click a marker "
+                "to remove it");
+  } else if(!editor) {
+    status = tr("No schematic open - File > New (Ctrl+N), File > Open, or "
+                "pick a component to start one");
+  } else if(editor->isRunning()) {
+    status = tr("Solving...");
+  } else {
+    SchematicScene& scene = editor->scene();
+    const QString hint = scene.toolHint();
+    const int selected = scene.selectedItems().size();
+    if(!hint.isEmpty())
+      status = hint;
+    else if(selected > 0)
+      status = (selected == 1 ? tr("1 item selected")
+                              : tr("%1 items selected").arg(selected))
+        + tr(" - drag to move, R rotates, Del deletes, double-click edits");
+    else if(editor->isSolved())
+      status = tr("Solved - the transfer function is in the Result panel");
+    else if(editor->hasResult())
+      status = tr("Changed since the last Resolve - press F8 to update the "
+                  "result");
+    else
+      status = tr("Ready - draw the circuit (W draws wires), mark the "
+                  "output with Out, then Resolve (F8)");
+  }
+  statusLabel_->setText(status);
+
+  const bool showSheet = editor && !onWorkplane;
+  countLabel_->setVisible(showSheet);
+  zoomLabel_->setVisible(showSheet);
+  positionLabel_->setVisible(showSheet);
+  if(showSheet) {
+    const int parts = editor->scene().partCount();
+    const int wires = editor->scene().wireCount();
+    countLabel_->setText(
+        (parts == 1 ? tr("1 part") : tr("%1 parts").arg(parts))
+      + QStringLiteral(" · ")
+      + (wires == 1 ? tr("1 wire") : tr("%1 wires").arg(wires)));
+    const QTransform t = editor->view().transform();
+    zoomLabel_->setText(QStringLiteral("%1 %")
+      .arg(qRound(100. * (qAbs(t.m11()) + qAbs(t.m12())))));
+  }
 }
 
 

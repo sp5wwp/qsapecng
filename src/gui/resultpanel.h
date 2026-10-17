@@ -60,7 +60,7 @@ public:
   void showPlaceholder();
 
 signals:
-  // a Plot link was clicked (WorkPlane::F)
+  // a Plot link was clicked (WorkPlane::Kind)
   void plotRequested(int function);
 
 protected:

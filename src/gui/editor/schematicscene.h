@@ -180,6 +180,10 @@ public:
   void refreshComponentLabels();
   // names of the independent voltage and current sources
   QStringList sourceNames() const;
+  // what the active tool expects next (empty when no tool is active)
+  QString toolHint() const;
+  int partCount() const;
+  int wireCount() const;
   // open the parameters dialog of an item (double-click); undoable
   void editItemProperties(QGraphicsItem* item);
   inline bool isPlacingItem() const
