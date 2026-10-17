@@ -49,6 +49,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTableWidget>
+#include <QFontMetrics>
 #include <QScrollBar>
 #include <qwt_scale_widget.h>
 #include <qwt_scale_draw.h>
@@ -401,7 +402,23 @@ void WorkPlane::changeEvent(QEvent* event)
     // defer until the application has finished re-polishing widgets
     QTimer::singleShot(0, this, [this]() {
       applyPlotStyle(QApplication::palette(), plot_, grid_, curves_, ZEROS, POLES);
-      plot_->replot();
+      // labels drawn in the old theme's colours (pole/zero values, the
+      // live readout): recoloured; the frequency markers are redrawn
+      const QPalette pal = QApplication::palette();
+      foreach(QwtPlotItem* item, plot_->itemList(QwtPlotItem::Rtti_PlotMarker)) {
+        QwtPlotMarker* m = static_cast<QwtPlotMarker*>(item);
+        QwtText label = m->label();
+        if(label.isEmpty())
+          continue;
+        label.setColor(pal.color(QPalette::Text));
+        if(label.backgroundBrush().style() != Qt::NoBrush) {
+          QColor bg = pal.color(QPalette::Base);
+          bg.setAlpha(220);
+          label.setBackgroundBrush(bg);
+        }
+        m->setLabel(label);
+      }
+      refreshMarkers();
     });
   }
   QWidget::changeEvent(event);
@@ -1135,6 +1152,8 @@ QString WorkPlane::phaseText(double v) const
 
 void WorkPlane::refreshMarkers()
 {
+  if(!markerPanel_ || !markerTable_)
+    return;
   foreach(QwtPlotMarker* m, markerLines_) {
     m->detach();
     delete m;
@@ -1248,11 +1267,17 @@ void WorkPlane::refreshMarkers()
   fillingTable_ = false;
 
   // the panel is as wide as the columns need
-  markerTable_->resizeColumnsToContents();
   int width = 2 * markerTable_->frameWidth() + 8;
   for(int c = 0; c < markerTable_->columnCount(); ++c)
     if(!markerTable_->isColumnHidden(c))
-      width += markerTable_->horizontalHeader()->sectionSize(c);
+    {
+      int w = markerTable_->horizontalHeader()->sectionSizeHint(c);
+      const QFontMetrics fm(markerTable_->font());
+      for(int r = 0; r < markerTable_->rowCount(); ++r)
+        if(QTableWidgetItem* it = markerTable_->item(r, c))
+          w = qMax(w, fm.horizontalAdvance(it->text()) + 12);
+      width += w + 4;
+    }
   if(markerTable_->verticalScrollBar()->isVisible())
     width += markerTable_->verticalScrollBar()->width();
   markerPanel_->setMinimumWidth(qBound(260, width + 8, 560));
@@ -1589,8 +1614,8 @@ void WorkPlane::createMainLayout()
   markerTable_->setHorizontalHeaderLabels(
     { tr("Frequency"), tr("Magnitude"), tr("Phase"),
       QStringLiteral("Δ ") + tr("Mag."), QStringLiteral("Δ ") + tr("Phase") });
-  markerTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-  markerTable_->horizontalHeader()->setStretchLastSection(true);
+  // the visible columns share the width (the last one may be hidden)
+  markerTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   markerTable_->verticalHeader()->setVisible(false);
   markerTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
   markerTable_->setSelectionMode(QAbstractItemView::SingleSelection);

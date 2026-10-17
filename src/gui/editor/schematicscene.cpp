@@ -23,6 +23,7 @@
 
 #include "gui/editor/schematicscene.h"
 #include <QGraphicsLineItem>
+#include <utility>
 #include "gui/editor/schematicsceneparser.h"
 #include "gui/editor/undoredocommand.h"
 #include "gui/editor/component.h"
@@ -137,8 +138,10 @@ QPainterPath SchematicScene::outPath()
   QPainterPath path;
   const qreal step = GridStep;
 
-  // 1.44 steps high, 3.4 long, centred on the terminal
-  const qreal top = 0.28 * step, bottom = 1.72 * step;
+  // 1.4 steps high, 3.4 long, centred on the terminal. The edges stay on
+  // whole pixels at 100 % (3 and 17): at 2.8 / 17.2 they were smeared
+  // over two pixel rows and the tag looked grey
+  const qreal top = 0.3 * step, bottom = 1.7 * step;
   path.moveTo(0, step);
   path.lineTo(0.7 * step, top);
   path.lineTo(3.4 * step, top);
@@ -691,9 +694,9 @@ QPainterPath SchematicScene::mutualInductancePath()
   QPainterPath path;
   uint step = GridStep;
 
+  // the coil names are captions (Component::addCaption), not outlines
   path = transformerPath();
-  path.addText(0, 3 * step, QFont(), "Lp");
-  path.addText(4 * step, 3 * step, QFont(), "Ls");
+  Q_UNUSED(step);
 
   return path;
 }
@@ -853,7 +856,11 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
       nodes.push_back(QPointF(0, 5 * GridStep));
       nodes.push_back(QPointF(5 * GridStep, 0));
       nodes.push_back(QPointF(5 * GridStep, 5 * GridStep));
-      item = new Component(mutualInductancePath(), nodes);
+      Component* k = new Component(mutualInductancePath(), nodes);
+      // in the free strips between the coils and their pins
+      k->addCaption(QPointF(0.5 * GridStep, 2.5 * GridStep), QStringLiteral("Lp"));
+      k->addCaption(QPointF(4.5 * GridStep, 2.5 * GridStep), QStringLiteral("Ls"));
+      item = k;
       break;
     }
   case GroundItemType:
@@ -1925,6 +1932,145 @@ void SchematicScene::beginDrag()
 }
 
 
+void SchematicScene::tidyWires(QList<Wire*> fresh)
+{
+  struct Seg { QPointF a, b; bool horizontal; };
+  auto seg = [](Wire* w) {
+      Seg sg;
+      sg.a = w->mapToScene(w->fromPoint());
+      sg.b = w->mapToScene(w->toPoint());
+      sg.horizontal = qAbs(sg.a.y() - sg.b.y()) < 0.5;
+      // a: the lower coordinate along the wire
+      if((sg.horizontal && sg.a.x() > sg.b.x())
+          || (!sg.horizontal && sg.a.y() > sg.b.y()))
+        std::swap(sg.a, sg.b);
+      return sg;
+    };
+  auto present = [this](Wire* w) {
+      return w && wireList_.contains(w) && w->isVisible();
+    };
+  // p on the wire (ends included)
+  auto touches = [](const Seg& sg, const QPointF& p) {
+      if(sg.horizontal)
+        return qAbs(p.y() - sg.a.y()) < 0.5
+          && p.x() > sg.a.x() - 0.5 && p.x() < sg.b.x() + 0.5;
+      return qAbs(p.x() - sg.a.x()) < 0.5
+        && p.y() > sg.a.y() - 0.5 && p.y() < sg.b.y() + 0.5;
+    };
+  // an end that connects nothing: no pin and no other wire there
+  auto loose = [&](Wire* w, const QPointF& p) {
+      const QRectF probe(p - QPointF(1.5, 1.5), QSizeF(3, 3));
+      foreach(QGraphicsItem* item, items(probe)) {
+        GraphicsNode* node = dynamic_cast<GraphicsNode*>(item);
+        if(node && node->parentItem() && !dynamic_cast<Wire*>(node->parentItem())
+            && node->parentItem()->isVisible())
+          return false;     // a pin
+      }
+      foreach(Item* item, wireList_) {
+        Wire* other = static_cast<Wire*>(item);
+        if(other != w && present(other) && touches(seg(other), p))
+          return false;
+      }
+      return true;
+    };
+
+  bool changed = true;
+  for(int guard = 0; changed && guard < 100; ++guard) {
+    changed = false;
+
+    // wires on top of each other (same line, overlapping): one wire
+    for(int i = 0; i < fresh.size() && !changed; ++i) {
+      Wire* w = fresh.at(i);
+      if(!present(w))
+        continue;
+      const Seg a = seg(w);
+      foreach(Item* item, wireList_) {
+        Wire* o = static_cast<Wire*>(item);
+        if(o == w || !present(o))
+          continue;
+        const Seg b = seg(o);
+        if(a.horizontal != b.horizontal)
+          continue;
+        const bool sameLine = a.horizontal ? qAbs(a.a.y() - b.a.y()) < 0.5
+                                           : qAbs(a.a.x() - b.a.x()) < 0.5;
+        if(!sameLine)
+          continue;
+        const qreal lo = a.horizontal ? qMax(a.a.x(), b.a.x()) : qMax(a.a.y(), b.a.y());
+        const qreal hi = a.horizontal ? qMin(a.b.x(), b.b.x()) : qMin(a.b.y(), b.b.y());
+        if(hi - lo < 0.5)
+          continue;         // only touching (or apart)
+        const QPointF from = a.horizontal
+          ? QPointF(qMin(a.a.x(), b.a.x()), a.a.y()) : QPointF(a.a.x(), qMin(a.a.y(), b.a.y()));
+        const QPointF to = a.horizontal
+          ? QPointF(qMax(a.b.x(), b.b.x()), a.a.y()) : QPointF(a.a.x(), qMax(a.b.y(), b.b.y()));
+        const bool junctions = w->isJunctionsConnected() || o->isJunctionsConnected();
+        undoRedoStack_->push(new RemoveItems(this, QList<QGraphicsItem*>() << w << o));
+        AddWire* add = new AddWire(this, from, QLineF(from, to), junctions);
+        undoRedoStack_->push(add);
+        fresh[i] = static_cast<Wire*>(add->wire());
+        fresh.removeAll(o);
+        changed = true;
+        break;
+      }
+    }
+    if(changed)
+      continue;
+
+    // a loose end of a wire of the move is trimmed back to the nearest
+    // connection on the wire (a pin, another wire's end); a wire with
+    // nothing left between its ends goes
+    for(int i = 0; i < fresh.size() && !changed; ++i) {
+      Wire* w = fresh.at(i);
+      if(!present(w))
+        continue;
+      const Seg a = seg(w);
+      for(int end = 0; end < 2 && !changed; ++end) {
+        const QPointF L = end ? a.b : a.a;      // the loose end
+        const QPointF O = end ? a.a : a.b;      // the other one
+        if(!loose(w, L))
+          continue;
+        // connection points on the wire, nearest to L first
+        QPointF keep = O;
+        qreal best = QLineF(L, O).length();
+        auto consider = [&](const QPointF& p) {
+            if(!touches(a, p))
+              return;
+            const qreal d = QLineF(L, p).length();
+            if(d > 0.5 && d < best) { best = d; keep = p; }
+          };
+        foreach(QGraphicsItem* item, items(QRectF(a.a, a.b).normalized()
+            .adjusted(-1.5, -1.5, 1.5, 1.5))) {
+          GraphicsNode* node = dynamic_cast<GraphicsNode*>(item);
+          if(node && node->parentItem()
+              && !dynamic_cast<Wire*>(node->parentItem())
+              && node->parentItem()->isVisible())
+            consider(node->scenePos());
+        }
+        foreach(Item* item, wireList_) {
+          Wire* o = static_cast<Wire*>(item);
+          if(o == w || !present(o))
+            continue;
+          const Seg b = seg(o);
+          consider(b.a);
+          consider(b.b);
+        }
+        const bool junctions = w->isJunctionsConnected();
+        undoRedoStack_->push(new RemoveItems(this, w));
+        if(QLineF(O, keep).length() > 0.5) {
+          const QPointF from(qMin(O.x(), keep.x()), qMin(O.y(), keep.y()));
+          AddWire* add = new AddWire(this, from, QLineF(O, keep), junctions);
+          undoRedoStack_->push(add);
+          fresh[i] = static_cast<Wire*>(add->wire());
+        } else {
+          fresh.removeAt(i);
+        }
+        changed = true;
+      }
+    }
+  }
+}
+
+
 void SchematicScene::updateDragPreview()
 {
   for(RubberWire& r : drag_.rubber) {
@@ -1964,6 +2110,7 @@ void SchematicScene::endDrag(bool commit)
 
   undoRedoStack_->beginMacro(tr("Move item(s)"));
   undoRedoStack_->push(new MoveItems(this, drag.items, drag.total));
+  QList<Wire*> fresh;      // the stretched wires, tidied up at the end
   for(const RubberWire& r : drag.rubber) {
     const bool junctions = r.wire ? r.wire->isJunctionsConnected() : false;
     if(r.wire)
@@ -1977,9 +2124,12 @@ void SchematicScene::endDrag(bool commit)
     {
       const QPointF topLeft(qMin(line.x1(), line.x2()),
                             qMin(line.y1(), line.y2()));
-      undoRedoStack_->push(new AddWire(this, topLeft, line, junctions));
+      AddWire* add = new AddWire(this, topLeft, line, junctions);
+      undoRedoStack_->push(add);
+      fresh.append(static_cast<Wire*>(add->wire()));
     }
   }
+  tidyWires(fresh);
   undoRedoStack_->endMacro();
 }
 
@@ -2014,19 +2164,67 @@ void SchematicScene::copySelectedItems()
 
 void SchematicScene::pasteItems()
 {
-  SchematicSceneBuilder* out = 
-    new SchematicSceneBuilder(*this, lastMousePressPos_);
+  resetStatus();
+  const QPointF at = closestGridPoint(lastMousePos_);
+  SchematicSceneBuilder* out = new SchematicSceneBuilder(*this, at);
 
   std::istringstream stream;
   stream.str(QApplication::clipboard()->text().toStdString());
   sapecng::abstract_parser* parser =
     sapecng::parser_factory::parser(sapecng::parser_factory::INFO, stream);
 
-  undoRedoStack_->beginMacro(QObject::tr("Add item(s)"));
-  parser->parse(*out);
-  undoRedoStack_->endMacro();
+  undoRedoStack_->beginMacro(QObject::tr("Paste item(s)"));
+  try {
+    parser->parse(*out);
+  } catch(...) {
+    // not a schematic on the clipboard
+  }
   delete parser;
+
+  QList<QGraphicsItem*> pasted;
+  foreach(QGraphicsItem* item, out->items())
+    if(item->scene() == this && !item->parentItem())
+      pasted.append(item);
   delete out;
+
+  if(pasted.isEmpty()) {
+    undoRedoStack_->endMacro();
+    return;
+  }
+
+  // they follow the pointer until a click places them
+  clearSelection();
+  foreach(QGraphicsItem* item, pasted)
+    item->setSelected(true);
+  floating_ = pasted;
+  floatingPaste_ = true;
+  floatAnchor_ = at;
+  floatTotal_ = QPointF();
+  foreach(QGraphicsView* view, views())
+    view->setCursor(Qt::SizeAllCursor);
+  emit placementChanged();
+}
+
+
+void SchematicScene::finishFloatingPaste(bool place)
+{
+  if(!floatingPaste_)
+    return;
+  floatingPaste_ = false;
+
+  // back to where they were pasted; the move is a command of the macro
+  foreach(QGraphicsItem* item, floating_)
+    item->moveBy(-floatTotal_.x(), -floatTotal_.y());
+  if(place && !floatTotal_.isNull())
+    undoRedoStack_->push(new MoveItems(this, floating_, floatTotal_));
+  undoRedoStack_->endMacro();
+  if(!place)
+    undoRedoStack_->undo();     // Esc: no paste
+  floating_.clear();
+  floatTotal_ = QPointF();
+  foreach(QGraphicsView* view, views())
+    view->unsetCursor();
+  emit placementChanged();
 }
 
 
@@ -2098,6 +2296,20 @@ QString SchematicScene::nextFreeName(SupportedItemType type)
     name = itemIdByType(type) + QString::number(++itemCntMap_[type]);
   } while(used.contains(name));
   return name;
+}
+
+
+QString SchematicScene::uniqueName(SupportedItemType type,
+    const QString& wanted, Item* self)
+{
+  foreach(Item* item, standardList_ + userDefList_) {
+    if(item == self)
+      continue;
+    QtProperty* prop = item->data(1).value<QtProperty*>();
+    if(prop && prop->valueText() == wanted)
+      return nextFreeName(type);
+  }
+  return wanted;
 }
 
 
@@ -2241,11 +2453,19 @@ void SchematicScene::rotatePlacedOrSelected()
 
 void SchematicScene::mirrorPlacedOrSelected(bool vertical)
 {
-  // a vertical flip is a horizontal one turned by 180 degrees
+  // An item mirrors in its own frame (left-right as drawn unrotated); on
+  // the screen that is a vertical flip for an item turned by 90 or 270
+  // degrees. A flip about the other axis is a mirror plus a half turn.
+  auto halfTurn = [vertical](const Item* item) {
+      const bool quarter = (item->angle() == 90 || item->angle() == 270);
+      return vertical != quarter;
+    };
+
   if(isPlacingItem()) {
     if(item_) {
+      const bool turn = halfTurn(item_);
       item_->mirror();
-      if(vertical) {
+      if(turn) {
         item_->rotate();
         item_->rotate();
       }
@@ -2258,10 +2478,16 @@ void SchematicScene::mirrorPlacedOrSelected(bool vertical)
     return;
   undoRedoStack_->beginMacro(vertical ? tr("Flip vertically")
                                       : tr("Flip horizontally"));
-  undoRedoStack_->push(new MirrorItems(items));
-  if(vertical) {
-    undoRedoStack_->push(new RotateItems(items));
-    undoRedoStack_->push(new RotateItems(items));
+  foreach(QGraphicsItem* gItem, items) {
+    Item* item = dynamic_cast<Item*>(gItem);
+    if(!item || item->parentItem())
+      continue;
+    const bool turn = halfTurn(item);
+    undoRedoStack_->push(new MirrorItems(gItem));
+    if(turn) {
+      undoRedoStack_->push(new RotateItems(gItem));
+      undoRedoStack_->push(new RotateItems(gItem));
+    }
   }
   undoRedoStack_->endMacro();
 }
@@ -2464,6 +2690,10 @@ void SchematicScene::setGridVisible(bool visible)
 
 void SchematicScene::resetStatus()
 {
+  // another tool picked while pasted items float: they stay there
+  if(floatingPaste_)
+    finishFloatingPaste(true);
+
   resetNodes();
   clearSelection();
   clearFocus();
@@ -2534,6 +2764,15 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
 {
   lastMousePressPos_ = event->scenePos();
   resetNodes();
+
+  if(floatingPaste_) {
+    if(event->button() == Qt::LeftButton)
+      finishFloatingPaste(true);
+    else if(event->button() == Qt::RightButton)
+      undoRedoStack_->push(new RotateItems(floating_));
+    event->accept();
+    return;
+  }
 
   if(hasActiveItem() || hasUserDefReq()) {
     switch(event->button())
@@ -2706,6 +2945,18 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
     return;
   }
 
+  if(floatingPaste_) {
+    const QPointF delta = closestGridPoint(event->scenePos()) - floatAnchor_;
+    if(!delta.isNull()) {
+      foreach(QGraphicsItem* item, floating_)
+        item->moveBy(delta.x(), delta.y());
+      floatAnchor_ += delta;
+      floatTotal_ += delta;
+    }
+    event->accept();
+    return;
+  }
+
   QGraphicsScene::mouseMoveEvent(event);
 }
 
@@ -2742,7 +2993,8 @@ void SchematicScene::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 
 void SchematicScene::contextMenuEvent(QGraphicsSceneContextMenuEvent* event)
 {
-  if(!hasActiveItem() && !hasUserDefReq() && !hasPendingWire() && contextMenu_)
+  if(!hasActiveItem() && !hasUserDefReq() && !hasPendingWire() && !floatingPaste_
+      && contextMenu_)
     contextMenu_->exec(event->screenPos());
 }
 
@@ -2782,7 +3034,9 @@ void SchematicScene::keyPressEvent(QKeyEvent* event)
       {
         // Esc while drawing drops the unfinished segment and keeps the
         // wire tool; a second Esc leaves the tool
-        if(hasPendingWire() && hasValidFromPoint_ && !wireInProgress_)
+        if(floatingPaste_)
+          finishFloatingPaste(false);
+        else if(hasPendingWire() && hasValidFromPoint_ && !wireInProgress_)
           finishWireChain();
         else
           resetStatus();

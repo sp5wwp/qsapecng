@@ -212,6 +212,9 @@ public:
   // open the parameters dialog of an item (double-click); undoable
   void editItemProperties(QGraphicsItem* item);
   inline SupportedItemType activeItemType() const { return activeItem_; }
+  // wanted, unless another part already has that name: then the next free
+  // one (pasted parts must not repeat names)
+  QString uniqueName(SupportedItemType type, const QString& wanted, Item* self);
   inline bool hasActiveItemType() const { return activeItem_ != NilItemType; }
   inline bool isPlacingItem() const
     { return hasActiveItem() || hasUserDefReq(); }
@@ -293,6 +296,12 @@ private:
   bool wireSessionRequested_;
   bool horizontalFirst_;
   bool chainMacroOpen_ = false;   // one undo step per drawn wire
+  // pasted items follow the pointer until a click places them (one undo
+  // step with the paste); Esc takes the paste back
+  bool floatingPaste_ = false;
+  QList<QGraphicsItem*> floating_;
+  QPointF floatAnchor_, floatTotal_;
+  void finishFloatingPaste(bool place);
   bool bendDecided_ = false;   // set by the first move or by flipping
   bool hasValidFromPoint_;
   bool connectedWire_;
@@ -327,6 +336,10 @@ private:
     QPointF total;
   } drag_;
   void numberNetLabels();
+  // after a move: merges wires lying on top of each other on one line and
+  // removes the given wires (and merged ones) left with an end that
+  // connects nothing; part of the open undo macro
+  void tidyWires(QList<Wire*> fresh);
   void beginDrag();
   void updateDragPreview();
   void endDrag(bool commit);

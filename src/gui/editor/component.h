@@ -102,6 +102,8 @@ public:
 
   // tag symbols (the Out marker): filled shape with a caption
   void setTag(const QString& text, const QRectF& pivot);
+  // a small caption centred on a point of the symbol, kept upright
+  void addCaption(const QPointF& centre, const QString& text);
   QRectF pivotRect() const override;
 
   inline void setPath(const QPainterPath& path)
@@ -129,6 +131,7 @@ private:
 
   PropertyTextItem* label_;
   QString tag_;
+  QList< QPair<QPointF, QString> > captions_;
   QRectF pivot_;
   QPointF labelAnchor_;
   bool labelMoved_ = false;

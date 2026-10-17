@@ -82,6 +82,23 @@ QSapecNG CHANGELOG
       (V), clipboard, order, and a Place submenu with every part; new
       hotkeys G (ground), P (port), O (Out), T (label)
     o A part being placed is centred on the pointer
+    o Pasted parts follow the pointer until a click places them (right
+      click rotates, Esc takes the paste back) and get names of their own
+      (a copy of R2 becomes R3; duplicate names merged in the result)
+    o Flip Horizontally / Vertically refer to the screen also for rotated
+      parts (they flipped about the part's own axis)
+    o Moving parts tidies the wires: pieces lying on top of each other are
+      merged, and a wire end left connected to nothing is trimmed back, so
+      moving a part away and back leaves no stubs or stray junction dots
+    o Mutual inductance: Lp and Ls are small upright captions beside the
+      coils instead of outlines across them
+    o Fixed: Esc did not cancel a part picked in the Components list (the
+      list kept the keyboard)
+    o Fixed: markers kept the colours of the theme they were made in
+    o Fixed: the Markers panel squeezed the Phase column after Clear Markers
+    o Fixed: the Font page icon vanished when selected in the Configure
+      dialog
+    o Fixed: the Out tag looked grey (edges and caption between pixels)
     o Components list: one click picks the part to place (dragging still
       works); a click below the list goes back to the plain pointer; the
       list shows the part being placed

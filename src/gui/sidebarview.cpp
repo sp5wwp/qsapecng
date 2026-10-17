@@ -21,6 +21,7 @@
 
 #include <QDrag>
 #include <QMouseEvent>
+#include <QKeyEvent>
 
 
 namespace qsapecng
@@ -50,6 +51,19 @@ void SideBarView::mousePressEvent(QMouseEvent* event)
     return;
   }
   QListView::mousePressEvent(event);
+}
+
+
+void SideBarView::keyPressEvent(QKeyEvent* event)
+{
+  // Esc here too drops the part being placed
+  if(event->key() == Qt::Key_Escape) {
+    clearSelection();
+    emit emptyAreaClicked();
+    event->accept();
+    return;
+  }
+  QListView::keyPressEvent(event);
 }
 
 

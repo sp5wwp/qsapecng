@@ -19,6 +19,7 @@
 
 #include "gui/theme.h"
 #include "gui/configdialog/configdialog.h"
+#include <QPixmap>
 
 #include <QMessageBox>
 #include <QPushButton>
@@ -133,7 +134,19 @@ void ConfigDialog::createIcons()
   generalButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
 
   QListWidgetItem* fontButton = new QListWidgetItem(contents_);
-  fontButton->setIcon(theme::icon("font"));
+  // the same pixmap when selected: in this icon list only the caption is
+  // highlighted, and the theme's selected icon (highlighted text colour,
+  // white) vanished on the white background
+  {
+    const QIcon themed = theme::icon("font");
+    QIcon icon;
+    for(int size : { 32, 48, 64, 96 }) {
+      const QPixmap pm = themed.pixmap(QSize(size, size), QIcon::Normal);
+      icon.addPixmap(pm, QIcon::Normal);
+      icon.addPixmap(pm, QIcon::Selected);
+    }
+    fontButton->setIcon(icon);
+  }
   fontButton->setText(tr("Font"));
   fontButton->setTextAlignment(Qt::AlignHCenter);
   fontButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);

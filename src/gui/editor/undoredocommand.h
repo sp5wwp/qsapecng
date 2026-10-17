@@ -152,6 +152,8 @@ public:
   virtual void undo();
   virtual void redo();
 
+  inline Item* wire() const { return wire_; }
+
 private:
   SchematicScene* scene_;
   QPointF pos_;

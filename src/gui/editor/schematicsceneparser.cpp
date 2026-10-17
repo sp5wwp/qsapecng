@@ -908,11 +908,13 @@ void SchematicSceneBuilder::setup_properties(
     QtStringPropertyManager* spm =
       qobject_cast<QtStringPropertyManager*>(
         subproperties.value("__NAME")->propertyManager());
-      if(spm)
-        spm->setValue(
-            subproperties.value("__NAME"),
-            QString::fromStdString(name)
-          );
+      if(spm) {
+        QString wanted = QString::fromStdString(name);
+        // pasting: a copy gets a name of its own (R2 -> R3)
+        if(offset_ != QPointF(0, 0))
+          wanted = scene_->uniqueName(SchematicScene::itemType(item), wanted, item);
+        spm->setValue(subproperties.value("__NAME"), wanted);
+      }
   }
 
   if(subproperties.contains("Value")) {

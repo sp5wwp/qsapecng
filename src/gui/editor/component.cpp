@@ -150,7 +150,9 @@ void Component::paint(
     const QTransform t = transform();
     const QTransform upright =
       QTransform(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0).inverted();
-    painter->translate(box.center());
+    // whole pixels (at 100 %): a caption centred on a half pixel is
+    // smeared and looks grey
+    painter->translate(QPointF(qRound(box.center().x()), qRound(box.center().y())));
     painter->setTransform(upright, true);
     const QRectF r = upright.inverted().mapRect(QRectF(QPointF(0, 0), box.size()));
     // the schematic font, sized in pixels so the caption fits the tag the
@@ -171,7 +173,32 @@ void Component::paint(
   painter->setPen(pen);
   painter->drawPath(path_);
 
+  // small upright captions inside the symbol (e.g. Lp / Ls)
+  if(!captions_.isEmpty()) {
+    const QTransform t = transform();
+    const QTransform upright =
+      QTransform(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0).inverted();
+    QFont font = theme::schematicFont(8);
+    font.setPixelSize(8);
+    painter->setFont(font);
+    painter->setPen(theme::sheetForeground());
+    for(const auto& c : captions_) {
+      painter->save();
+      painter->translate(c.first);
+      painter->setTransform(upright, true);
+      painter->drawText(QRectF(-12, -6, 24, 12), Qt::AlignCenter, c.second);
+      painter->restore();
+    }
+  }
+
   painter->restore();
+}
+
+
+void Component::addCaption(const QPointF& centre, const QString& text)
+{
+  captions_.append(qMakePair(centre, text));
+  update();
 }
 
 

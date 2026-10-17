@@ -939,11 +939,14 @@ void QSapecNGWindow::activated(const QModelIndex& index)
     editor = activeEditor();
   }
 
-  if(editor)
+  if(editor) {
     editor->scene().setActiveItem(
         (SchematicScene::SupportedItemType)
         sideBarModel_->data(index, Qt::UserRole).toInt()
       );
+    // keys (Esc cancels, R rotates) go to the schematic from now on
+    editor->view().setFocus(Qt::OtherFocusReason);
+  }
 }
 
 
