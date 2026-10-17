@@ -13,19 +13,9 @@ set(CMAKE_AUTORCC ON)
 set(qtpropertyeditor_SRCS
   gui/qtsolutions/qtpropertyeditor/qtpropertybrowser.cpp
   gui/qtsolutions/qtpropertyeditor/qtpropertymanager.cpp
-  gui/qtsolutions/qtpropertyeditor/qteditorfactory.cpp
-  gui/qtsolutions/qtpropertyeditor/qtvariantproperty.cpp
-  gui/qtsolutions/qtpropertyeditor/qttreepropertybrowser.cpp
-  gui/qtsolutions/qtpropertyeditor/qtbuttonpropertybrowser.cpp
-  gui/qtsolutions/qtpropertyeditor/qtgroupboxpropertybrowser.cpp
   gui/qtsolutions/qtpropertyeditor/qtpropertybrowserutils.cpp
   gui/qtsolutions/qtpropertyeditor/qtpropertybrowser.h
   gui/qtsolutions/qtpropertyeditor/qtpropertymanager.h
-  gui/qtsolutions/qtpropertyeditor/qteditorfactory.h
-  gui/qtsolutions/qtpropertyeditor/qtvariantproperty.h
-  gui/qtsolutions/qtpropertyeditor/qttreepropertybrowser.h
-  gui/qtsolutions/qtpropertyeditor/qtbuttonpropertybrowser.h
-  gui/qtsolutions/qtpropertyeditor/qtgroupboxpropertybrowser.h
   gui/qtsolutions/qtpropertyeditor/qtpropertybrowserutils_p.h
   gui/qtsolutions/qtpropertyeditor/qtpropertybrowser.qrc
 )
@@ -40,7 +30,11 @@ set(qsapecng_SRCS
   functor/rpoly.cpp
   gui/qsapecng.cpp
   gui/theme.cpp
+  gui/resultpanel.cpp
+  gui/units.cpp
   gui/theme.h
+  gui/resultpanel.h
+  gui/units.h
   gui/settings.cpp
   gui/qsapecngwindow.cpp
   gui/configdialog/configdialog.cpp
@@ -49,6 +43,8 @@ set(qsapecng_SRCS
   gui/sidebarview.cpp
   gui/delegate.cpp
   gui/editor/schematiceditor.cpp
+  gui/editor/componentdialog.cpp
+  gui/editor/propertytextitem.cpp
   gui/editor/undoredocommand.cpp
   gui/editor/schematicsceneparser.cpp
   gui/editor/schematicscene.cpp
@@ -68,6 +64,7 @@ set(qsapecng_SRCS
   gui/delegate.h
   gui/qlogger.h
   gui/editor/schematiceditor.h
+  gui/editor/componentdialog.h
   gui/editor/propertytextitem.hpp
   gui/editor/metacircuit_thread.hpp
   gui/editor/schematicscene.h
@@ -110,6 +107,7 @@ target_compile_definitions(qsapecng PRIVATE
   PACKAGE_VERSION="${PACKAGE_VERSION}"
   BOOST_BIND_GLOBAL_PLACEHOLDERS
   BOOST_ALLOW_DEPRECATED_HEADERS
+  QSAPECNG_SOURCE_EXAMPLES="${PROJECT_SOURCE_DIR}/examples"
   $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG_OUTPUT>
 )
 
@@ -178,6 +176,15 @@ if(WIN32)
     message(WARNING "Qwt DLL not found; copy it next to QSapecNG.exe yourself")
   endif()
 
+  # With MSVC the C++ runtime is added by InstallRequiredSystemLibraries
+  # (below); windeployqt could only find it from a Visual Studio developer
+  # prompt (VCINSTALLDIR) and otherwise just warns, e.g. on CI.
+  # MinGW builds keep windeployqt's copy of the GCC runtime.
+  set(_deploy_flags --no-translations)
+  if(MSVC)
+    list(APPEND _deploy_flags --no-compiler-runtime)
+  endif()
+
   option(QSAPECNG_DEPLOY_AFTER_BUILD "Copy Qwt and run windeployqt after building" ON)
   if(QSAPECNG_DEPLOY_AFTER_BUILD)
     if(QWT_DLL)
@@ -191,7 +198,7 @@ if(WIN32)
         list(APPEND _deploy_targets "$<TARGET_FILE_DIR:qsapecng>/${_qwt_dll_name}")
       endif()
       add_custom_command(TARGET qsapecng POST_BUILD
-        COMMAND "${WINDEPLOYQT_EXECUTABLE}" --no-translations ${_deploy_targets}
+        COMMAND "${WINDEPLOYQT_EXECUTABLE}" ${_deploy_flags} ${_deploy_targets}
         COMMENT "Deploying the Qt runtime next to QSapecNG.exe")
     else()
       message(WARNING "windeployqt not found; Qt DLLs will not be copied next to the executable")
@@ -205,13 +212,23 @@ if(WIN32)
     endif()
     install(CODE "
       set(_bin \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
-      execute_process(COMMAND \"${WINDEPLOYQT_EXECUTABLE}\" --no-translations
+      execute_process(COMMAND \"${WINDEPLOYQT_EXECUTABLE}\" ${_deploy_flags}
         \"\${_bin}/${_out_name}.exe\" ${_qwt_inst_arg})
     ")
   endif()
 
   set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
   include(InstallRequiredSystemLibraries)
+endif()
+
+# example circuits: File > Open Example finds them next to the program
+file(GLOB _examples "${PROJECT_SOURCE_DIR}/examples/*.info")
+if(WIN32)
+  install(FILES ${_examples} "${PROJECT_SOURCE_DIR}/examples/README"
+    DESTINATION examples)
+elseif(NOT APPLE)
+  install(FILES ${_examples} "${PROJECT_SOURCE_DIR}/examples/README"
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/qsapecng/examples)
 endif()
 
 if(UNIX AND NOT APPLE)

@@ -113,7 +113,8 @@ void SideBarModel::setupSideBar()
 {
   QMap<int, QVariant> resistorItemData;
   resistorItemData[Qt::DisplayRole] = tr("Resistor");
-  resistorItemData[Qt::DecorationRole] = theme::symbolPixmap("resistor", QSize(32, 32));
+  resistorItemData[Qt::DecorationRole] =
+    theme::symbolPixmap(theme::resistorSymbolName(), QSize(32, 32));
   resistorItemData[Qt::ToolTipRole] = tr("Resistor Item");
   resistorItemData[Qt::UserRole] = SchematicScene::ResistorItemType;
   componentList_.append(resistorItemData);
@@ -121,7 +122,7 @@ void SideBarModel::setupSideBar()
   QMap<int, QVariant> conductanceItemData;
   conductanceItemData[Qt::DisplayRole] = tr("Conductance");
   conductanceItemData[Qt::DecorationRole] =
-    theme::symbolPixmap("resistor", QSize(32, 32));
+    theme::symbolPixmap(theme::resistorSymbolName(), QSize(32, 32));
   conductanceItemData[Qt::ToolTipRole] = tr("Conductance Item");
   conductanceItemData[Qt::UserRole] = SchematicScene::ConductanceItemType;
   componentList_.append(conductanceItemData);
@@ -206,6 +207,22 @@ void SideBarModel::setupSideBar()
   mutualInductanceItemData[Qt::ToolTipRole] = tr("Mutual Inductance Item");
   mutualInductanceItemData[Qt::UserRole] = SchematicScene::MutualInductanceItemType;
   componentList_.append(mutualInductanceItemData);
+}
+
+
+void SideBarModel::refreshSymbols()
+{
+  for(int row = 0; row < componentList_.size(); ++row) {
+    const int type = componentList_[row][Qt::UserRole].toInt();
+    if(type == SchematicScene::ResistorItemType
+        || type == SchematicScene::ConductanceItemType)
+    {
+      componentList_[row][Qt::DecorationRole] =
+        theme::symbolPixmap(theme::resistorSymbolName(), QSize(32, 32));
+      const QModelIndex i = index(row);
+      emit dataChanged(i, i, { Qt::DecorationRole });
+    }
+  }
 }
 
 

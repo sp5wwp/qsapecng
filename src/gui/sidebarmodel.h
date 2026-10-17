@@ -61,6 +61,10 @@ public:
   QStringList mimeTypes() const;
   QMimeData* mimeData(const QModelIndexList& indexes) const;
 
+public:
+  // update the resistor/conductance icons after the symbol style changed
+  void refreshSymbols();
+
 private:
   void setupSideBar();
 

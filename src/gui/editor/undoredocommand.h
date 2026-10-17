@@ -22,6 +22,7 @@
 
 
 #include "gui/editor/schematicscene.h"
+#include "gui/editor/componentdialog.h"
 
 #include <QUndoCommand>
 
@@ -203,6 +204,24 @@ public:
 private:
   SchematicScene* scene_;
   QList<QGraphicsItem*> items_;
+
+};
+
+
+class ChangeProperties: public QUndoCommand
+{
+
+public:
+  ChangeProperties(
+      const QList<PropertyChange>& changes,
+      QUndoCommand* parent = 0
+  );
+
+  virtual void undo();
+  virtual void redo();
+
+private:
+  QList<PropertyChange> changes_;
 
 };
 

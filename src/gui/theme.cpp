@@ -22,6 +22,8 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QGraphicsScene>
+#include <QGraphicsTextItem>
 #include <QGuiApplication>
 #include <QHash>
 #include <QIconEngine>
@@ -207,6 +209,71 @@ QString platformStyleName;
 }
 
 
+QPalette paperPalette()
+{
+  return lightPalette();
+}
+
+
+namespace
+{
+int resistorStyleCache = -1;   // -1: not read from the settings yet
+}
+
+
+ResistorStyle resistorStyle()
+{
+  if(resistorStyleCache < 0) {
+    QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+    resistorStyleCache = settings.value(
+        QStringLiteral("Application/resistorSymbol")).toString()
+      == QLatin1String("ansi") ? 0 : 1;   // IEC / DIN unless ANSI chosen
+  }
+  return resistorStyleCache == 1 ? ResistorStyle::Din : ResistorStyle::Ansi;
+}
+
+
+void setResistorStyle(ResistorStyle style)
+{
+  resistorStyleCache = (style == ResistorStyle::Din) ? 1 : 0;
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  settings.setValue(QStringLiteral("Application/resistorSymbol"),
+    style == ResistorStyle::Din ? QStringLiteral("din") : QStringLiteral("ansi"));
+}
+
+
+QString resistorSymbolName()
+{
+  return resistorStyle() == ResistorStyle::Din
+    ? QStringLiteral("resistor-din") : QStringLiteral("resistor");
+}
+
+
+namespace
+{
+int showValuesCache = -1;   // -1: not read from the settings yet
+}
+
+
+bool showComponentValues()
+{
+  if(showValuesCache < 0) {
+    QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+    showValuesCache = settings.value(
+        QStringLiteral("Application/showValues"), false).toBool() ? 1 : 0;
+  }
+  return showValuesCache == 1;
+}
+
+
+void setShowComponentValues(bool show)
+{
+  showValuesCache = show ? 1 : 0;
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  settings.setValue(QStringLiteral("Application/showValues"), show);
+}
+
+
 Mode mode()
 {
   QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
@@ -240,10 +307,6 @@ void setMode(Mode m)
     app->setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     QApplication::setPalette(m == Mode::Dark ? darkPalette() : lightPalette());
   }
-
-  // Widgets polished under the application style sheet keep their old
-  // palette; re-applying the sheet re-polishes every widget.
-  app->setStyleSheet(app->styleSheet());
 }
 
 
@@ -262,13 +325,6 @@ void applyAppearance(QApplication& app)
       app.setStyle(fusion);
   }
   platformStyleName = app.style()->name();
-
-  // Slightly more generous tool bar icons than the Qt default.
-  app.setStyleSheet(QStringLiteral(
-    "QToolBar { spacing: 2px; padding: 2px; }"
-    "QToolBar QToolButton { padding: 3px; border-radius: 4px; }"
-    "QDockWidget::title { padding: 4px 6px; }"
-  ));
 
   if(mode() != Mode::System)
     setMode(mode());
@@ -316,15 +372,65 @@ QFont schematicFont(int pointSize)
 }
 
 
+namespace
+{
+int paperSheetDepth = 0;   // > 0 while a PaperSheet guard is alive
+}
+
+
+bool sheetIsDark()
+{
+  return paperSheetDepth == 0 && isDark();
+}
+
+
+PaperSheet::PaperSheet() { ++paperSheetDepth; }
+PaperSheet::~PaperSheet() { --paperSheetDepth; }
+
+
 QColor sheetBackground()
 {
-  return QColor(0xff, 0xff, 0xff);
+  return sheetIsDark() ? QColor(0x1e, 0x20, 0x24) : QColor(0xff, 0xff, 0xff);
 }
 
 
 QColor sheetForeground()
 {
-  return QColor(Qt::black);
+  return sheetIsDark() ? QColor(0xe2, 0xe5, 0xe9) : QColor(Qt::black);
+}
+
+
+QColor netColor(int net)
+{
+  // colours for solved nets: Qt's dark colours on paper, lighter tones
+  // of the same hues on the dark sheet
+  static const QColor paper[] = {
+    QColor(Qt::darkCyan), QColor(Qt::darkRed), QColor(Qt::darkMagenta),
+    QColor(Qt::darkGreen), QColor(Qt::darkYellow), QColor(Qt::darkBlue),
+    QColor(Qt::darkGray)
+  };
+  static const QColor dark[] = {
+    QColor(0x4f, 0xc8, 0xcc), QColor(0xff, 0x6b, 0x6b), QColor(0xd6, 0x7b, 0xe0),
+    QColor(0x6c, 0xc6, 0x70), QColor(0xe6, 0xc4, 0x4f), QColor(0x6a, 0xa8, 0xff),
+    QColor(0xa8, 0xad, 0xb5)
+  };
+  const int n = int(sizeof(paper) / sizeof(paper[0]));
+  const int i = ((net % n) + n) % n;
+  return sheetIsDark() ? dark[i] : paper[i];
+}
+
+
+void refreshSheetText(QGraphicsScene* scene)
+{
+  if(!scene)
+    return;
+  const QColor fg = sheetForeground();
+  foreach(QGraphicsItem* item, scene->items()) {
+    if(QGraphicsTextItem* text = qgraphicsitem_cast<QGraphicsTextItem*>(item))
+      if(text->defaultTextColor() != fg)
+        text->setDefaultTextColor(fg);
+  }
+  scene->update();
 }
 
 
@@ -343,7 +449,7 @@ QColor readableOn(const QColor& color)
 
 QColor sheetGrid()
 {
-  return QColor(0xa8, 0xb0, 0xbc);
+  return sheetIsDark() ? QColor(0x4a, 0x50, 0x58) : QColor(0xa8, 0xb0, 0xbc);
 }
 
 

@@ -324,7 +324,7 @@ bool SchematicEditor::loadFile(const QString& fileName)
 void SchematicEditor::solve()
 {
   if(solved_) {
-    showResult();
+    emit solved();   // up to date: just show the result again
     return;
   }
 
@@ -363,8 +363,6 @@ void SchematicEditor::finished()
   view_->setInteractive(true);
   solved_ = true;
   showResult();
-
-  emit solved();
 }
 
 
@@ -427,66 +425,20 @@ void SchematicEditor::setDirty()
 
 void SchematicEditor::showResult()
 {
-  std::string num, den, expr;
+  // results are displayed by the main window's Result panel
+  auto str = [](const sapecng::metacircuit::expression& e)
+    { return QString::fromStdString(sapecng::metacircuit::as_string(e)); };
 
-  QPlainTextEdit* result = new QPlainTextEdit;
-  result->setReadOnly(true);
-  result->setUndoRedoEnabled(false);
-  result->setLineWrapMode(QPlainTextEdit::NoWrap);
-  result->setWordWrapMode(QTextOption::NoWrap);
-  result->setTextInteractionFlags(
-        Qt::TextSelectableByMouse
-      | Qt::TextSelectableByKeyboard
-    );
+  lastResult_.file = currentFile();
+  lastResult_.mixedNum = str(solver_.mixed_numerator());
+  lastResult_.mixedDen = str(solver_.mixed_denominator());
+  lastResult_.rawNum = str(solver_.raw_numerator());
+  lastResult_.rawDen = str(solver_.raw_denominator());
+  lastResult_.digitNum = str(solver_.digit_numerator());
+  lastResult_.digitDen = str(solver_.digit_denominator());
+  hasResult_ = true;
 
-  result->appendPlainText("# " + currentFile() + "\n");
-
-  expr.clear();
-  num = sapecng::metacircuit::as_string(solver_.mixed_numerator());
-  den = sapecng::metacircuit::as_string(solver_.mixed_denominator());
-  expr.append(num);
-  expr.append("\n");
-  expr.append(std::string(
-    (num.size() > den.size() ? num.size() : den.size()) * 3/2, '-'));
-  expr.append("\n");
-  expr.append(den);
-  result->appendPlainText(tr("Result:\n"));
-  result->appendPlainText(QString::fromStdString(expr));
-
-  expr.clear();
-  num = sapecng::metacircuit::as_string(solver_.raw_numerator());
-  den = sapecng::metacircuit::as_string(solver_.raw_denominator());
-  expr.append(num);
-  expr.append("\n");
-  expr.append(std::string(
-    (num.size() > den.size() ? num.size() : den.size()) * 3/2, '-'));
-  expr.append("\n");
-  expr.append(den);
-  result->appendPlainText(tr("\n\nRaw:\n"));
-  result->appendPlainText(QString::fromStdString(expr));
-
-  expr.clear();
-  num = sapecng::metacircuit::as_string(solver_.digit_numerator());
-  den = sapecng::metacircuit::as_string(solver_.digit_denominator());
-  expr.append(num);
-  expr.append("\n");
-  expr.append(std::string(
-    (num.size() > den.size() ? num.size() : den.size()) * 3/2, '-'));
-  expr.append("\n");
-  expr.append(den);
-  result->appendPlainText(tr("\n\nDigit:\n"));
-  result->appendPlainText(QString::fromStdString(expr));
-
-  QDialogButtonBox* button = new QDialogButtonBox(QDialogButtonBox::Ok);
-
-  QLayout* layout = new QVBoxLayout;
-  layout->addWidget(result);
-  layout->addWidget(button);
-
-  QDialog dialog(this);
-  dialog.setLayout(layout);
-  connect(button, SIGNAL(accepted()), &dialog, SLOT(accept()));
-  dialog.exec();
+  emit solved();
 }
 
 

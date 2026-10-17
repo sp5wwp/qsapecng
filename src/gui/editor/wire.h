@@ -106,6 +106,7 @@ private:
   QList<GraphicsNode*> taps_;    // subset of nodes_
   bool connectedJunctions_;
   bool mod_;
+  int net_ = -1;   // solved net number, -1 when not solved
 
 };
 

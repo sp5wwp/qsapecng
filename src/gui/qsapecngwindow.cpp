@@ -18,6 +18,7 @@
 
 
 #include "gui/theme.h"
+#include "gui/resultpanel.h"
 #include "config.h"
 
 #include "exception/sapecngexception.h"
@@ -36,8 +37,6 @@
 #include "gui/sidebarmodel.h"
 #include "gui/sidebarview.h"
 
-#include "gui/qtsolutions/qtpropertyeditor/QtTreePropertyBrowser"
-#include "gui/qtsolutions/qtpropertyeditor/QtButtonPropertyBrowser"
 
 #include <QProgressBar>
 
@@ -52,6 +51,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFileDialog>
+#include <QDir>
 
 #include <QLabel>
 #include <QLineEdit>
@@ -83,6 +83,10 @@
 
 #include <QPrinter>
 #include <QPrintDialog>
+#include <QPdfWriter>
+#include <QSvgGenerator>
+#include <QImage>
+#include <QPageSize>
 
 #include <QGridLayout>
 #include <QVBoxLayout>
@@ -151,14 +155,11 @@ QSapecNGWindow::QSapecNGWindow()
   connect(central_, SIGNAL(currentChanged(int)),
     this, SLOT(updateMenus()));
   connect(central_, SIGNAL(currentChanged(int)),
-    this, SLOT(updatePropertyBrowser()));
-  connect(central_, SIGNAL(currentChanged(int)),
     this, SLOT(updateDocks()));
 
   setCentralWidget(central_);
 
   sideBarDock_->setObjectName("sideBarDock");
-  propertyDock_->setObjectName("propertyDock");
   messageDock_->setObjectName("messageDock");
   undoRedoDock_->setObjectName("undoRedoDock");
   workspaceDock_->setObjectName("workspaceDock");
@@ -466,6 +467,125 @@ void QSapecNGWindow::saveAs()
 }
 
 
+namespace
+{
+
+
+// Draws a schematic as on paper: black on white, without the grid and the
+// selection, whatever the theme.
+void renderSchematic(SchematicScene& scene, QPainter* painter,
+    const QRectF& target, const QRectF& source)
+{
+  const QList<QGraphicsItem*> selected = scene.selectedItems();
+  const bool grid = scene.gridVisible();
+  scene.clearSelection();
+  scene.setGridVisible(false);
+
+  {
+    theme::PaperSheet paper;
+    theme::refreshSheetText(&scene);
+    painter->setRenderHint(QPainter::Antialiasing);
+    painter->setRenderHint(QPainter::TextAntialiasing);
+    scene.render(painter, target, source);
+  }
+  theme::refreshSheetText(&scene);
+
+  scene.setGridVisible(grid);
+  foreach(QGraphicsItem* item, selected)
+    item->setSelected(true);
+}
+
+
+QRectF schematicArea(SchematicScene& scene)
+{
+  return scene.itemsBoundingRect().adjusted(-10, -10, 10, 10);
+}
+
+
+}
+
+
+void QSapecNGWindow::exportSchematic()
+{
+  SchematicEditor* editor = activeEditor();
+  if(!editor)
+    return;
+
+  const QString svgFilter = tr("SVG image (*.svg)");
+  const QString pngFilter = tr("PNG image (*.png)");
+  const QString pdfFilter = tr("PDF document (*.pdf)");
+
+  QFileInfo current(editor->currentFile());
+  QString suggested = current.completeBaseName().isEmpty()
+    ? tr("schematic") : current.completeBaseName();
+  suggested = QFileInfo(Settings().workspace(), suggested + ".svg")
+    .absoluteFilePath();
+
+  QString filter = svgFilter;
+  QString fileName = QFileDialog::getSaveFileName(this, tr("Export schematic"),
+    suggested, svgFilter + ";;" + pngFilter + ";;" + pdfFilter, &filter);
+  if(fileName.isEmpty())
+    return;
+
+  QString suffix = QFileInfo(fileName).suffix().toLower();
+  if(suffix != "svg" && suffix != "png" && suffix != "pdf") {
+    suffix = filter == pngFilter ? "png" : filter == pdfFilter ? "pdf" : "svg";
+    fileName += "." + suffix;
+  }
+
+  SchematicScene& scene = editor->scene();
+  const QRectF source = schematicArea(scene);
+  bool ok = true;
+
+  if(suffix == "svg") {
+    QSvgGenerator svg;
+    svg.setFileName(fileName);
+    svg.setSize(source.size().toSize());
+    svg.setViewBox(QRectF(QPointF(0, 0), source.size()));
+    svg.setTitle(QFileInfo(fileName).completeBaseName());
+    svg.setDescription(tr("Schematic exported from %1").arg(PACKAGE_NAME));
+    QPainter painter;
+    ok = painter.begin(&svg);
+    if(ok) {
+      renderSchematic(scene, &painter,
+        QRectF(QPointF(0, 0), source.size()), source);
+      painter.end();
+    }
+  } else if(suffix == "png") {
+    const qreal scale = 4.;   // ~ 300 dpi for a typical schematic
+    QImage image((source.size() * scale).toSize(), QImage::Format_ARGB32);
+    image.setDotsPerMeterX(11811);
+    image.setDotsPerMeterY(11811);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    renderSchematic(scene, &painter, QRectF(image.rect()), source);
+    painter.end();
+    ok = image.save(fileName, "PNG");
+  } else {
+    QPdfWriter pdf(fileName);
+    pdf.setTitle(QFileInfo(fileName).completeBaseName());
+    pdf.setCreator(PACKAGE_NAME);
+    pdf.setResolution(300);
+    // page sized to the drawing (scene units taken as 1/96 in)
+    const QSizeF inches = source.size() / 96.;
+    pdf.setPageSize(QPageSize(inches, QPageSize::Inch));
+    pdf.setPageMargins(QMarginsF(0, 0, 0, 0));
+    QPainter painter;
+    ok = painter.begin(&pdf);
+    if(ok) {
+      const QRect page = painter.viewport();
+      renderSchematic(scene, &painter, QRectF(page), source);
+      painter.end();
+    }
+  }
+
+  if(ok)
+    QLogger::info(tr("Schematic exported to %1").arg(fileName));
+  else
+    QLogger::error(tr("Could not write %1").arg(fileName));
+}
+
+
 void QSapecNGWindow::print()
 {
   QPrinter printer;
@@ -476,10 +596,10 @@ void QSapecNGWindow::print()
       if(QPrintDialog(&printer).exec() != QDialog::Accepted)
         return;
 
+      // black on white, also when the dark theme is active
       QPainter painter(&printer);
-      painter.setRenderHint(QPainter::Antialiasing);
-      editor->scene().render
-        (&painter, QRectF(), editor->scene().itemsBoundingRect());
+      renderSchematic(editor->scene(), &painter, QRectF(),
+        schematicArea(editor->scene()));
     }
   } else {
     if(QPrintDialog(&printer).exec() != QDialog::Accepted)
@@ -492,29 +612,16 @@ void QSapecNGWindow::print()
 
 void QSapecNGWindow::props()
 {
+  // same dialog as double-clicking the component
   SchematicEditor* editor = activeEditor();
+  if(!editor)
+    return;
 
-  if(editor) {
-    QList<QGraphicsItem*> items = editor->scene().selectedItems();
-    QtButtonPropertyBrowser* browser = new QtButtonPropertyBrowser;
-    editor->scene().initializeBrowser(browser);
-
-    foreach(QGraphicsItem* item, items)
-      if(SchematicScene::itemProperties(item))
-        browser->addProperty(SchematicScene::itemProperties(item));
-
-    QDialog* dialog = new QDialog(this, Qt::Dialog);
-    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok);
-    connect(buttons, SIGNAL(accepted()), dialog, SLOT(accept()));
-
-    QVBoxLayout* layout = new QVBoxLayout;
-    layout->addWidget(browser);
-    layout->addWidget(buttons);
-
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setLayout(layout);
-    dialog->exec();
-  }
+  foreach(QGraphicsItem* item, editor->scene().selectedItems())
+    if(SchematicScene::itemProperties(item)) {
+      editor->scene().editItemProperties(item);
+      return;
+    }
 }
 
 
@@ -559,7 +666,7 @@ void QSapecNGWindow::rotate()
   SchematicEditor* editor = activeEditor();
 
   if(editor)
-    editor->scene().rotateSelectedItems();
+    editor->scene().rotatePlacedOrSelected();
 }
 
 
@@ -596,6 +703,7 @@ void QSapecNGWindow::license()
   QString body =
     "QSapecNG, Qt-based GUI for SapecNG<br>"
     "Copyright (C) 2009, Michele Caini<br>"
+    "Copyright (C) 2026, Wojciech Kaczmarski<br>"
     "<br>"
     "This program is free software: you can redistribute it and/or modify "
     "it under the terms of the GNU General Public License as published by "
@@ -615,15 +723,40 @@ void QSapecNGWindow::license()
 }
 
 
+void QSapecNGWindow::setResistorStyle(theme::ResistorStyle style)
+{
+  theme::setResistorStyle(style);
+
+  foreach(QMdiSubWindow* window, mdiArea_->subWindowList())
+    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window))
+      editor->scene().updateResistorSymbols();
+
+  sideBarModel_->refreshSymbols();
+}
+
+
+void QSapecNGWindow::setShowComponentValues(bool show)
+{
+  theme::setShowComponentValues(show);
+
+  foreach(QMdiSubWindow* window, mdiArea_->subWindowList())
+    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window))
+      editor->scene().refreshComponentLabels();
+}
+
+
 void QSapecNGWindow::about()
 {
-  QMessageBox::about(this, tr(PACKAGE_NAME),
-    QString("%1%2%3%4%5")
-      .arg(PACKAGE_NAME)
-      .arg(tr(": Qt-based GUI for SapecNG\n\n"))
-      .arg(PACKAGE_NAME)
-      .arg(tr(" is based in part on the work of "))
-      .arg(tr("the Qwt project (http://qwt.sf.net)."))
+  QMessageBox::about(this, tr("About %1").arg(PACKAGE_NAME),
+    tr("<h3>%1 %2</h3>"
+       "<p>Qt-based GUI for SapecNG, symbolic analysis of linear analog "
+       "circuits.</p>"
+       "<p><b>Authors</b><br>"
+       "Michele Caini<br>"
+       "Wojciech Kaczmarski</p>"
+       "<p>%1 is based in part on the work of the "
+       "<a href=\"https://qwt.sourceforge.io\">Qwt project</a>.</p>")
+      .arg(PACKAGE_NAME, PACKAGE_VERSION)
   );
 }
 
@@ -653,7 +786,8 @@ void QSapecNGWindow::sceneSelectionChanged()
   binAct_->setEnabled(hasSelectedItems);
   cutAct_->setEnabled(hasSelectedItems);
   copyAct_->setEnabled(hasSelectedItems);
-  rotateAct_->setEnabled(hasSelectedItems);
+  rotateAct_->setEnabled(hasSelectedItems
+    || (editor && editor->scene().isPlacingItem()));
   mirrorAct_->setEnabled(hasSelectedItems);
   bringToFrontAct_->setEnabled(hasSelectedItems);
   sendToBackAct_->setEnabled(hasSelectedItems);
@@ -668,6 +802,7 @@ void QSapecNGWindow::updateMenus()
   saveAct_->setEnabled(hasEditor);
   saveAsAct_->setEnabled(hasEditor);
   printAct_->setEnabled(hasEditor);
+  exportAct_->setEnabled(hasEditor && central_->currentWidget() == mdiArea_);
 
   pasteAct_->setEnabled(hasEditor);
   if(!hasEditor)
@@ -754,16 +889,6 @@ void QSapecNGWindow::updateWindowMenu()
 }
 
 
-void QSapecNGWindow::updatePropertyBrowser()
-{
-  bool hasEditor = (activeEditor() != 0);
-
-  treeBrowser_->clear();
-  if(hasEditor)
-    treeBrowser_->addProperty(activeEditor()->scene().properties());
-}
-
-
 void QSapecNGWindow::updateDocks()
 {
   bool hasEditor = (activeEditor() != 0);
@@ -811,6 +936,12 @@ void QSapecNGWindow::createActions()
   saveAsAct_->setShortcuts(QKeySequence::SaveAs);
   saveAsAct_->setStatusTip(tr("Save As..."));
   connect(saveAsAct_, SIGNAL(triggered()), this, SLOT(saveAs()));
+
+  exportAct_ = new QAction(tr("&Export Schematic..."), this);
+  exportAct_->setShortcut(tr("Ctrl+E"));
+  exportAct_->setStatusTip(tr("Save the schematic as an SVG, PNG or PDF file"));
+  connect(exportAct_, &QAction::triggered,
+    this, &QSapecNGWindow::exportSchematic);
 
   printAct_ = new QAction(theme::icon("print"), tr("&Print"), this);
   printAct_->setShortcuts(QKeySequence::Print);
@@ -867,7 +998,8 @@ void QSapecNGWindow::createActions()
   connect(pasteAct_, SIGNAL(triggered()), this, SLOT(paste()));
 
   rotateAct_ = new QAction(theme::icon("rotate"), tr("R&otate"), this);
-  rotateAct_->setStatusTip(tr("Rotate"));
+  rotateAct_->setShortcut(QKeySequence(Qt::Key_R));
+  rotateAct_->setStatusTip(tr("Rotate the selected items, or the item being placed (R)"));
   connect(rotateAct_, SIGNAL(triggered()), this, SLOT(rotate()));
 
   mirrorAct_ = new QAction(theme::icon("mirror"), tr("&Mirror"), this);
@@ -982,13 +1114,17 @@ void QSapecNGWindow::createActions()
 
   connectedWireSessionAct_ =
     new QAction(theme::symbolIcon("wirecross"), tr("Wire c&ross"), this);
-  connectedWireSessionAct_->setStatusTip(tr("Wire Cross Session Request"));
+  connectedWireSessionAct_->setStatusTip(tr("Draw wires that also connect "
+    "where other wires cross them; same controls as Wire (W)"));
   connect(connectedWireSessionAct_, SIGNAL(triggered()),
     this, SLOT(connectedWireSessionRequested()));
 
   disconnectedWireSessionAct_ =
     new QAction(theme::symbolIcon("wire"), tr("&Wire"), this);
-  disconnectedWireSessionAct_->setStatusTip(tr("Wire Session Request"));
+  disconnectedWireSessionAct_->setShortcut(Qt::Key_W);
+  disconnectedWireSessionAct_->setStatusTip(tr("Draw wires: click to start, "
+    "click to add a corner, end on a pin or a wire (or double-click); "
+    "right-click or / flips the bend, Esc stops"));
   connect(disconnectedWireSessionAct_, SIGNAL(triggered()),
     this, SLOT(disconnectedWireSessionRequested()));
 
@@ -1122,11 +1258,6 @@ void QSapecNGWindow::createDockWidgets()
   createSideBarDockLayout();
   sideBarDock_->setFocusPolicy(Qt::NoFocus);
 
-  propertyDock_ = new QDockWidget(tr("Properties"), this);
-  propertyDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-  propertyDock_->setTitleBarWidget(0);
-  createPropertyDockLayout();
-
   messageDock_ = new QDockWidget(tr("Messages"), this);
   messageDock_->setAllowedAreas(Qt::BottomDockWidgetArea);
   messageDock_->setTitleBarWidget(0);
@@ -1142,12 +1273,29 @@ void QSapecNGWindow::createDockWidgets()
   workspaceDock_->setTitleBarWidget(0);
   createWorkspaceDockLayout();
 
+  resultDock_ = new QDockWidget(tr("Result"), this);
+  resultDock_->setAllowedAreas(Qt::AllDockWidgetAreas);
+  resultPanel_ = new ResultPanel;
+  connect(resultPanel_, &ResultPanel::plotRequested, this, [this](int f) {
+      wave();
+      if(central_->currentWidget() == workplane_)
+        plot(f);
+    });
+  resultDock_->setWidget(resultPanel_);
+
+  // object names identify the docks in the saved layout
+  sideBarDock_->setObjectName(QStringLiteral("componentsDock"));
+  messageDock_->setObjectName(QStringLiteral("messagesDock"));
+  undoRedoDock_->setObjectName(QStringLiteral("undoRedoDock"));
+  workspaceDock_->setObjectName(QStringLiteral("workspaceDock"));
+  resultDock_->setObjectName(QStringLiteral("resultDock"));
+
   addDockWidget(Qt::LeftDockWidgetArea, workspaceDock_);
   addDockWidget(Qt::LeftDockWidgetArea, sideBarDock_);
-  addDockWidget(Qt::LeftDockWidgetArea, propertyDock_);
   addDockWidget(Qt::BottomDockWidgetArea, messageDock_);
+  addDockWidget(Qt::BottomDockWidgetArea, resultDock_);
   addDockWidget(Qt::RightDockWidgetArea, undoRedoDock_);
-  tabifyDockWidget(sideBarDock_, propertyDock_);
+  tabifyDockWidget(messageDock_, resultDock_);
 }
 
 
@@ -1159,10 +1307,12 @@ void QSapecNGWindow::createMenus()
   recentMenu_ = fileMenu_->addMenu(theme::icon("open"), tr("Open &Recent"));
   for(int i = 0; i < maxRecentFiles; ++i)
     recentMenu_->addAction(openRecentActs_[i]);
+  createExamplesMenu(fileMenu_);
   fileMenu_->addAction(openCrcAct_);
   fileMenu_->addAction(saveAct_);
   fileMenu_->addAction(saveAsAct_);
   fileMenu_->addSeparator();
+  fileMenu_->addAction(exportAct_);
   fileMenu_->addAction(printAct_);
   fileMenu_->addSeparator();
   fileMenu_->addAction(quitAct_);
@@ -1251,6 +1401,40 @@ void QSapecNGWindow::createMenus()
     connect(act, &QAction::triggered, this, [mode]() { theme::setMode(mode); });
   }
 
+  QMenu* resistorMenu = settingMenu_->addMenu(tr("&Resistor symbol"));
+  QActionGroup* resistorGroup = new QActionGroup(resistorMenu);
+  const QList< QPair<QString, theme::ResistorStyle> > resistorStyles = {
+    { tr("&ANSI (zigzag)"), theme::ResistorStyle::Ansi },
+    { tr("&IEC / DIN (rectangle)"), theme::ResistorStyle::Din }
+  };
+  for(const auto& r : resistorStyles) {
+    QAction* act = resistorMenu->addAction(r.first);
+    act->setCheckable(true);
+    act->setChecked(theme::resistorStyle() == r.second);
+    resistorGroup->addAction(act);
+    const theme::ResistorStyle style = r.second;
+    connect(act, &QAction::triggered, this, [this, style]() {
+      setResistorStyle(style);
+    });
+  }
+
+  QMenu* labelMenu = settingMenu_->addMenu(tr("Component &labels"));
+  QActionGroup* labelGroup = new QActionGroup(labelMenu);
+  const QList< QPair<QString, bool> > labelModes = {
+    { tr("&Name only"), false },
+    { tr("Name and &value"), true }
+  };
+  for(const auto& l : labelModes) {
+    QAction* act = labelMenu->addAction(l.first);
+    act->setCheckable(true);
+    act->setChecked(theme::showComponentValues() == l.second);
+    labelGroup->addAction(act);
+    const bool show = l.second;
+    connect(act, &QAction::triggered, this, [this, show]() {
+      setShowComponentValues(show);
+    });
+  }
+
   settingMenu_->addSeparator();
   settingMenu_->addAction(configureAppAct_);
 
@@ -1259,8 +1443,8 @@ void QSapecNGWindow::createMenus()
   updateWindowMenu();
   connect(windowMenu_, SIGNAL(aboutToShow()), this, SLOT(updateWindowMenu()));
   showMenu_->addAction(sideBarDock_->toggleViewAction());
-  showMenu_->addAction(propertyDock_->toggleViewAction());
   showMenu_->addAction(messageDock_->toggleViewAction());
+  showMenu_->addAction(resultDock_->toggleViewAction());
   showMenu_->addAction(undoRedoDock_->toggleViewAction());
   showMenu_->addAction(workspaceDock_->toggleViewAction());
 
@@ -1283,6 +1467,7 @@ void QSapecNGWindow::createMenus()
 void QSapecNGWindow::createToolBars()
 {
   fileToolBar_ = addToolBar(tr("File"));
+  fileToolBar_->setObjectName(QStringLiteral("fileToolBar"));
   fileToolBar_->addAction(newAct_);
   fileToolBar_->addAction(openAct_);
   fileToolBar_->addAction(saveAct_);
@@ -1290,6 +1475,7 @@ void QSapecNGWindow::createToolBars()
   fileToolBar_->addAction(printAct_);
 
   viewToolBar_ = addToolBar(tr("View"));
+  viewToolBar_->setObjectName(QStringLiteral("viewToolBar"));
   viewToolBar_->addAction(zoomInAct_);
   viewToolBar_->addAction(zoomOutAct_);
   viewToolBar_->addAction(zoomNormalAct_);
@@ -1297,11 +1483,13 @@ void QSapecNGWindow::createToolBars()
   viewToolBar_->addAction(fitAct_);
 
   runToolBar_ = addToolBar(tr("Run"));
+  runToolBar_->setObjectName(QStringLiteral("runToolBar"));
   runToolBar_->addAction(nodeAct_);
   runToolBar_->addAction(resolveAct_);
   runToolBar_->addAction(waveAct_);
 
   toolToolBar_ = addToolBar(tr("Tools"));
+  toolToolBar_->setObjectName(QStringLiteral("toolToolBar"));
   toolToolBar_->addAction(cursorAct_);
   toolToolBar_->addAction(labelSessionAct_);
   toolToolBar_->addSeparator();
@@ -1341,24 +1529,15 @@ void QSapecNGWindow::createSideBarDockLayout()
 }
 
 
-void QSapecNGWindow::createPropertyDockLayout()
-{
-  treeBrowser_ = new QtTreePropertyBrowser(this);
-  treeBrowser_->setAlternatingRowColors(true);
-  treeBrowser_->setResizeMode(QtTreePropertyBrowser::Interactive);
-  treeBrowser_->setPropertiesWithoutValueMarked(true);
-  treeBrowser_->setRootIsDecorated(true);
-  propertyDock_->setWidget(treeBrowser_);
-}
-
-
 void QSapecNGWindow::createMessageDockLayout()
 {
-  logViewer_ = new QTextEdit;
+  logViewer_ = new LogViewer;
   logViewer_->setAcceptRichText(false);
   logViewer_->setLineWrapMode(QTextEdit::NoWrap);
   logViewer_->setWordWrapMode(QTextOption::NoWrap);
-  logViewer_->setFontPointSize(QApplication::font().pointSize() - 1);
+  QFont logFont = logViewer_->font();
+  logFont.setPointSize(QApplication::font().pointSize() - 1);
+  logViewer_->setFont(logFont);
   logViewer_->setReadOnly(true);
   logViewer_->setUndoRedoEnabled(false);
   logViewer_->setTextInteractionFlags(
@@ -1366,10 +1545,7 @@ void QSapecNGWindow::createMessageDockLayout()
       | Qt::TextSelectableByKeyboard
     );
 
-  connect(policy_, SIGNAL(log(const QString&)),
-    logViewer_, SLOT(append(const QString&)));
-  connect(policy_, SIGNAL(textColorChanged(const QColor&)),
-    logViewer_, SLOT(setTextColor(const QColor&)));
+  connect(policy_, &QLogPolicy::entry, logViewer_, &LogViewer::addEntry);
 
   messageDock_->setWidget(logViewer_);
 }
@@ -1433,7 +1609,15 @@ void QSapecNGWindow::readSettings()
 
   move(settings.mwPos());
   resize(settings.mwSize());
-  restoreState(settings.mwState());
+
+  // Default layout: only Components (left) and Messages (bottom) open;
+  // Workspace and Undo/Redo are in Window > Show. A saved
+  // layout replaces this, unless it was saved with an older layout version.
+  workspaceDock_->hide();
+  undoRedoDock_->hide();
+  sideBarDock_->raise();
+  messageDock_->raise();
+  restoreState(settings.mwState(), LayoutVersion);
 
   QLogger::setLevel((sapecng::Logger::LogLevel) settings.logLvl());
   policy_->setDebugColor(settings.debugColor());
@@ -1450,7 +1634,7 @@ void QSapecNGWindow::writeSettings()
 
   manager.setMWPos(pos());
   manager.setMWSize(size());
-  manager.setMWState(saveState());
+  manager.setMWState(saveState(LayoutVersion));
 }
 
 
@@ -1496,7 +1680,6 @@ SchematicEditor* QSapecNGWindow::createSchematicEditor()
 
 void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
 {
-  editor->scene().initializeBrowser(treeBrowser_);
   editor->scene().setGridVisible(toggleGridAct_->isChecked());
   editor->scene().setContextMenu(sceneMenu_);
 
@@ -1505,6 +1688,19 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
 
   connect(editor, SIGNAL(stackEditor(SchematicEditor*)),
     this, SLOT(stackEditor(SchematicEditor*)));
+  connect(editor, &SchematicEditor::solved, this, [this, editor]() {
+    if(editor != activeEditor())
+      return;
+    updateResultPanel();
+    resultDock_->show();
+    resultDock_->raise();
+  });
+  connect(editor, &SchematicEditor::dirtyChanged, this, [this, editor]() {
+    if(editor == activeEditor())
+      updateResultPanel();
+  });
+  connect(&(editor->scene()), &SchematicScene::placementChanged,
+      this, &QSapecNGWindow::sceneSelectionChanged);
   connect(&(editor->scene()), SIGNAL(selectionChanged()),
       this, SLOT(sceneSelectionChanged()));
   connect(this, SIGNAL(toggleGrid(bool)),
@@ -1513,6 +1709,36 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
   editor->setAttribute(Qt::WA_DeleteOnClose);
   editor->setWindowIcon(theme::icon("schematic"));
   mdiArea_->addSubWindow(editor, Qt::SubWindow);
+}
+
+
+void QSapecNGWindow::createExamplesMenu(QMenu* parent)
+{
+  // installed next to the program (Windows: <dir>/examples, Linux and the
+  // AppImage: share/qsapecng/examples), or the source tree for a build
+  const QString app = QCoreApplication::applicationDirPath();
+  const QStringList candidates = {
+    app + "/../examples",
+    app + "/examples",
+    app + "/../share/qsapecng/examples",
+    QStringLiteral(QSAPECNG_SOURCE_EXAMPLES)
+  };
+
+  QFileInfoList files;
+  foreach(const QString& dir, candidates) {
+    files = QDir(dir).entryInfoList(QStringList("*.info"), QDir::Files,
+      QDir::Name);
+    if(!files.isEmpty())
+      break;
+  }
+  if(files.isEmpty())
+    return;
+
+  QMenu* menu = parent->addMenu(tr("Open E&xample"));
+  foreach(const QFileInfo& file, files) {
+    const QString path = file.absoluteFilePath();
+    menu->addAction(file.fileName(), this, [this, path]() { open(path); });
+  }
 }
 
 
@@ -1658,8 +1884,18 @@ void QSapecNGWindow::syncWithCurrentEditor()
   subWindowActivated(mdiArea_->currentSubWindow());
   sceneSelectionChanged();
   updateMenus();
-  updatePropertyBrowser();
   updateDocks();
+  updateResultPanel();
+}
+
+
+void QSapecNGWindow::updateResultPanel()
+{
+  SchematicEditor* editor = activeEditor();
+  if(editor && editor->hasResult())
+    resultPanel_->showResult(editor->lastResult(), !editor->isSolved());
+  else
+    resultPanel_->showPlaceholder();
 }
 
 

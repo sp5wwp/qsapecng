@@ -86,6 +86,9 @@ public:
     mixed() const { return mixed_; }
 
 private:
+  // test hook: tests/metacircuit_compress_test.cpp calls simplify()
+  friend struct metacircuit_test_access;
+
   void append(int deg, expression& e, const basic_expression& be);
   void simplify(std::pair<expression, expression>& p);
 

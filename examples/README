@@ -1,7 +1,24 @@
 Example circuits
 ================
 
+Open one, press Resolve (F8) and look at the Result panel; the Plot links
+there show the frequency response.
+
 rc-lowpass-2nd-order.info
   Two cascaded RC low-pass sections (R = 1 kOhm, C = 1 uF).
-  Expected result:  V1 / (C1 C2 R1 R2 s^2 + (C2 R2 + C1 R1 + C2 R1) s + 1),
+  Result:  V1 / (C1 C2 R1 R2 s^2 + (C2 R2 + C1 R1 + C2 R1) s + 1),
   poles near -381.97 and -2618.03 rad/s.
+
+rlc-bandpass.info
+  Series RLC band-pass, output across R (L = 10 mH, C = 1 uF, R = 100 Ohm:
+  centre frequency about 1.59 kHz, Q = 1).
+  Result:  C1 R1 V1 s / (C1 L1 s^2 + C1 R1 s + 1).
+
+opamp-inverting.info
+  Inverting amplifier with an ideal op-amp (R1 = 1 kOhm, R2 = 10 kOhm).
+  Result:  -R2 V1 / R1 (gain -10).
+
+sallen-key-lowpass.info
+  Unity-gain Sallen-Key low-pass (R1 = R2 = 10 kOhm, C1 = 20 nF,
+  C2 = 10 nF: Butterworth, cut-off about 1.13 kHz).
+  Result:  V1 / (C1 C2 R1 R2 s^2 + (C2 R2 + C2 R1) s + 1).

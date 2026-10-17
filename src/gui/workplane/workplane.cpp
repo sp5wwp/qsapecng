@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/theme.h"
 #include "model/metacircuit.h"
 #include "functor/functor.hpp"
 #include "gui/workplane/workplane.h"
@@ -202,6 +203,7 @@ namespace
 // low-contrast grid, antialiased curves in the accent colour and clearly
 // distinguishable zero (o) / pole (x) markers.
 void applyPlotStyle(
+    const QPalette& pal,
     QwtPlot* plot,
     QwtPlotGrid* grid,
     QVector< QPair< QwtPlotCurve*, bool > >& curves,
@@ -209,7 +211,6 @@ void applyPlotStyle(
     int polesId
   )
 {
-  const QPalette pal = QApplication::palette();
   const QColor base = pal.color(QPalette::Base);
   const QColor text = pal.color(QPalette::Text);
   const QColor accent = pal.color(QPalette::Highlight);
@@ -373,7 +374,7 @@ void WorkPlane::changeEvent(QEvent* event)
   {
     // defer until the application has finished re-polishing widgets
     QTimer::singleShot(0, this, [this]() {
-      applyPlotStyle(plot_, grid_, curves_, ZEROS, POLES);
+      applyPlotStyle(QApplication::palette(), plot_, grid_, curves_, ZEROS, POLES);
       plot_->replot();
     });
   }
@@ -665,7 +666,16 @@ void WorkPlane::redraw()
 
 
 void WorkPlane::print(QPrinter& printer) {
+  // print on white, also when the dark theme is active
+  const QPalette paper = theme::paperPalette();
+  plot_->setPalette(paper);
+  applyPlotStyle(paper, plot_, grid_, curves_, ZEROS, POLES);
+
   QwtPlotRenderer().renderTo(plot_, printer);
+
+  plot_->setPalette(QPalette());   // back to the inherited palette
+  applyPlotStyle(QApplication::palette(), plot_, grid_, curves_, ZEROS, POLES);
+  plot_->replot();
 }
 
 
@@ -935,7 +945,7 @@ void WorkPlane::setupCurves()
     curves_[i].second = false;
   }
 
-  applyPlotStyle(plot_, grid_, curves_, ZEROS, POLES);
+  applyPlotStyle(QApplication::palette(), plot_, grid_, curves_, ZEROS, POLES);
 
   lastId_ = NOOP;
 }

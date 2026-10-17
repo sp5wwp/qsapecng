@@ -75,7 +75,8 @@ void GraphicsNode::paint(
 {
   if(isColliding()) {
     painter->save();
-    painter->setBrush(QBrush(Qt::black, Qt::SolidPattern));
+    painter->setBrush(QBrush(theme::sheetForeground(), Qt::SolidPattern));
+    painter->setPen(QPen(theme::sheetForeground(), 0));
     painter->drawPath(path_);
     painter->restore();
   }
@@ -175,6 +176,12 @@ QVariant GraphicsNode::itemChange(GraphicsItemChange change, const QVariant& val
 
 void GraphicsNode::showNodeValue()
 {
+  // the ground net (0) is already marked by its ground symbols
+  if(node()->value() == 0) {
+    hideNodeValue();
+    return;
+  }
+
   if(!label_) {
     label_ = new QGraphicsTextItem(this);
     label_->setDefaultTextColor(theme::sheetForeground());

@@ -24,12 +24,14 @@
 #include <QColor>
 #include <QFont>
 #include <QIcon>
+#include <QPalette>
 #include <QPixmap>
 #include <QSize>
 #include <QString>
 
 
 class QApplication;
+class QGraphicsScene;
 
 
 namespace qsapecng
@@ -51,6 +53,18 @@ enum class Mode { System, Light, Dark };
 Mode mode();
 void setMode(Mode mode);
 
+// Resistor (and conductance) symbol: ANSI zigzag or IEC 60617 / DIN
+// rectangle; persisted in QSettings, IEC / DIN by default.
+enum class ResistorStyle { Ansi, Din };
+ResistorStyle resistorStyle();
+void setResistorStyle(ResistorStyle style);
+// Name of the resistor symbol for symbolIcon()/symbolPixmap().
+QString resistorSymbolName();
+
+// Component labels: name only (default) or name and value.
+bool showComponentValues();
+void setShowComponentValues(bool show);
+
 // True when the current application palette is a dark one.
 bool isDark();
 
@@ -70,10 +84,33 @@ QPixmap symbolPixmap(const QString& name, const QSize& size);
 // Sans-serif font for text drawn on the schematic (labels, values).
 QFont schematicFont(int pointSize);
 
-// Colours used by the schematic sheet, which always stays "paper" white.
+// Colours of the schematic sheet: dark in a dark theme, black on white
+// otherwise and always while a PaperSheet guard exists (printing).
+bool sheetIsDark();
 QColor sheetBackground();
 QColor sheetForeground();
 QColor sheetGrid();
+
+// Colour of a solved net (wires are coloured per net after Resolve).
+QColor netColor(int net);
+
+// Re-applies sheetForeground() to the text items (labels, values, node
+// numbers) of a scene; call after the theme or a PaperSheet guard changes.
+void refreshSheetText(QGraphicsScene* scene);
+
+// While alive, the sheet uses paper colours (black on white) whatever the
+// theme; used for printing.
+class PaperSheet
+{
+public:
+  PaperSheet();
+  ~PaperSheet();
+  PaperSheet(const PaperSheet&) = delete;
+  PaperSheet& operator=(const PaperSheet&) = delete;
+};
+
+// Light palette used for printed output (plots).
+QPalette paperPalette();
 
 // Makes a user-configured log colour readable on the current background:
 // pure black follows the palette text colour, and very dark colours are

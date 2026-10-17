@@ -88,11 +88,20 @@ public:
 
   inline PropertyTextItem* label() const { return label_; }
 
+  // The label is anchored at its centre: by default beside the body,
+  // perpendicular to the terminals; a dragged label keeps its anchor.
+  // Coordinates are the component's own (they rotate with it).
+  void updateLabelPosition();
+  inline bool hasCustomLabelPosition() const { return labelMoved_; }
+  inline QPointF labelAnchor() const { return labelAnchor_; }
+  void setLabelAnchor(const QPointF& anchor);
+
   void addNodes(QList<QPointF> nodes);
   void addNodes(QPointF node);
   QVector<int> nodes() const;
 
-  inline void setPath(const QPainterPath& path) { path_ = path; }
+  inline void setPath(const QPainterPath& path)
+    { prepareGeometryChange(); path_ = path; update(); updateLabelPosition(); }
   inline QPainterPath path() const { return path_; }
 
 public:
@@ -106,12 +115,18 @@ protected:
 
 private:
   void createNode(const QPointF& point);
+  void setupLabel();
+  QPointF defaultLabelAnchor(const QSizeF& textSize,
+      const QTransform& orientation) const;
 
 private:
   QList<GraphicsNode*> nodeList_;
   QPainterPath path_;
 
   PropertyTextItem* label_;
+  QPointF labelAnchor_;
+  bool labelMoved_ = false;
+  bool positioningLabel_ = false;
 
 };
 

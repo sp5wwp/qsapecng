@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/theme.h"
 #include "gui/editor/wire.h"
 #include "gui/editor/graphicsnode.h"
 #include "gui/editor/schematicscene.h"
@@ -98,7 +99,9 @@ void Wire::paint(
   if(isSelected()) {
     painter->save();
 
-    painter->setPen(defaultPen_);
+    QPen selectionPen = defaultPen_;
+    selectionPen.setColor(theme::sheetForeground());
+    painter->setPen(selectionPen);
     double opacity = painter->opacity();
     painter->setOpacity(opacity / OpacityFactor);
     painter->drawRect(boundingRect());
@@ -106,7 +109,9 @@ void Wire::paint(
     painter->restore();
   }
 
-  painter->setPen(itemPen_);
+  QPen pen = itemPen_;
+  pen.setColor(net_ >= 0 ? theme::netColor(net_) : theme::sheetForeground());
+  painter->setPen(pen);
   painter->drawPath(path_);
 
   painter->restore();
@@ -339,17 +344,9 @@ int Wire::propagate(int value)
   if(!found)
     nodes_.front()->showNodeValue();
 
-  QList<QColor> colors;
-  colors.push_back(QColor(Qt::darkCyan));
-  colors.push_back(QColor(Qt::darkRed));
-  colors.push_back(QColor(Qt::darkMagenta));
-  colors.push_back(QColor(Qt::darkGreen));
-  colors.push_back(QColor(Qt::darkYellow));
-  colors.push_back(QColor(Qt::darkBlue));
-  colors.push_back(QColor(Qt::darkGray));
-
+  // the colour itself is looked up at paint time (follows the theme)
+  net_ = act;
   itemPen_.setWidth(itemPen_.width() + COLOR_BORDER);
-  itemPen_.setColor(colors.at(act % colors.size()));
   update();
 
   return value;
@@ -365,7 +362,7 @@ void Wire::invalidate()
 
   if(mod_) {
     itemPen_.setWidth(itemPen_.width() - COLOR_BORDER);
-    itemPen_.setColor(Qt::black);
+    net_ = -1;
     mod_ = false;
     update();
   }

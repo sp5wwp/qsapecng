@@ -4,21 +4,27 @@
 // left without terms. It used to erase a map entry and then advance the
 // erased iterator, which crashed depending on the standard library.
 // Built with _GLIBCXX_DEBUG (see tests/CMakeLists.txt) the old code aborts
-// deterministically.
+// deterministically. (No "#define private public": MSVC encodes access in
+// symbol names, so that would not link.)
 
 #include <iostream>
-#include <list>
-#include <map>
-#include <sstream>
-#include <string>
 #include <utility>
 
-#include "model/circuit.h"
-
-// simplify() is private; expose it for this test only.
-#define private public
 #include "model/metacircuit.h"
-#undef private
+
+
+namespace sapecng
+{
+
+// declared a friend in metacircuit (simplify() is private)
+struct metacircuit_test_access
+{
+  static void simplify(metacircuit& m,
+      std::pair<metacircuit::expression, metacircuit::expression>& p)
+    { m.simplify(p); }
+};
+
+}
 
 
 int main()
@@ -32,7 +38,7 @@ int main()
 
   std::pair<M::expression, M::expression> p(num, den);
   M meta;
-  meta.simplify(p);
+  sapecng::metacircuit_test_access::simplify(meta, p);
 
   std::cout << M::as_string(p.first) << " / " << M::as_string(p.second) << "\n";
 

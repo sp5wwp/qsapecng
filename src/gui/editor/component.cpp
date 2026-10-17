@@ -17,6 +17,7 @@
 */
 
 
+#include "gui/theme.h"
 #include "gui/editor/itemtransform.h"
 #include "gui/editor/component.h"
 #include "gui/editor/graphicsnode.h"
@@ -24,6 +25,8 @@
 
 #include <QGraphicsScene>
 #include <QPainter>
+#include <QAbstractTextDocumentLayout>
+#include <QTextDocument>
 
 
 namespace qsapecng
@@ -36,6 +39,7 @@ Component::Component(
   ) : Item(parent, scene)
 {
   label_ = new PropertyTextItem("", this);
+  setupLabel();
 }
 
 
@@ -46,6 +50,7 @@ Component::Component(
   ) : Item(parent, scene), path_(path)
 {
   label_ = new PropertyTextItem("", this);
+  setupLabel();
 }
 
 
@@ -57,6 +62,7 @@ Component::Component(
   ) : Item(parent, scene), path_(path)
 {
   label_ = new PropertyTextItem("", this);
+  setupLabel();
 
   foreach(QPointF node, nodes)
     createNode(node);
@@ -71,6 +77,7 @@ Component::Component(
   ) : Item(parent, scene), path_(path), label_(0)
 {
   label_ = new PropertyTextItem("", this);
+  setupLabel();
 
   createNode(node);
 }
@@ -114,7 +121,9 @@ void Component::paint(
   if(isSelected()) {
     painter->save();
 
-    painter->setPen(defaultPen_);
+    QPen selectionPen = defaultPen_;
+    selectionPen.setColor(theme::sheetForeground());
+    painter->setPen(selectionPen);
     double opacity = painter->opacity();
     painter->setOpacity(opacity / OpacityFactor);
     painter->drawRect(boundingRect());
@@ -122,7 +131,9 @@ void Component::paint(
     painter->restore();
   }
 
-  painter->setPen(itemPen_);
+  QPen pen = itemPen_;
+  pen.setColor(theme::sheetForeground());
+  painter->setPen(pen);
   painter->drawPath(path_);
 
   painter->restore();
@@ -132,13 +143,9 @@ void Component::paint(
 void Component::mirror()
 {
   if(!angle() || angle() == 180) {
-    if(label_)
-      scaleItem(label_, -1, 1);
     foreach(GraphicsNode* node, nodeList_)
       scaleItem(node, -1, 1);
   } else {
-    if(label_)
-      scaleItem(label_, 1, -1);
     foreach(GraphicsNode* node, nodeList_)
       scaleItem(node, 1, -1);
   }
@@ -152,9 +159,6 @@ void Component::rotate()
   foreach(GraphicsNode* node, nodeList_)
     rotateItem(node, -90);
 
-  if(label_)
-    rotateItem(label_, -90);
-
   Item::rotate();
 }
 
@@ -163,12 +167,14 @@ void Component::addNodes(QList<QPointF> nodes)
 {
   foreach(QPointF node, nodes)
     createNode(node);
+  updateLabelPosition();
 }
 
 
 void Component::addNodes(QPointF node)
 {
   createNode(node);
+  updateLabelPosition();
 }
 
 
@@ -232,7 +238,91 @@ QVariant Component::itemChange(GraphicsItemChange change, const QVariant& value)
     foreach(GraphicsNode* node, nodeList_)
       node->updateItemSet();
 
+  if(change == ItemTransformHasChanged)
+    updateLabelPosition();   // rotated or mirrored
+
   return Item::itemChange(change, value);
+}
+
+
+void Component::setupLabel()
+{
+  // re-centre when the text changes (rename, value display)
+  QObject::connect(label_->document(), &QTextDocument::contentsChanged,
+    label_, [this]() { updateLabelPosition(); });
+  // ...and when its box changes size (text width set after the text)
+  QObject::connect(label_->document()->documentLayout(),
+    &QAbstractTextDocumentLayout::documentSizeChanged,
+    label_, [this]() { updateLabelPosition(); });
+
+  label_->onMoved = [this]() {
+    if(positioningLabel_)
+      return;
+    // dragged by the user: remember its centre
+    labelMoved_ = true;
+    labelAnchor_ = label_->pos()
+      + label_->transform().map(label_->boundingRect().center());
+  };
+}
+
+
+void Component::setLabelAnchor(const QPointF& anchor)
+{
+  labelAnchor_ = anchor;
+  labelMoved_ = true;
+  updateLabelPosition();
+}
+
+
+QPointF Component::defaultLabelAnchor(
+    const QSizeF& textSize, const QTransform& orientation) const
+{
+  const QRectF body = path_.boundingRect();
+  const QPointF centre = body.center();
+
+  // beside the body, perpendicular to the terminals: to the right of a
+  // symbol whose two terminals are one above the other (sources, meters),
+  // above every other symbol
+  QPointF side(0, -1);
+  qreal halfBody = centre.y() - body.top();
+  if(nodeList_.size() == 2
+      && qFuzzyCompare(nodeList_.at(0)->pos().x() + 1.,
+                       nodeList_.at(1)->pos().x() + 1.))
+  {
+    side = QPointF(1, 0);
+    halfBody = body.right() - centre.x();
+  }
+
+  // the text is upright on the sheet: its extent along the side direction
+  // depends on how the component is oriented
+  const QPointF onSheet = orientation.map(side);
+  const qreal halfText = qAbs(onSheet.x()) * textSize.width() / 2.
+                       + qAbs(onSheet.y()) * textSize.height() / 2.;
+
+  const qreal gap = 3.;
+  return centre + side * (halfBody + gap + halfText);
+}
+
+
+void Component::updateLabelPosition()
+{
+  if(!label_ || positioningLabel_)
+    return;
+
+  // orientation of the component (rotation/mirroring, no translation)
+  const QTransform t = transform();
+  const QTransform orientation(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0);
+  // keep the text upright and unmirrored on the sheet
+  const QTransform upright = orientation.inverted();
+
+  const QRectF text = label_->boundingRect();
+  const QPointF anchor = labelMoved_
+    ? labelAnchor_ : defaultLabelAnchor(text.size(), orientation);
+
+  positioningLabel_ = true;
+  label_->setTransform(upright);
+  label_->setPos(anchor - upright.map(text.center()));
+  positioningLabel_ = false;
 }
 
 

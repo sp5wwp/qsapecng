@@ -21,6 +21,8 @@
 #define QSAPECNGWINDOW_H
 
 
+#include "gui/theme.h"
+
 #include <QMainWindow>
 #include <QModelIndex>
 
@@ -47,7 +49,6 @@ class QDockWidget;
 
 class QSignalMapper;
 
-class QtTreePropertyBrowser;
 
 class QUndoView;
 class QUndoGroup;
@@ -58,6 +59,10 @@ class QTreeView;
 
 namespace qsapecng
 {
+
+
+class LogViewer;
+class ResultPanel;
 
 
 class QLogPolicy;
@@ -112,6 +117,7 @@ private slots:
   void save();
   void saveAs();
   void print();
+  void exportSchematic();
 
   void props();
 
@@ -142,11 +148,13 @@ private slots:
   void sceneSelectionChanged();
   void updateMenus();
   void updateWindowMenu();
-  void updatePropertyBrowser();
   void updateDocks();
 
   void setActiveSubWindow(QWidget* window);
   void syncWithCurrentEditor();
+  void updateResultPanel();
+  void setResistorStyle(theme::ResistorStyle style);
+  void setShowComponentValues(bool show);
   void subWindowActivated(QMdiSubWindow* window);
   void stackEditor(SchematicEditor* editor);
   
@@ -154,6 +162,7 @@ signals:
   void toggleGrid(bool visible);
 
 private:
+  void createExamplesMenu(QMenu* parent);
   void createLogger();
   void createActions();
   void createDockWidgets();
@@ -162,7 +171,6 @@ private:
   void createStatusBar();
 
   void createSideBarDockLayout();
-  void createPropertyDockLayout();
   void createMessageDockLayout();
   void createUndoRedoDockLayout();
   void createWorkspaceDockLayout();
@@ -184,10 +192,13 @@ private:
   SideBarModel* sideBarModel_;
   SideBarView* sideBarView_;
 
-  QtTreePropertyBrowser* treeBrowser_;
+
+  // version of the saved dock/toolbar layout: bump it when the default
+  // layout changes, so layouts saved by older versions are replaced once
+  enum { LayoutVersion = 2 };
 
   QLogPolicy* policy_;
-  QTextEdit* logViewer_;
+  LogViewer* logViewer_;
 
   QUndoView* undoRedoView_;
   QUndoGroup* undoRedoGroup_;
@@ -223,10 +234,11 @@ private:
   QToolBar* toolToolBar_;
 
   QDockWidget* sideBarDock_;
-  QDockWidget* propertyDock_;
   QDockWidget* messageDock_;
   QDockWidget* undoRedoDock_;
   QDockWidget* workspaceDock_;
+  QDockWidget* resultDock_;
+  ResultPanel* resultPanel_;
 
   QAction* newAct_;
   QAction* openAct_;
@@ -234,6 +246,7 @@ private:
   QAction* saveAct_;
   QAction* saveAsAct_;
   QAction* printAct_;
+  QAction* exportAct_;
   QAction* quitAct_;
   QAction* binAct_;
   QAction* undoAct_;

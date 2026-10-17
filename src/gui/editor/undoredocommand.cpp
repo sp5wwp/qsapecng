@@ -356,6 +356,30 @@ void RemoveItems::redo()
 }
 
 
+ChangeProperties::ChangeProperties(
+      const QList<PropertyChange>& changes,
+      QUndoCommand* parent
+    )
+  : QUndoCommand(parent), changes_(changes)
+{
+  setText(QObject::tr("Edit properties"));
+}
+
+
+void ChangeProperties::undo()
+{
+  for(int i = changes_.size() - 1; i >= 0; --i)
+    applyPropertyValue(changes_.at(i).property, changes_.at(i).oldValue);
+}
+
+
+void ChangeProperties::redo()
+{
+  foreach(const PropertyChange& change, changes_)
+    applyPropertyValue(change.property, change.newValue);
+}
+
+
 RotateItems::RotateItems(
       QList<QGraphicsItem*> items,
       QUndoCommand* parent

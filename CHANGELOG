@@ -6,12 +6,47 @@ QSapecNG CHANGELOG
       current GCC, Clang, MSVC and MinGW, CMake 3.16 - 4.x, Boost up to 1.90
     o Modern CMake build (AUTOMOC/AUTORCC, imported targets); Windows builds
       copy Qwt and run windeployqt automatically
-    o Property browser replaced with the maintained Qt 6 copy from qttools
+    o Property browser removed: parameters are edited in a dialog
+      (double-click, or Edit > Properties...)
     o New look: Fusion style where the platform style is dated, scalable
       line icons, HiDPI symbol icons, tabbed documents, sans-serif labels,
       restyled plots; Settings > Appearance offers system / light / dark
+    o Double-click a component to edit its parameters in a dialog (name,
+      value with unit, symbolic flag; both coils of a mutual inductance);
+      undoable
+    o R rotates the selected items, or the item being placed
+    o Wire drawing as in KiCad / Eagle: W starts the tool; each click adds
+      a corner and drawing continues until it ends on a pin or a wire, or
+      on a double-click; the bend follows the first move (right-click or /
+      flips it); Esc drops the unfinished segment, a second Esc leaves
+    o Settings > Resistor symbol: IEC / DIN (rectangle, default) or ANSI
+      (zigzag)
+    o Result panel (tabbed with Messages) replaces the result popup: real
+      fractions, Result / Raw / Digit sections with Copy links, and a notice
+      when the circuit changed since it was solved
+    o Component labels are centred beside the symbol (also when rotated or
+      mirrored) and stay centred when renamed; a dragged label keeps its
+      place. Older files get the automatic placement
+    o Net numbers shown after Resolve leave out the ground net (0)
+    o Values can be typed with prefixes: 4.7k, 4k7, 4R7, 100n, 2.2u or
+      2.2µ, 1meg, also with the unit (10 kΩ, 100nF); stored as plain numbers
+    o Result panel: Copy LaTeX (\frac{...}{...}) next to each Copy
+    o Result panel: Plot links (magnitude, phase, gain, poles & zeros)
+    o File > Export Schematic (Ctrl+E): SVG, PNG (~300 dpi) or PDF, black on
+      white without the grid; printing also leaves out grid and selection
+    o Example circuits: RC low-pass, RLC band-pass, inverting amplifier,
+      Sallen-Key low-pass; installed with the program and listed in
+      File > Open Example
+    o Settings > Component labels: name only (default) or name and value,
+      e.g. "C1 / 1 µF"
+    o Side panels start closed except Components and Messages (Window >
+      Show); a saved layout from an earlier version is replaced once
     o Pole-zero map always uses linear axes (poles were invisible with the
       default logarithmic x axis)
+    o Fixed: new parts could repeat a name already in the schematic (e.g. a
+      second R1 after opening a file)
+    o Fixed: a rotated resistor or conductance moved off its wires when the
+      symbol style (ANSI / DIN) differed from the one it was drawn with
     o Fixed: segmentation fault on Resolve when terms cancel out in the
       transfer function (issue #6): the solver advanced an erased iterator
     o Fixed: saving without a known extension wrote an empty file and

@@ -21,6 +21,9 @@
 #define SCHEMATICVIEW_H
 
 
+#include "gui/theme.h"
+
+#include <QEvent>
 #include <QGraphicsView>
 #include <QResizeEvent>
 
@@ -41,6 +44,10 @@ public:
   SchematicView(QWidget* parent = 0): QGraphicsView(parent)
   {
     setCacheMode(QGraphicsView::CacheBackground);
+    // Repaint the whole viewport on changes: antialiased (subpixel) text
+    // can draw slightly outside an item's bounding rectangle, and minimal
+    // updates then leave trails when items are dragged.
+    setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
     setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     setDragMode(QGraphicsView::RubberBandDrag);
 //     setDragMode(QGraphicsView::ScrollHandDrag);
@@ -50,6 +57,19 @@ public:
     setMouseTracking(true);
     setAttribute(Qt::WA_DeleteOnClose);
     adjustSize();
+  }
+
+protected:
+  // follow light/dark theme changes: recolour text on the sheet and redraw
+  // the cached background (sheet colour and grid)
+  void changeEvent(QEvent* event) override
+  {
+    QGraphicsView::changeEvent(event);
+    if(event->type() == QEvent::PaletteChange) {
+      theme::refreshSheetText(scene());
+      resetCachedContent();
+      viewport()->update();
+    }
   }
 
 public slots:

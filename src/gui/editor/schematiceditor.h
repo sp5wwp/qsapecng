@@ -24,6 +24,7 @@
 #include "gui/editor/schematicscene.h"
 #include "gui/editor/metacircuit_thread.hpp"
 #include "gui/workplane/workplane.h"
+#include "gui/resultpanel.h"
 
 #include <QMutexLocker>
 #include <QMdiSubWindow>
@@ -58,6 +59,9 @@ public:
 
   inline bool isRunning() const { return solver_.isRunning(); }
   inline bool isSolved() const { return solved_; }
+  // last result of Resolve; it may be out of date (see isSolved())
+  inline bool hasResult() const { return hasResult_; }
+  inline const SolveResult& lastResult() const { return lastResult_; }
 
   bool accept(WorkPlane& workplane);
 
@@ -101,6 +105,8 @@ private:
 private:
   MetaCircuit_Thread solver_;
   bool solved_;
+  bool hasResult_ = false;
+  SolveResult lastResult_;
 
   SchematicView* view_;
   SchematicScene* scene_;

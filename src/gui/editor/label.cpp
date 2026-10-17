@@ -71,7 +71,9 @@ void Label::paint(
   if(isSelected()) {
     painter->save();
 
-    painter->setPen(defaultPen_);
+    QPen selectionPen = defaultPen_;
+    selectionPen.setColor(theme::sheetForeground());
+    painter->setPen(selectionPen);
     double opacity = painter->opacity();
     painter->setOpacity(opacity / 2.0);
     painter->drawRect(boundingRect());
@@ -79,7 +81,9 @@ void Label::paint(
     painter->restore();
   }
 
-  painter->setPen(itemPen_);
+  QPen pen = itemPen_;
+  pen.setColor(theme::sheetForeground());
+  painter->setPen(pen);
   painter->drawPath(path_);
 
   painter->restore();

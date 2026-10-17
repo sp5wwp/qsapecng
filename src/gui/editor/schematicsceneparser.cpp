@@ -115,10 +115,12 @@ void SchematicSceneParser::storeLabel(
     Component* component
   )
 {
-  if(!component->label()->toPlainText().trimmed().isEmpty()) {
-    QPointF pos = component->label()->pos();
-    props["x_label"] = QString::number(pos.x()).toStdString();
-    props["y_label"] = QString::number(pos.y()).toStdString();
+  // only a label the user moved; the others are placed automatically
+  // (the anchor is the label centre in the component's own coordinates)
+  if(component->hasCustomLabelPosition()) {
+    QPointF anchor = component->labelAnchor();
+    props["label_cx"] = QString::number(anchor.x()).toStdString();
+    props["label_cy"] = QString::number(anchor.y()).toStdString();
   }
 }
 
@@ -758,11 +760,13 @@ void SchematicSceneBuilder::adjust_label(
 {
   bool xOk, yOk;
 
-  double xLab = QString::fromStdString(props["x_label"]).toDouble(&xOk);
-  double yLab = QString::fromStdString(props["y_label"]).toDouble(&yOk);
+  // older files store the label's top-left corner (x_label/y_label) for
+  // the old placement: ignored, those labels get the automatic placement
+  double xLab = QString::fromStdString(props["label_cx"]).toDouble(&xOk);
+  double yLab = QString::fromStdString(props["label_cy"]).toDouble(&yOk);
 
   if(xOk && yOk)
-    cmp->label()->setPos(QPointF(xLab, yLab));
+    cmp->setLabelAnchor(QPointF(xLab, yLab));
 }
 
 

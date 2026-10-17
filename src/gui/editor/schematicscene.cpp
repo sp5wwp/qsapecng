@@ -18,6 +18,7 @@
 
 
 #include "gui/theme.h"
+#include "gui/editor/componentdialog.h"
 #include "parser/parser_factory.h"
 
 #include "gui/editor/schematicscene.h"
@@ -26,6 +27,7 @@
 #include "gui/editor/component.h"
 #include "gui/editor/label.h"
 #include "gui/editor/wire.h"
+#include "gui/editor/graphicsnode.h"
 #include "gui/editor/item.h"
 
 #include "gui/settings.h"
@@ -35,8 +37,6 @@
 #include "gui/qtsolutions/qtpropertyeditor/QtGroupPropertyManager"
 #include "gui/qtsolutions/qtpropertyeditor/QtStringPropertyManager"
 
-#include "gui/qtsolutions/qtpropertyeditor/QtLineEditFactory"
-#include "gui/qtsolutions/qtpropertyeditor/QtCheckBoxFactory"
 
 #include "gui/qtsolutions/qtpropertyeditor/QtAbstractPropertyBrowser"
 #include "gui/qtsolutions/qtpropertyeditor/QtProperty"
@@ -47,6 +47,7 @@
 #include <QTimer>
 #include <QCryptographicHash>
 #include <QPointer>
+#include <QSet>
 
 #include <QKeyEvent>
 #include <QMenu>
@@ -319,20 +320,8 @@ QPainterPath SchematicScene::ccvsPath()
 
 QPainterPath SchematicScene::conductancePath()
 {
-  QPainterPath path;
-  uint step = GridStep;
-
-  path.moveTo(0, step);
-  path.lineTo(step, step);
-  path.lineTo(step + step / 2, 0);
-  path.lineTo(2 * step, 2 * step);
-  path.lineTo(2 * step + step / 2, 0);
-  path.lineTo(3 * step, 2 * step);
-  path.lineTo(3 * step + step / 2, 0);
-  path.lineTo(4 * step, step);
-  path.lineTo(5 * step, step);
-
-  return path;
+  // same symbol as a resistor (ANSI zigzag or IEC/DIN rectangle)
+  return resistorPath();
 }
 
 
@@ -432,6 +421,21 @@ QPainterPath SchematicScene::resistorPath()
   QPainterPath path;
   uint step = GridStep;
 
+  if(theme::resistorStyle() == theme::ResistorStyle::Din) {
+    // IEC 60617 / DIN: rectangle, 1:3, between the same terminals
+    path.moveTo(0, step);
+    path.lineTo(step, step);
+    path.addRect(QRectF(step, step / 2., 3 * step, step));
+    path.moveTo(4 * step, step);
+    path.lineTo(5 * step, step);
+    // invisible marks: same bounding box as the zigzag (0..2 steps high),
+    // which rotation and saved files depend on
+    path.addRect(2.5 * step, 0, 1E-99, 1E-99);
+    path.addRect(2.5 * step, 2 * step, 1E-99, 1E-99);
+    return path;
+  }
+
+  // ANSI zigzag
   path.moveTo(0, step);
   path.lineTo(step, step);
   path.lineTo(step + step / 2, 0);
@@ -1082,6 +1086,7 @@ void SchematicScene::setActiveItem(SchematicScene::SupportedItemType item)
   if(hasActiveItem())
     foreach(QGraphicsView* view, views())
       view->setCursor(Qt::CrossCursor);
+  emit placementChanged();
 }
 
 
@@ -1179,6 +1184,7 @@ void SchematicScene::setUserDefRequest()
     
     setActiveItem(SchematicScene::UserDefItemType);
     userDefSessionRequested_ = true;
+    emit placementChanged();
     userDefSize_ = size;
     userDefMD5_ = md5;
   }
@@ -1281,7 +1287,7 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
 
             if(init) {
               stringManager_->setValue(name,
-                  itemIdByType(type) + QString::number(++itemCntMap_[type]));
+                  nextFreeName(type));
             } else {
               stringManager_->setValue(name, tr("noname"));
             }
@@ -1345,9 +1351,9 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
               name->addSubProperty(lsv);
             }
 
-            static_cast<Component*>(item)->label()->setPlainText(
-              stringManager_->value(name));
-            
+            static_cast<Component*>(item)->label()->setValueUnit(
+              valueUnit(type));
+
             typeRootMap_[type]->addSubProperty(name);
             properties_->addSubProperty(typeRootMap_[type]);
           }
@@ -1362,7 +1368,7 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
               stringManager_->addProperty(itemNameByType(type));
 
             stringManager_->setValue(name,
-                itemIdByType(type) + QString::number(++itemCntMap_[type]));
+                nextFreeName(type));
 
             item->setData(1, QVariant::fromValue<QtProperty*>(name));
             static_cast<Component*>(item)->label()->setProperty(name);
@@ -1378,10 +1384,8 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
                 .value< QPointer<qsapecng::SchematicScene> >();
 
             name->addSubProperty(rep->properties());
-            rep->initializeBrowser(browser_);
 
-            static_cast<Component*>(item)->label()->setPlainText(
-              stringManager_->value(name));
+            static_cast<Component*>(item)->label()->refreshText();
 
             typeRootMap_[type]->addSubProperty(name);
             properties_->addSubProperty(typeRootMap_[type]);
@@ -1634,8 +1638,10 @@ void SchematicScene::setWireSessionRequest(bool connectedWire)
 
   wireSessionRequested_ = true;
   horizontalFirst_ = true;
+  bendDecided_ = false;
   hasValidFromPoint_ = false;
   connectedWire_ = connectedWire;
+  wirePen_.setColor(theme::sheetForeground());
   preWireItem_ = addLine(QLineF(fromPoint_, fromPoint_), wirePen_);
   postWireItem_ = addLine(QLineF(fromPoint_, fromPoint_), wirePen_);
   preWireItem_->setVisible(false);
@@ -1663,10 +1669,12 @@ void SchematicScene::modifyWire(Wire* wire)
 
     wireSessionRequested_ = true;
     horizontalFirst_ = (wire->orientation() == Qt::Horizontal);
+    bendDecided_ = true;
     fromPoint_ = wire->mapToScene(wire->fromPoint());
     QPointF toPoint = wire->mapToScene(wire->toPoint());
     hasValidFromPoint_ = true;
     connectedWire_ = wire->isJunctionsConnected();
+    wirePen_.setColor(theme::sheetForeground());
     preWireItem_ = addLine(QLineF(fromPoint_, toPoint), wirePen_);
     postWireItem_ = addLine(QLineF(fromPoint_, fromPoint_), wirePen_);
 
@@ -1759,6 +1767,121 @@ void SchematicScene::rotateSelectedItems()
 }
 
 
+void SchematicScene::editItemProperties(QGraphicsItem* item)
+{
+  QtProperty* properties = itemProperties(item);
+  if(!properties)
+    return;
+
+  QWidget* parent = views().isEmpty() ? 0 : views().first()->window();
+  ComponentDialog dialog(itemType(item), properties, parent);
+  if(dialog.exec() != QDialog::Accepted)
+    return;
+
+  const QList<PropertyChange> changes = dialog.changes();
+  if(!changes.isEmpty())
+    undoRedoStack_->push(new ChangeProperties(changes));
+}
+
+
+void SchematicScene::updateResistorSymbols()
+{
+  QList<Item*> items = standardList_;
+  if(item_)
+    items.append(item_);   // item being placed
+
+  foreach(Item* item, items) {
+    SupportedItemType type = itemType(item);
+    if(type == ResistorItemType)
+      static_cast<Component*>(item)->setPath(resistorPath());
+    else if(type == ConductanceItemType)
+      static_cast<Component*>(item)->setPath(conductancePath());
+  }
+
+  // sub-circuits
+  foreach(Item* item, userDefList_) {
+    QPointer<qsapecng::SchematicScene> rep =
+      item->data(101).value< QPointer<qsapecng::SchematicScene> >();
+    if(rep)
+      rep->updateResistorSymbols();
+  }
+}
+
+
+QString SchematicScene::nextFreeName(SupportedItemType type)
+{
+  // names already in use in this schematic (e.g. loaded from a file, whose
+  // parts did not advance the counter)
+  QSet<QString> used;
+  foreach(Item* item, standardList_ + userDefList_) {
+    QtProperty* prop = item->data(1).value<QtProperty*>();
+    if(prop)
+      used.insert(prop->valueText());
+  }
+
+  QString name;
+  do {
+    name = itemIdByType(type) + QString::number(++itemCntMap_[type]);
+  } while(used.contains(name));
+  return name;
+}
+
+
+void SchematicScene::refreshComponentLabels()
+{
+  QList<Item*> items = standardList_ + userDefList_;
+  if(item_)
+    items.append(item_);
+
+  foreach(Item* item, items)
+    if(Component* component = dynamic_cast<Component*>(item))
+      component->label()->refreshText();
+
+  foreach(Item* item, userDefList_) {
+    QPointer<qsapecng::SchematicScene> rep =
+      item->data(101).value< QPointer<qsapecng::SchematicScene> >();
+    if(rep)
+      rep->refreshComponentLabels();
+  }
+}
+
+
+QString SchematicScene::valueUnit(SchematicScene::SupportedItemType type)
+{
+  switch(type)
+  {
+  case ResistorItemType:
+  case CCVSItemType:
+    return QStringLiteral("Ω");
+  case ConductanceItemType:
+  case VCCSItemType:
+    return QStringLiteral("S");
+  case InductorItemType:
+  case MutualInductanceItemType:
+    return QStringLiteral("H");
+  case CapacitorItemType:
+    return QStringLiteral("F");
+  case VoltageSourceItemType:
+    return QStringLiteral("V");
+  case CurrentSourceItemType:
+    return QStringLiteral("A");
+  default:
+    return QString();
+  }
+}
+
+
+void SchematicScene::rotatePlacedOrSelected()
+{
+  if(isPlacingItem()) {
+    if(item_)
+      item_->rotate();
+  } else {
+    rotateSelectedItems();
+  }
+}
+
+
 void SchematicScene::mirrorSelectedItems()
 {
   QList<QGraphicsItem*> items = selectedItems();
@@ -1817,14 +1940,6 @@ void SchematicScene::clearSchematicScene()
   RemoveItems* command = new RemoveItems(this, itemList);
   undoRedoStack_->push(command);
   undoRedoStack_->endMacro();
-}
-
-
-void SchematicScene::initializeBrowser(QtAbstractPropertyBrowser* browser)
-{
-  browser_ = browser;
-  browser_->setFactoryForManager(boolManager_, checkBoxFactory_);
-  browser_->setFactoryForManager(stringManager_, lineEditFactory_);
 }
 
 
@@ -1923,6 +2038,8 @@ void SchematicScene::resetStatus()
     wireInProgress_->setVisible(true);
     wireInProgress_ = 0;
   }
+
+  emit placementChanged();
 }
 
 
@@ -2021,28 +2138,46 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
     {
     case Qt::RightButton:
     {
-      if(hasValidFromPoint_) {
-        horizontalFirst_ = !horizontalFirst_;
-        setPrePostWireLine(event->scenePos());
-      }
+      // flip the bend (horizontal or vertical first)
+      if(hasValidFromPoint_)
+        flipWireBend();
       event->accept();
       return;
     }
     case Qt::LeftButton:
     {
+      const QPointF point = closestGridPoint(event->scenePos());
+
       if(!hasValidFromPoint_) {
-        fromPoint_ = closestGridPoint(event->scenePos());
+        // first click: start a chain of segments
+        fromPoint_ = point;
+        bendDecided_ = false;
         preWireItem_->setVisible(true);
         hasValidFromPoint_ = true;
+      } else if(point == fromPoint_) {
+        // clicking the last corner again ends the chain
+        finishWireChain();
       } else {
+        // a pin or a wire under the click ends the chain, otherwise the
+        // click is a corner and drawing goes on from there (KiCad, Eagle)
+        const bool ends = wireInProgress_ || isConnectionPoint(point);
+        const bool modifying = (wireInProgress_ != 0);
         setPrePostWireLine(event->scenePos());
         addWires();
-        hasValidFromPoint_ = false;
-        preWireItem_->setVisible(false);
+        if(ends || modifying) {
+          finishWireChain();
+          if(modifying)
+            resetStatus();
+        } else {
+          fromPoint_ = point;
+          bendDecided_ = false;
+        }
+      }
+      if(preWireItem_) {
+        preWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
+        postWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
         postWireItem_->setVisible(false);
       }
-      preWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
-      postWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
       event->accept();
       return;
     }
@@ -2063,6 +2198,8 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
 
 void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 {
+  lastMousePos_ = event->scenePos();
+
   if(hasActiveItem() || hasUserDefReq()) {
     item_->setPos(closestGridPoint(event->scenePos()));
     event->accept();
@@ -2082,6 +2219,14 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 
 void SchematicScene::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 {
+  if(hasPendingWire()) {
+    // the first click of the pair already placed the segments
+    if(event->button() == Qt::LeftButton)
+      finishWireChain();
+    event->accept();
+    return;
+  }
+
   if(!hasActiveItem() && !hasUserDefReq() && !hasPendingWire()
       && itemAt(event->scenePos(), QTransform())) {
     if(SchematicScene::itemType(itemAt(event->scenePos(), QTransform()))
@@ -2142,9 +2287,24 @@ void SchematicScene::keyPressEvent(QKeyEvent* event)
       }
     case Qt::Key_Escape:
       {
-        resetStatus();
+        // Esc while drawing drops the unfinished segment and keeps the
+        // wire tool; a second Esc leaves the tool
+        if(hasPendingWire() && hasValidFromPoint_ && !wireInProgress_)
+          finishWireChain();
+        else
+          resetStatus();
         event->accept();
         return;
+      }
+    case Qt::Key_Slash:
+    case Qt::Key_Space:
+      {
+        if(hasPendingWire() && hasValidFromPoint_) {
+          flipWireBend();
+          event->accept();
+          return;
+        }
+        break;
       }
     default:
       break;
@@ -2325,11 +2485,6 @@ void SchematicScene::setupProperties()
   connect(stringManager_, SIGNAL(propertyChanged(QtProperty*)),
     this, SIGNAL(propertyChanged()));
 
-  lineEditFactory_ = new QtLineEditFactory(this);
-  checkBoxFactory_ = new QtCheckBoxFactory(this);
-
-  lineEditFactory_->addPropertyManager(stringManager_);
-  checkBoxFactory_->addPropertyManager(boolManager_);
 
   properties_ = groupManager_->addProperty(tr("Circuit"));
 
@@ -2409,6 +2564,16 @@ void SchematicScene::setPrePostWireLine(QPointF toPoint)
 {
   QPointF realToPoint = closestGridPoint(toPoint);
 
+  // the bend follows the first move away from the corner: moving
+  // sideways first gives horizontal-then-vertical, and vice versa
+  if(realToPoint == fromPoint_) {
+    bendDecided_ = false;
+  } else if(!bendDecided_) {
+    const QPointF d = toPoint - fromPoint_;
+    horizontalFirst_ = qAbs(d.x()) >= qAbs(d.y());
+    bendDecided_ = true;
+  }
+
   if(fromPoint_.x() == realToPoint.x() || fromPoint_.y() == realToPoint.y()) {
     preWireItem_->setLine(QLineF(fromPoint_, realToPoint));
     postWireItem_->setVisible(false);
@@ -2425,9 +2590,51 @@ void SchematicScene::setPrePostWireLine(QPointF toPoint)
 }
 
 
+bool SchematicScene::isConnectionPoint(const QPointF& point) const
+{
+  const QRectF probe(point - QPointF(1.5, 1.5), QSizeF(3, 3));
+  foreach(QGraphicsItem* item, items(probe)) {
+    if(!item->isVisible() || item == preWireItem_ || item == postWireItem_)
+      continue;
+    if(dynamic_cast<GraphicsNode*>(item))
+      return true;      // a pin
+    if(Wire* wire = dynamic_cast<Wire*>(item))
+      if(wire != wireInProgress_)
+        return true;    // an end or the middle of a wire (T-junction)
+  }
+  return false;
+}
+
+
+void SchematicScene::finishWireChain()
+{
+  hasValidFromPoint_ = false;
+  bendDecided_ = false;
+  if(preWireItem_) {
+    preWireItem_->setVisible(false);
+    postWireItem_->setVisible(false);
+    preWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
+    postWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
+  }
+}
+
+
+void SchematicScene::flipWireBend()
+{
+  horizontalFirst_ = !horizontalFirst_;
+  bendDecided_ = true;
+  setPrePostWireLine(lastMousePos_);
+}
+
+
 void SchematicScene::addWires()
 {
   QPointF pos;
+
+  // nothing to add for a click on the starting point
+  if(preWireItem_->line().length() == 0
+      && (!postWireItem_->isVisible() || postWireItem_->line().length() == 0))
+    return;
 
   if(wireInProgress_) {
     undoRedoStack_->beginMacro(tr("Modify wire"));

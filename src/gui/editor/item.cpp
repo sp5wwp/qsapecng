@@ -21,6 +21,7 @@
 #include "gui/editor/item.h"
 #include "gui/editor/schematicscene.h"
 
+#include <QTimer>
 #include <QGraphicsSceneMouseEvent>
 
 
@@ -146,13 +147,19 @@ SchematicScene* Item::schematicScene() const
 
 void Item::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 {
-  if(event->button() == Qt::LeftButton) {
-    if(schematicScene())
-      schematicScene()->rotateSelectedItems();
-    else
-      rotate();
-
+  // double-click edits the parameters (rotation: R key or Rotate action)
+  if(event->button() == Qt::LeftButton && schematicScene()
+      && SchematicScene::itemProperties(this))
+  {
     event->accept();
+    // open the dialog once the mouse event has been handled, so the view
+    // does not keep this item as mouse grabber while the dialog is up
+    SchematicScene* scene = schematicScene();
+    QGraphicsItem* item = this;
+    QTimer::singleShot(0, scene, [scene, item]() {
+      if(scene->items().contains(item))
+        scene->editItemProperties(item);
+    });
   } else {
     QGraphicsItem::mouseDoubleClickEvent(event);
   }

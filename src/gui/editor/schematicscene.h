@@ -51,10 +51,7 @@ class QtBoolPropertyManager;
 class QtGroupPropertyManager;
 class QtStringPropertyManager;
 
-class QtLineEditFactory;
-class QtCheckBoxFactory;
 
-class QtAbstractPropertyBrowser;
 class QtProperty;
 
 
@@ -133,6 +130,8 @@ public:
   static Item* itemByType(SupportedItemType type);
   static QString itemNameByType(SchematicScene::SupportedItemType type);
   static QChar itemIdByType(SchematicScene::SupportedItemType type);
+  // unit of the value of a component type ("F", "Ω"...; empty: none)
+  static QString valueUnit(SchematicScene::SupportedItemType type);
 
   static QPainterPath userDefPath(uint ports);
   static QList<QPointF> userDefNodes(uint ports);
@@ -171,6 +170,17 @@ public:
   void copySelectedItems();
   void pasteItems();
   void rotateSelectedItems();
+  // R key / Rotate action: rotates the item being placed if there is one,
+  // otherwise the selected items
+  void rotatePlacedOrSelected();
+  // redraw resistors/conductances after the resistor symbol style changed
+  void updateResistorSymbols();
+  // rebuild every label (e.g. after the value display setting changed)
+  void refreshComponentLabels();
+  // open the parameters dialog of an item (double-click); undoable
+  void editItemProperties(QGraphicsItem* item);
+  inline bool isPlacingItem() const
+    { return hasActiveItem() || hasUserDefReq(); }
   void mirrorSelectedItems();
   void binSelectedItems();
   void bringToFrontSelectedItem();
@@ -182,7 +192,6 @@ public:
 
   inline QUndoStack* undoRedoStack() const { return undoRedoStack_; }
 
-  void initializeBrowser(QtAbstractPropertyBrowser* browser);
   inline QtProperty* properties() const { return properties_; }
 
   QVector<int> ports();
@@ -199,6 +208,8 @@ public slots:
 signals:
   void showUserDef(SchematicScene& scene);
   void propertyChanged();
+  // placing a new item started or ended (see isPlacingItem())
+  void placementChanged();
 
 protected:
   void drawBackground(QPainter* painter, const QRectF& rect);
@@ -223,11 +234,17 @@ private:
   inline bool hasPendingWire() const { return wireSessionRequested_; }
   void setPrePostWireLine(QPointF toPoint);
   void addWires();
+  // wire drawing: a pin or a wire at this point ends the chain of segments
+  bool isConnectionPoint(const QPointF& point) const;
+  // ends the chain being drawn; the wire tool stays active
+  void finishWireChain();
+  void flipWireBend();
 
 private:
   bool gridVisible_;
   QMenu* contextMenu_;
   QPointF lastMousePressPos_;
+  QPointF lastMousePos_;
   bool validNode_;
   
   SupportedItemType activeItem_;
@@ -235,6 +252,7 @@ private:
 
   bool wireSessionRequested_;
   bool horizontalFirst_;
+  bool bendDecided_ = false;   // set by the first move or by flipping
   bool hasValidFromPoint_;
   bool connectedWire_;
   QPointF fromPoint_;
@@ -259,15 +277,13 @@ private:
 
   QUndoStack* undoRedoStack_;
 
-  QtAbstractPropertyBrowser* browser_;
   QtBoolPropertyManager* boolManager_;
   QtGroupPropertyManager* groupManager_;
   QtStringPropertyManager* stringManager_;
-  QtLineEditFactory* lineEditFactory_;
-  QtCheckBoxFactory* checkBoxFactory_;
 
   QtProperty* properties_;
   bool wireTapsPending_ = false;
+  QString nextFreeName(SupportedItemType type);
   QHash<SupportedItemType, unsigned int> itemCntMap_;
   QHash<SupportedItemType, QtProperty*> typeRootMap_;
 
