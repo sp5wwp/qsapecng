@@ -57,10 +57,16 @@ QSapecNG CHANGELOG
     o The Out marker is a tag ("Out") pointing at its terminal
     o Plot markers: click a curve to pin a labelled marker, click it again
       to remove it; WorkPlane > Clear Markers
-    o WorkPlane: Magnitude, Phase and Poles & Zeros, with units on the
-      axes; options for magnitude in dB or linear, phase in degrees or
-      radians, frequency in Hz or rad/s, and log or linear axes (kept
-      between sessions). The separate Gain and Loss plots are gone
+    o WorkPlane: Frequency Response, Phase Response, Bode Plot (both on
+      one graph, phase on the right axis) and Poles & Zeros (centred on
+      the origin), with units on the axes; options for magnitude in dB or
+      linear, phase in degrees or radians, frequency in Hz or rad/s, and
+      log or linear axes (kept between sessions). The separate Gain and
+      Loss plots, the Data box and the result tooltip are gone; values
+      come from the schematic
+    o WorkPlane > Frequency Range: automatic (a decade beyond the poles
+      and zeros, the default) or start/stop as typed (10k, 1MEG), with
+      log-spaced points per decade instead of a fixed step
     o Status bar: what is going on and what the active tool expects, the
       number of parts and wires, zoom and pointer position
     o Settings > Component labels: name only (default) or name and value,

@@ -154,7 +154,8 @@ class WorkPlane: public QWidget
   Q_OBJECT
 
 public:
-  enum Kind { MagnitudeKind = 0, PhaseKind = 1, PoleZeroKind = 2 };
+  enum Kind { MagnitudeKind = 0, PhaseKind = 1, PoleZeroKind = 2,
+              BodeKind = 3 };
 
   enum F
   {
@@ -199,6 +200,8 @@ public slots:
   void setMagnitudeDb(bool db);
   void setPhaseDegrees(bool degrees);
   void setAngularFrequency(bool radPerSecond);
+  // WorkPlane > Frequency Range...
+  void editFrequencyRange();
   void print(QPrinter& printer);
 
 private:
@@ -236,16 +239,18 @@ private:
 protected:
   void changeEvent(QEvent* event) override;
 
-  QDoubleSpinBox* startFreq_;
-  QDoubleSpinBox* endFreq_;
-  QDoubleSpinBox* stepFreq_;
-  double oldStartFreq_;
-  double oldEndFreq_;
-  double oldStepFreq_;
+  // component values (from the schematic) and the frequency sweep
+  std::map<std::string, double> values_;
+  double fStart_ = 1.;          // Hz
+  double fStop_ = 1e5;          // Hz
+  int pointsPerDecade_ = 100;
+  bool autoRange_ = true;       // a decade beyond the poles and zeros
+  bool keepAttached_ = false;   // drawing the second curve of a Bode plot
 
-  QTableWidget* data_;
+  void autoFrequencyRange();
+  void invalidateCurves();
+  void plotBode();
 
-  QVBoxLayout* dataLayout_;
   QVBoxLayout* centralLayout_;
   QHBoxLayout* mainLayout_;
 

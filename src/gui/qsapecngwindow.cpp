@@ -862,10 +862,12 @@ void QSapecNGWindow::updateMenus()
 
   magnitudeAct_->setEnabled(hasWorkplane);
   phaseAct_->setEnabled(hasWorkplane);
+  bodeAct_->setEnabled(hasWorkplane);
   zerosPolesAct_->setEnabled(hasWorkplane);
+  rangeAct_->setEnabled(hasWorkplane);
 
   xLogAct_->setEnabled(hasWorkplane);
-  yLogAct_->setEnabled(hasWorkplane);
+  yLogAct_->setEnabled(hasWorkplane && !dbAct_->isChecked());
   replotAct_->setEnabled(hasWorkplane);
 }
 
@@ -1191,15 +1193,26 @@ void QSapecNGWindow::createActions()
   // what to plot; units and scales are options of the WorkPlane menu
   QSettings plotSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
 
-  magnitudeAct_ = new QAction(tr("&Magnitude"), this);
+  magnitudeAct_ = new QAction(tr("&Frequency Response"), this);
   magnitudeAct_->setStatusTip(tr("Plot the magnitude of the transfer function"));
   connect(magnitudeAct_, &QAction::triggered, this,
     [this]() { workplane_->showKind(WorkPlane::MagnitudeKind); });
 
-  phaseAct_ = new QAction(tr("&Phase"), this);
+  phaseAct_ = new QAction(tr("&Phase Response"), this);
   phaseAct_->setStatusTip(tr("Plot the phase of the transfer function"));
   connect(phaseAct_, &QAction::triggered, this,
     [this]() { workplane_->showKind(WorkPlane::PhaseKind); });
+
+  bodeAct_ = new QAction(tr("&Bode Plot"), this);
+  bodeAct_->setStatusTip(
+    tr("Magnitude and phase on one plot (phase on the right axis)"));
+  connect(bodeAct_, &QAction::triggered, this,
+    [this]() { workplane_->showKind(WorkPlane::BodeKind); });
+
+  rangeAct_ = new QAction(tr("Frequency &Range..."), this);
+  rangeAct_->setStatusTip(tr("Start, stop and resolution of the sweep"));
+  connect(rangeAct_, &QAction::triggered, this,
+    [this]() { workplane_->editFrequencyRange(); });
 
   zerosPolesAct_ = new QAction(tr("P&oles && Zeros"), this);
   zerosPolesAct_->setStatusTip(tr("Plot the poles and zeros in the s-plane"));
@@ -1213,6 +1226,7 @@ void QSapecNGWindow::createActions()
       QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
         .setValue("Workplane/magnitudeDb", on);
       workplane_->setMagnitudeDb(on);
+      updateMenus();   // a dB axis is never logarithmic
     });
 
   degreesAct_ = new QAction(tr("Phase in de&grees"), this);
@@ -1372,7 +1386,10 @@ void QSapecNGWindow::createMenus()
   workplaneMenu_ = menuBar()->addMenu(tr("W&orkPlane"));
   workplaneMenu_->addAction(magnitudeAct_);
   workplaneMenu_->addAction(phaseAct_);
+  workplaneMenu_->addAction(bodeAct_);
   workplaneMenu_->addAction(zerosPolesAct_);
+  workplaneMenu_->addSeparator();
+  workplaneMenu_->addAction(rangeAct_);
   workplaneMenu_->addSeparator();
   workplaneMenu_->addAction(dbAct_);
   workplaneMenu_->addAction(degreesAct_);

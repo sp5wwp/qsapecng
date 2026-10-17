@@ -22,6 +22,13 @@
 #include "functor/functor.hpp"
 #include "gui/workplane/workplane.h"
 #include "gui/units.h"
+#include "config.h"
+#include <cmath>
+#include <QSpinBox>
+#include <QSettings>
+#include <QDialogButtonBox>
+#include <QDialog>
+#include <QCheckBox>
 #include "gui/functor/functor_traits.hpp"
 #include "gui/qlogger.h"
 #include "gui/settings.h"
@@ -336,7 +343,9 @@ void applyPlotStyle(
         Qt::NoBrush, QPen(poleColor, 2), QSize(11, 11)));
     } else {
       QPen pen = curve->pen();
-      pen.setColor(accent);
+      // phase in its own colour, so it reads apart in a Bode plot
+      pen.setColor(i == WorkPlane::PHASE || i == WorkPlane::PHASE_RAD
+        ? QColor(0xe0, 0x6c, 0x00) : accent);
       pen.setWidthF(2.);
       pen.setCosmetic(true);
       curve->setPen(pen);
@@ -349,10 +358,15 @@ void applyPlotStyle(
 
 
 WorkPlane::WorkPlane(QWidget* parent)
-  : QWidget(parent),
-    startFreq_(0), endFreq_(0), stepFreq_(0),
-    oldStartFreq_(0), oldEndFreq_(0), oldStepFreq_(0)
+  : QWidget(parent)
 {
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  autoRange_ = settings.value("Workplane/autoRange", true).toBool();
+  fStart_ = settings.value("Workplane/fStart", 1.).toDouble();
+  fStop_ = settings.value("Workplane/fStop", 1e5).toDouble();
+  pointsPerDecade_ = settings.value("Workplane/pointsPerDecade", 100).toInt();
+  if(!(fStart_ > 0 && fStop_ > fStart_)) { fStart_ = 1.; fStop_ = 1e5; }
+
   createMainLayout();
   setupCurves();
   setDirty();
@@ -361,8 +375,6 @@ WorkPlane::WorkPlane(QWidget* parent)
   setWindowTitle(tr("WorkPlane"));
   setAttribute(Qt::WA_DeleteOnClose);
 
-  connect(data_, SIGNAL(itemActivated(QTableWidgetItem*)),
-    this, SLOT(setDirty()));
 }
 
 
@@ -392,52 +404,13 @@ void WorkPlane::setData(
 {
   setDirty();
 
-  data_->clearContents();
-  data_->setColumnCount(2);
-  data_->setRowCount(values.size());
-  data_->setSortingEnabled(false);
-
-  int row = 0;
-  for(std::map<std::string, double>::const_iterator i = values.begin();
-      i != values.end(); ++i, ++row)
-  {
-    QLabel* left = new QLabel(QString::fromStdString(i->first));
-    left->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
-    
-    QLineEdit* right = new QLineEdit;
-    right->setText(QString::number(i->second));
-    QRegularExpression sn = Settings().notation();
-    QRegularExpressionValidator* validator =
-      new QRegularExpressionValidator(sn, right);
-    right->setValidator(validator);
-    
-    data_->setCellWidget(row, 0, left);
-    data_->setCellWidget(row, 1, right);
-  }
-
-  data_->setSortingEnabled(true);
-  data_->sortItems(0);
-
-  QStringList labels;
-  labels << "Name" << "Value";
-  data_->setHorizontalHeaderLabels(labels);
-  data_->setVerticalHeader(new QHeaderView(Qt::Vertical));
-
+  // the plots use the component values of the schematic
+  values_ = values;
   num_ = numerator;
   den_ = denominator;
 
-  std::string num = sapecng::metacircuit::as_string(numerator);
-  std::string den = sapecng::metacircuit::as_string(denominator);
-
-  std::string expr;
-  expr.append(num);
-  expr.append("\n");
-  expr.append(std::string(
-    (num.size() > den.size() ? num.size() : den.size()) * 3/2, '-'));
-  expr.append("\n");
-  expr.append(den);
-
-  setToolTip(QString::fromStdString(expr));
+  if(autoRange_)
+    autoFrequencyRange();
 }
 
 
@@ -485,8 +458,8 @@ void WorkPlane::applyAxisScales(bool forceLinear)
 
   // dB, phase and pole/zero values can be negative: log only for a
   // linear magnitude
-  const bool linearMagnitude =
-    lastId_ == MAGNITUDE || lastId_ == MAGNITUDE_RAD;
+  const bool linearMagnitude = !magnitudeDb_
+    && (kind_ == MagnitudeKind || kind_ == BodeKind);
   if(yLog_ && !forceLinear && linearMagnitude)
     plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLogScaleEngine(10));
   else
@@ -522,13 +495,26 @@ void WorkPlane::plot(WorkPlane::F f)
   setEnabled(false);
 
   lastId_ = f;
-  applyAxisScales(f == ZEROS || f == POLES);
-  if(!attached_.isEmpty()) {
-    foreach(QwtPlotCurve* curve, attached_) {
-      curve->setVisible(false);
-      curve->detach();
+  if(!keepAttached_) {
+    if(!attached_.isEmpty()) {
+      foreach(QwtPlotCurve* curve, attached_) {
+        curve->setVisible(false);
+        curve->detach();
+      }
+      attached_.clear();
     }
+    // a single plot: everything on the left axis, autoscaled
+    for(int i = 0; i < curves_.size(); ++i)
+      curves_[i].first->setYAxis(QwtPlot::yLeft);
+    plot_->enableAxis(QwtPlot::yRight, false);
+    // drop the Bode plot's coloured axis titles (setAxisTitle(QString)
+    // keeps the previous text colour)
+    plot_->setAxisTitle(QwtPlot::yLeft, QwtText());
+    plot_->setAxisTitle(QwtPlot::yRight, QwtText());
+    plot_->setAxisAutoScale(QwtPlot::xBottom);
+    plot_->setAxisAutoScale(QwtPlot::yLeft);
   }
+  applyAxisScales(f == ZEROS || f == POLES);
 
   switch(f)
   {
@@ -540,8 +526,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate magnitude."));
         std::map<std::string, double> values = actValues();
         res = sapecng::magnitude(
-            std::make_pair(startFreq_->value(), endFreq_->value()),
-            stepFreq_->value()
+            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
           )(num_, den_, values);
       }
 
@@ -577,8 +562,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate phase."));
         std::map<std::string, double> values = actValues();
         res = sapecng::phase(
-            std::make_pair(startFreq_->value(), endFreq_->value()),
-            stepFreq_->value()
+            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
           )(num_, den_, values);
       }
 
@@ -617,8 +601,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate gain."));
         std::map<std::string, double> values = actValues();
         res = sapecng::gain(
-            std::make_pair(startFreq_->value(), endFreq_->value()),
-            stepFreq_->value()
+            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
           )(num_, den_, values);
       }
 
@@ -654,8 +637,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate loss."));
         std::map<std::string, double> values = actValues();
         res = sapecng::loss(
-            std::make_pair(startFreq_->value(), endFreq_->value()),
-            stepFreq_->value()
+            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
           )(num_, den_, values);
       }
 
@@ -782,12 +764,12 @@ void WorkPlane::relabel(F f)
   switch(f) {
   case MAGNITUDE:
   case MAGNITUDE_RAD:
-    title = tr("Magnitude");
+    title = tr("Frequency response");
     yTitle = tr("Magnitude");
     break;
   case GAIN:
   case GAIN_RAD:
-    title = tr("Magnitude");
+    title = tr("Frequency response");
     yTitle = tr("Magnitude (dB)");
     yUnit = QStringLiteral("dB");
     break;
@@ -799,7 +781,7 @@ void WorkPlane::relabel(F f)
     break;
   case PHASE:
   case PHASE_RAD:
-    title = tr("Phase");
+    title = tr("Phase response");
     yTitle = phaseDegrees_ ? tr("Phase (°)") : tr("Phase (rad)");
     yUnit = phaseDegrees_ ? QStringLiteral("°") : QStringLiteral("rad");
     break;
@@ -811,6 +793,17 @@ void WorkPlane::relabel(F f)
       plot_->setTitle(none
         ? tr("No poles or zeros: the transfer function is a constant")
         : tr("Poles (×) and zeros (o)"));
+
+      // centred on the origin, the same range on both axes
+      double r = 0.;
+      for(F c : { ZEROS, POLES }) {
+        const QwtSeriesData<QPointF>* d = curves_[c].first->data();
+        for(size_t i = 0; d && i < d->size(); ++i)
+          r = qMax(r, qMax(qAbs(d->sample(i).x()), qAbs(d->sample(i).y())));
+      }
+      r = r > 0 ? r * 1.25 : 1.;
+      plot_->setAxisScale(QwtPlot::xBottom, -r, r);
+      plot_->setAxisScale(QwtPlot::yLeft, -r, r);
     }
     plot_->setAxisTitle(QwtPlot::xBottom, tr("Real part (rad/s)"));
     plot_->setAxisTitle(QwtPlot::yLeft, tr("Imaginary part (rad/s)"));
@@ -830,15 +823,168 @@ void WorkPlane::relabel(F f)
 void WorkPlane::showKind(int kind)
 {
   kind_ = kind;
+  if(kind_ == BodeKind)
+    plotBode();
+  else
+    plot(currentF());
+}
+
+
+void WorkPlane::plotBode()
+{
+  // magnitude on the left axis, phase on the right one
+  const F phaseF = angular_ ? PHASE_RAD : PHASE;
   plot(currentF());
+  const F magF = lastId_;
+
+  keepAttached_ = true;
+  plot(phaseF);
+  keepAttached_ = false;
+  lastId_ = magF;
+
+  curves_[phaseF].first->setYAxis(QwtPlot::yRight);
+  plot_->enableAxis(QwtPlot::yRight, true);
+  plot_->setAxisAutoScale(QwtPlot::yRight);
+  plot_->setAxisScaleEngine(QwtPlot::yRight, new QwtLinearScaleEngine);
+  applyAxisScales(false);
+
+  relabel(magF);
+  plot_->setTitle(tr("Bode plot"));
+
+  // axis titles in the colour of their curve
+  QwtText left = plot_->axisTitle(QwtPlot::yLeft);
+  left.setColor(curves_[magF].first->pen().color());
+  plot_->setAxisTitle(QwtPlot::yLeft, left);
+  QwtText right(phaseDegrees_ ? tr("Phase (°)") : tr("Phase (rad)"));
+  right.setColor(curves_[phaseF].first->pen().color());
+  right.setFont(left.font());
+  plot_->setAxisTitle(QwtPlot::yRight, right);
+
+  plot_->updateAxes();
+  plot_->replot();
+}
+
+
+void WorkPlane::invalidateCurves()
+{
+  for(int i = 0; i < curves_.size(); ++i)
+    curves_[i].second = false;
+}
+
+
+void WorkPlane::autoFrequencyRange()
+{
+  // a decade below the lowest and above the highest pole or zero
+  const double twoPi = 8. * std::atan(1.);
+  double lo = 0., hi = 0.;
+  for(int which = 0; which < 2; ++which) {
+    const std::pair< std::vector<double>, std::vector<double> > roots =
+      which == 0 ? sapecng::zeros()(num_, den_, values_)
+                 : sapecng::poles()(num_, den_, values_);
+    const size_t n = qMin(roots.first.size(), roots.second.size());
+    for(size_t i = 0; i < n; ++i) {
+      const double w = std::hypot(roots.first[i], roots.second[i]);
+      if(w <= 0. || !std::isfinite(w))
+        continue;
+      lo = lo > 0. ? qMin(lo, w) : w;
+      hi = qMax(hi, w);
+    }
+  }
+
+  if(hi > 0.) {
+    fStart_ = std::pow(10., std::floor(std::log10(lo / twoPi / 10.)));
+    fStop_ = std::pow(10., std::ceil(std::log10(hi / twoPi * 10.)));
+  } else {
+    fStart_ = 1.;     // no poles or zeros: any range shows the same
+    fStop_ = 1e6;
+  }
+  if(fStop_ <= fStart_)
+    fStop_ = fStart_ * 1000.;
+}
+
+
+void WorkPlane::editFrequencyRange()
+{
+  QDialog dialog(this);
+  dialog.setWindowTitle(tr("Frequency Range"));
+
+  QCheckBox* automatic = new QCheckBox(
+    tr("&Automatic: a decade beyond the poles and zeros"));
+  automatic->setChecked(autoRange_);
+
+  auto field = [](double value) {
+    QLineEdit* edit = new QLineEdit(
+      units::formatForEdit(QString::number(value, 'g', 8)));
+    edit->setValidator(new units::ValueValidator(QStringLiteral("Hz"), edit));
+    edit->setToolTip(tr("Frequency in Hz; prefixes allowed: 10, 1k, 2.5MEG"));
+    return edit;
+  };
+  QLineEdit* start = field(fStart_);
+  QLineEdit* stop = field(fStop_);
+
+  QSpinBox* points = new QSpinBox;
+  points->setRange(10, 2000);
+  points->setValue(pointsPerDecade_);
+  points->setToolTip(tr("Points per decade, spaced logarithmically"));
+
+  QFormLayout* form = new QFormLayout;
+  form->addRow(automatic);
+  form->addRow(tr("&Start (Hz):"), start);
+  form->addRow(tr("St&op (Hz):"), stop);
+  form->addRow(tr("&Points per decade:"), points);
+
+  QDialogButtonBox* buttons = new QDialogButtonBox(
+    QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+  auto validate = [&]() {
+    double a = 0., b = 0.;
+    const bool ok = automatic->isChecked()
+      || (units::parse(start->text(), "Hz", &a)
+          && units::parse(stop->text(), "Hz", &b) && a > 0 && b > a);
+    buttons->button(QDialogButtonBox::Ok)->setEnabled(ok);
+    start->setEnabled(!automatic->isChecked());
+    stop->setEnabled(!automatic->isChecked());
+  };
+  connect(automatic, &QCheckBox::toggled, &dialog, validate);
+  connect(start, &QLineEdit::textChanged, &dialog, validate);
+  connect(stop, &QLineEdit::textChanged, &dialog, validate);
+  validate();
+
+  QVBoxLayout* layout = new QVBoxLayout(&dialog);
+  layout->addLayout(form);
+  layout->addWidget(buttons);
+
+  if(dialog.exec() != QDialog::Accepted)
+    return;
+
+  autoRange_ = automatic->isChecked();
+  pointsPerDecade_ = points->value();
+  if(autoRange_) {
+    autoFrequencyRange();
+  } else {
+    units::parse(start->text(), "Hz", &fStart_);
+    units::parse(stop->text(), "Hz", &fStop_);
+  }
+
+  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  settings.setValue("Workplane/autoRange", autoRange_);
+  settings.setValue("Workplane/fStart", fStart_);
+  settings.setValue("Workplane/fStop", fStop_);
+  settings.setValue("Workplane/pointsPerDecade", pointsPerDecade_);
+
+  invalidateCurves();
+  if(lastId_ != NOOP)
+    showKind(kind_);
 }
 
 
 void WorkPlane::setMagnitudeDb(bool db)
 {
   magnitudeDb_ = db;
-  if(lastId_ != NOOP && kind_ == MagnitudeKind)
-    plot(currentF());
+  if(lastId_ != NOOP && (kind_ == MagnitudeKind || kind_ == BodeKind))
+    showKind(kind_);
 }
 
 
@@ -850,8 +996,8 @@ void WorkPlane::setPhaseDegrees(bool degrees)
   // phase curves hold converted values: compute them again
   curves_[PHASE].second = false;
   curves_[PHASE_RAD].second = false;
-  if(lastId_ != NOOP && kind_ == PhaseKind)
-    plot(currentF());
+  if(lastId_ != NOOP && (kind_ == PhaseKind || kind_ == BodeKind))
+    showKind(kind_);
 }
 
 
@@ -859,7 +1005,7 @@ void WorkPlane::setAngularFrequency(bool radPerSecond)
 {
   angular_ = radPerSecond;
   if(lastId_ != NOOP && kind_ != PoleZeroKind)
-    plot(currentF());
+    showKind(kind_);
 }
 
 
@@ -871,8 +1017,10 @@ void WorkPlane::plot(int f)
 
 void WorkPlane::redraw()
 {
+  const bool shown = lastId_ != NOOP;
   setDirty();
-  plot(lastId_);
+  if(shown)
+    showKind(kind_);
 }
 
 
@@ -892,58 +1040,12 @@ void WorkPlane::print(QPrinter& printer) {
 
 std::map<std::string, double> WorkPlane::actValues() const
 {
-  std::map<std::string, double> values;
-
-  for(int i = 0; i < data_->rowCount(); ++i)
-    values[qobject_cast<const QLabel*>(
-        data_->cellWidget(i, 0))->text().toStdString()] =
-      qobject_cast<const QLineEdit*>(
-        data_->cellWidget(i, 1))->text().toDouble();
-
-  return values;
+  return values_;
 }
 
 
 void WorkPlane::createMainLayout()
 {
-  data_ = new QTableWidget;
-  data_->horizontalHeader()->setStretchLastSection(true);
-
-  QLayout* dataLayout = new QHBoxLayout;
-  dataLayout->addWidget(data_);
-  QGroupBox* dataBox = new QGroupBox(tr("Data box"));
-  dataBox->setSizePolicy(QSizePolicy(QSizePolicy::Minimum, QSizePolicy::MinimumExpanding));
-  dataBox->setLayout(dataLayout);
-
-  startFreq_ = new QDoubleSpinBox;
-  startFreq_->setMaximum(std::numeric_limits<double>::max());
-  startFreq_->setDecimals(5);
-  startFreq_->setValue(0.001);
-  oldStartFreq_ = 0.001;
-  endFreq_ = new QDoubleSpinBox;
-  endFreq_->setMaximum(std::numeric_limits<double>::max());
-  endFreq_->setDecimals(5);
-  endFreq_->setValue(99.);
-  oldEndFreq_ = 99.;
-  stepFreq_ = new QDoubleSpinBox;
-  stepFreq_->setMaximum(std::numeric_limits<double>::max());
-  stepFreq_->setDecimals(5);
-  stepFreq_->setValue(0.001);
-  oldStepFreq_ = 0.001;
-
-  QFormLayout* freqLayout = new QFormLayout;
-  freqLayout->addRow(tr("Start (Hz):"), startFreq_);
-  freqLayout->addRow(tr("End (Hz):"), endFreq_);
-  freqLayout->addRow(tr("Step (Hz):"), stepFreq_);
-  freqLayout->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-  QGroupBox* freqBox = new QGroupBox(tr("Frequency box"));
-  freqBox->setSizePolicy(QSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum));
-  freqBox->setLayout(freqLayout);
-
-  dataLayout_ = new QVBoxLayout;
-  dataLayout_->addWidget(dataBox, 5);
-  dataLayout_->addWidget(freqBox);
-
   plot_ = new QwtPlot_ContextMenu(this);
   plot_->setAxisScaleEngine(QwtPlot::yLeft, new QwtLinearScaleEngine);
   plot_->setAxisScaleEngine(QwtPlot::xBottom, new QwtLogScaleEngine(10));
@@ -963,17 +1065,9 @@ void WorkPlane::createMainLayout()
   centralLayout_ = new QVBoxLayout;
   centralLayout_->addWidget(plot_);
 
-  QFrame* separator;
-
   mainLayout_ = new QHBoxLayout;
-  mainLayout_->addLayout(dataLayout_);
-  separator = new QFrame;
-  separator->setFrameStyle(QFrame::VLine | QFrame::Sunken);
-  separator->setMidLineWidth(2);
-  mainLayout_->addWidget(separator);
+  mainLayout_->setContentsMargins(0, 0, 0, 0);
   mainLayout_->addLayout(centralLayout_);
-  mainLayout_->setStretchFactor(dataLayout_, 1);
-  mainLayout_->setStretchFactor(centralLayout_, 2);
 }
 
 
@@ -1151,7 +1245,9 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::poles>::attribute);
 
   for(int i = 0; i < curves_.size(); ++i) {
-    curves_[i].first->setCurveFitter(new QwtWeedingCurveFitter);
+    // plain polyline through the samples: the sweep is dense enough
+    // (log-spaced), and point weeding left visible kinks
+    curves_[i].first->setCurveAttribute(QwtPlotCurve::Fitted, false);
     curves_[i].first->setVisible(false);
     curves_[i].second = false;
   }

@@ -200,8 +200,9 @@ void ResultPanel::render()
 
   // plots of the transfer function (open the Workplane)
   const QList< QPair<QString, int> > plots = {
-    { tr("Magnitude"), WorkPlane::MagnitudeKind },
-    { tr("Phase"), WorkPlane::PhaseKind },
+    { tr("Frequency response"), WorkPlane::MagnitudeKind },
+    { tr("Phase response"), WorkPlane::PhaseKind },
+    { tr("Bode plot"), WorkPlane::BodeKind },
     { tr("Poles & zeros"), WorkPlane::PoleZeroKind }
   };
   QStringList plotLinks;

@@ -23,6 +23,7 @@
 
 #include "model/metacircuit.h"
 
+#include <cmath>
 #include <complex>
 #include <map>
 
@@ -90,8 +91,12 @@ struct frequency_range_functor: public functor
 {
 
 public:
-  frequency_range_functor(std::pair< double, double > range, double step)
-    : range_(range), step_(step) { }
+  // logScale: 'step' is the number of points per decade, spaced
+  // logarithmically from range.first to range.second (both > 0);
+  // otherwise a linear step in Hz
+  frequency_range_functor(std::pair< double, double > range, double step,
+      bool logScale = false)
+    : range_(range), step_(step), log_(logScale) { }
 
 protected:
   virtual double apply( std::complex<double> v ) = 0;
@@ -101,6 +106,21 @@ private:
     op(std::map< int, double > num, std::map< int, double > den)
   {
     std::pair< std::vector<double>, std::vector<double> > plot;
+    if(log_) {
+      if(step_ > 0 && range_.first > 0 && range_.first < range_.second) {
+        const double decades = std::log10(range_.second / range_.first);
+        const int n = int(std::ceil(decades * step_));
+        for(int i = 0; i <= n; ++i) {
+          double f = range_.first * std::pow(10., i / step_);
+          if(f > range_.second)
+            f = range_.second;
+          plot.first.push_back(f);
+          plot.second.push_back(
+            apply(compute(num, f) / compute(den, f)) );
+        }
+      }
+      return plot;
+    }
     if(step_ > 0 && range_.first <= range_.second)
     {
       for(double cnt = range_.first; cnt < range_.second; cnt += step_)
@@ -144,6 +164,7 @@ private:
 private:
   std::pair< double, double > range_;
   double step_;
+  bool log_;
 
 };
 
@@ -153,8 +174,9 @@ struct magnitude: public frequency_range_functor
 {
 
 public:
-  magnitude(std::pair< double, double > range, double step)
-    : frequency_range_functor(range, step) { }
+  magnitude(std::pair< double, double > range, double step,
+      bool logScale = false)
+    : frequency_range_functor(range, step, logScale) { }
 
 private:
   double apply( std::complex<double> v ) { return std::abs(v); }
@@ -167,8 +189,9 @@ struct phase: public frequency_range_functor
 {
 
 public:
-  phase(std::pair< double, double > range, double step)
-    : frequency_range_functor(range, step) { }
+  phase(std::pair< double, double > range, double step,
+      bool logScale = false)
+    : frequency_range_functor(range, step, logScale) { }
 
 private:
   double apply( std::complex<double> v ) { return std::arg(v); }
@@ -181,8 +204,9 @@ struct gain: public frequency_range_functor
 {
 
 public:
-  gain(std::pair< double, double > range, double step)
-    : frequency_range_functor(range, step) { }
+  gain(std::pair< double, double > range, double step,
+      bool logScale = false)
+    : frequency_range_functor(range, step, logScale) { }
 
 private:
   double apply( std::complex<double> v )
@@ -196,8 +220,9 @@ struct loss: public frequency_range_functor
 {
 
 public:
-  loss(std::pair< double, double > range, double step)
-    : frequency_range_functor(range, step) { }
+  loss(std::pair< double, double > range, double step,
+      bool logScale = false)
+    : frequency_range_functor(range, step, logScale) { }
 
 private:
   double apply( std::complex<double> v )
