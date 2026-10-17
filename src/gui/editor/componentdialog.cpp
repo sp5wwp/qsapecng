@@ -121,6 +121,7 @@ ComponentDialog::ComponentDialog(
   addTextField(properties, tr("Name:"), false, QString(), form);
 
   const ValueMeaning meaning = valueMeaning(type);
+  QLineEdit* valueEdit = 0;
   const QString valueKey =
     (type == SchematicScene::MutualInductanceItemType) ? "M" : "Value";
 
@@ -169,8 +170,33 @@ ComponentDialog::ComponentDialog(
     connect(ideal_, &QCheckBox::toggled,
       this, &ComponentDialog::updateOpAmpFields);
   } else if(sub.contains(valueKey)) {
-    addTextField(sub.value(valueKey), meaning.label + ":", true,
+    valueEdit = addTextField(sub.value(valueKey), meaning.label + ":", true,
       meaning.unit, form);
+
+    // R, L, C: ideal or with parasitics
+    const QList<SchematicScene::Parasitic> extra =
+      SchematicScene::parasitics(type);
+    if(!extra.isEmpty() && sub.contains("Ideal")) {
+      QtBoolPropertyManager* bpm = qobject_cast<QtBoolPropertyManager*>(
+        sub.value("Ideal")->propertyManager());
+      idealProperty_ = sub.value("Ideal");
+      ideal_ = new QCheckBox(tr("Ideal (no parasitics)"));
+      ideal_->setChecked(bpm && bpm->value(idealProperty_));
+      form->addRow(QString(), ideal_);
+      foreach(const SchematicScene::Parasitic& par, extra) {
+        if(!sub.contains(par.property))
+          continue;
+        if(QLineEdit* e = addTextField(sub.value(par.property),
+            par.property + ":", true, par.unit, form))
+        {
+          e->setToolTip(par.description + tr(" (0 = none)"));
+          e->setPlaceholderText(tr("0 = none"));
+          realOpAmpFields_ << e;
+        }
+      }
+      connect(ideal_, &QCheckBox::toggled,
+        this, &ComponentDialog::updateOpAmpFields);
+    }
   }
 
   if(sub.contains("Symbolic")) {
@@ -208,8 +234,8 @@ ComponentDialog::ComponentDialog(
 
   if(!fields_.isEmpty()) {
     // start in the value field when there is one (the usual edit)
-    QLineEdit* first = fields_.size() > 1 ? fields_.last().edit
-                                          : fields_.first().edit;
+    QLineEdit* first = valueEdit ? valueEdit
+      : fields_.size() > 1 ? fields_.last().edit : fields_.first().edit;
     first->setFocus();
     first->selectAll();
   }

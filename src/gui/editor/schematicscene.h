@@ -138,6 +138,19 @@ public:
   // unit of the value of a component type ("F", "Ω"...; empty: none)
   static QString valueUnit(SchematicScene::SupportedItemType type);
 
+  // parasitics of a "real" resistor, inductor or capacitor: the property
+  // (also the dialog label), the key in files and for the solver, unit,
+  // default value and a short explanation
+  struct Parasitic
+  {
+    QString property;
+    std::string key;
+    QString unit;
+    QString defaultValue;
+    QString description;
+  };
+  static QList<Parasitic> parasitics(SchematicScene::SupportedItemType type);
+
   static QPainterPath userDefPath(uint ports);
   static QList<QPointF> userDefNodes(uint ports);
 
@@ -145,6 +158,7 @@ public:
   SchematicScene(QObject* parent = 0);
   ~SchematicScene();
 
+  QPointF placementPos(const QPointF& pointer) const;
   QPointF closestGridPoint(const QPointF& pos) const;
   inline bool gridVisible() const { return gridVisible_; }
   inline bool isGridPoint(QPointF point) const
@@ -178,6 +192,8 @@ public:
   // R key / Rotate action: rotates the item being placed if there is one,
   // otherwise the selected items
   void rotatePlacedOrSelected();
+  // flip left-right, or (vertical) upside down
+  void mirrorPlacedOrSelected(bool vertical);
   // redraw resistors/conductances after the resistor symbol style changed
   void updateResistorSymbols();
   // rebuild every label (e.g. after the value display setting changed)

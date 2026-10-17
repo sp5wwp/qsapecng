@@ -20,6 +20,10 @@
 
 #include "gui/editor/propertytextitem.hpp"
 #include "gui/units.h"
+#include "gui/editor/schematicscene.h"
+
+#include <QGraphicsSceneMouseEvent>
+#include <cmath>
 
 #include "gui/qtsolutions/qtpropertyeditor/qtpropertymanager.h"
 
@@ -70,7 +74,7 @@ void PropertyTextItem::refreshText()
 
   QString text = property_->valueText();
 
-  // op-amp: nothing for an ideal one, "A0 200k" (and the GBW) otherwise
+  // op-amp: nothing for an ideal one, "G=200k" (and the GBW) otherwise
   QtProperty* ideal = 0;
   QtProperty* gbw = 0;
   foreach(QtProperty* sub, property_->subProperties()) {
@@ -83,7 +87,7 @@ void PropertyTextItem::refreshText()
     {
       foreach(QtProperty* sub, property_->subProperties())
         if(sub->propertyName() == QLatin1String("Value"))
-          text += QStringLiteral("\nA0 ") + units::format(sub->valueText(), "");
+          text += QStringLiteral("\nG=") + units::format(sub->valueText(), "");
       if(gbw && gbw->valueText().toDouble() > 0)
         text += QStringLiteral("\n") + units::format(gbw->valueText(), "Hz");
     }
@@ -120,9 +124,34 @@ void PropertyTextItem::valueChanged(QtProperty* property, const QString&)
 }
 
 
+void PropertyTextItem::mousePressEvent(QGraphicsSceneMouseEvent* event)
+{
+  dragging_ = true;
+  QGraphicsTextItem::mousePressEvent(event);
+}
+
+
+void PropertyTextItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
+{
+  dragging_ = false;
+  QGraphicsTextItem::mouseReleaseEvent(event);
+}
+
+
 QVariant PropertyTextItem::itemChange(
     GraphicsItemChange change, const QVariant& value)
 {
+  // dragged by the user: the centre of the label goes to a grid point
+  if(change == ItemPositionChange && dragging_ && parentItem()) {
+    const QPointF pos = value.toPointF();
+    const QPointF centre = pos + transform().map(boundingRect().center());
+    const QPointF onSheet = parentItem()->mapToScene(centre);
+    const qreal step = SchematicScene::GridStep;
+    const QPointF snapped(std::round(onSheet.x() / step) * step,
+                          std::round(onSheet.y() / step) * step);
+    return pos + (parentItem()->mapFromScene(snapped) - centre);
+  }
+
   if(change == ItemPositionHasChanged && onMoved)
     onMoved();
   return QGraphicsTextItem::itemChange(change, value);

@@ -22,6 +22,8 @@
 #include "functor/functor.hpp"
 #include "gui/workplane/workplane.h"
 #include "gui/units.h"
+#include <algorithm>
+#include <QSplitter>
 #include <QWheelEvent>
 #include <QDoubleValidator>
 #include <QGroupBox>
@@ -47,6 +49,8 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTableWidget>
+#include <qwt_scale_widget.h>
+#include <qwt_scale_draw.h>
 #include <QHeaderView>
 #include <QFrame>
 
@@ -78,7 +82,6 @@ namespace qsapecng
 
 MarkableCurve::~MarkableCurve()
 {
-  clearPins();
   marker_->detach();
   delete marker_;
   // delete symbol_;
@@ -92,25 +95,7 @@ void MarkableCurve::setVisible(bool on)
   if(on) marker_->attach(plot());
   else marker_->detach();
 
-  // pinned markers stay with their curve
-  foreach(QwtPlotMarker* pin, pins_) {
-    if(on) pin->attach(plot());
-    else pin->detach();
-  }
-
   QwtPlotCurve::setVisible(on);
-}
-
-
-void MarkableCurve::clearPins()
-{
-  foreach(QwtPlotMarker* pin, pins_) {
-    pin->detach();
-    delete pin;
-  }
-  pins_.clear();
-  if(plot())
-    plot()->replot();
 }
 
 
@@ -165,47 +150,12 @@ void MarkableCurve::placeLabel(QwtPlotMarker* marker, int idx) const
 }
 
 
-void MarkableCurve::selected(const QPointF& pos)
+void MarkableCurve::selected(const QPointF&)
 {
+  // the live readout ends; WorkPlane::plotClicked places markers
   marker_->setVisible(false);
-  if(!isVisible() || !plot())
-    return;
-
-  const int idx = nearestSample(pos);
-  if(idx < 0)
-    return;
-
-  // a pinned marker near the release point (in pixels) is removed
-  const QwtScaleMap xMap = plot()->canvasMap(xAxis());
-  const QwtScaleMap yMap = plot()->canvasMap(yAxis());
-  const QPointF at(xMap.transform(pos.x()), yMap.transform(pos.y()));
-  for(int i = 0; i < pins_.size(); ++i) {
-    const QPointF v = pins_.at(i)->value();
-    const QPointF pin(xMap.transform(v.x()), yMap.transform(v.y()));
-    if(QLineF(at, pin).length() < 10.
-        || qAbs(v.x() - data()->sample(idx).x()) == 0.)
-    {
-      QwtPlotMarker* m = pins_.takeAt(i);
-      m->detach();
-      delete m;
-      plot()->replot();
-      return;
-    }
-  }
-
-  QwtSymbol* symbol = new QwtSymbol(QwtSymbol::Diamond);
-  symbol->setSize(QSize(9, 9));
-  symbol->setPen(QPen(pen().color().darker(130), 1));
-  symbol->setBrush(pen().color());
-
-  QwtPlotMarker* pin = new QwtPlotMarker;
-  pin->setLineStyle(QwtPlotMarker::NoLine);
-  pin->setSymbol(symbol);
-  pin->setZ(z() + 1);
-  placeLabel(pin, idx);
-  pin->attach(plot());
-  pins_.append(pin);
-  plot()->replot();
+  if(plot())
+    plot()->replot();
 }
 
 
@@ -272,11 +222,17 @@ void MarkedCurve::replotMarker()
   for(std::size_t i = 0; i < data()->size(); ++i) {
     QwtPlotMarker* marker = new QwtPlotMarker;
     marker->setLineStyle(QwtPlotMarker::NoLine);
-    marker->setLabelAlignment(Qt::AlignBottom);
+    marker->setLabelAlignment(Qt::AlignBottom | Qt::AlignRight);
     marker->setValue(data()->sample(i).x(), data()->sample(i).y());
 
-    QString label = "( " + QString::number(data()->sample(i).x()) + ", "
-      + QString::number(data()->sample(i).y()) + " )";
+    // s = -1.2k or -500 + j3.1k (rad/s)
+    const double re = data()->sample(i).x(), im = data()->sample(i).y();
+    auto si = [](double v) {
+        return units::format(QString::number(v, 'g', 4), QString()); };
+    QString label = si(re);
+    if(im != 0.)
+      label += (im > 0 ? QStringLiteral(" + j") : QStringLiteral(" − j"))
+        + si(std::fabs(im));
     QwtText text(label);
     text.setColor(QApplication::palette().color(QPalette::Text));
     marker->setLabel(text);
@@ -737,6 +693,9 @@ void WorkPlane::plot(WorkPlane::F f)
       applyYRange(QwtPlot::yLeft, magnitudeKey());
   }
 
+  if(!keepAttached_)
+    refreshMarkers();
+
   plot_->setFocus(Qt::OtherFocusReason);
   plot_->updateAxes();
   plot_->replot();
@@ -861,6 +820,7 @@ void WorkPlane::plotBode()
   applyYRange(QwtPlot::yRight, phaseKey());
 
   relabel(magF);
+  refreshMarkers();
   plot_->setTitle(tr("Bode plot"));
 
   // axis titles in the colour of their curve
@@ -1057,6 +1017,272 @@ void WorkPlane::zoomAt(const QPoint& pos, double factor, bool x, bool y)
 }
 
 
+PlotSettings PlotSettings::load()
+{
+  QSettings q(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  PlotSettings p;
+  p.kind = q.value("Plot/kind", p.kind).toInt();
+  p.magnitudeDb = q.value("Workplane/magnitudeDb", p.magnitudeDb).toBool();
+  p.phaseDegrees = q.value("Workplane/phaseDegrees", p.phaseDegrees).toBool();
+  p.angular = q.value("Workplane/angularFrequency", p.angular).toBool();
+  p.xLog = q.value("Workplane/xLog", p.xLog).toBool();
+  p.yLog = q.value("Workplane/yLog", p.yLog).toBool();
+  p.autoRange = q.value("Workplane/autoRange", p.autoRange).toBool();
+  p.fStart = q.value("Workplane/fStart", p.fStart).toDouble();
+  p.fStop = q.value("Workplane/fStop", p.fStop).toDouble();
+  p.pointsPerDecade =
+    q.value("Workplane/pointsPerDecade", p.pointsPerDecade).toInt();
+  if(!(p.fStart > 0 && p.fStop > p.fStart)) { p.fStart = 1.; p.fStop = 1e5; }
+  if(p.kind < 0 || p.kind > 3) p.kind = 3;
+  return p;
+}
+
+
+void PlotSettings::save() const
+{
+  QSettings q(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
+  q.setValue("Plot/kind", kind);
+  q.setValue("Workplane/magnitudeDb", magnitudeDb);
+  q.setValue("Workplane/phaseDegrees", phaseDegrees);
+  q.setValue("Workplane/angularFrequency", angular);
+  q.setValue("Workplane/xLog", xLog);
+  q.setValue("Workplane/yLog", yLog);
+  q.setValue("Workplane/autoRange", autoRange);
+  q.setValue("Workplane/fStart", fStart);
+  q.setValue("Workplane/fStop", fStop);
+  q.setValue("Workplane/pointsPerDecade", pointsPerDecade);
+}
+
+
+PlotSettings WorkPlane::settings() const
+{
+  PlotSettings p;
+  p.kind = kind_;
+  p.magnitudeDb = magnitudeDb_;
+  p.phaseDegrees = phaseDegrees_;
+  p.angular = angular_;
+  p.xLog = xLog_;
+  p.yLog = yLog_;
+  p.autoRange = autoRange_;
+  p.fStart = fStart_;
+  p.fStop = fStop_;
+  p.pointsPerDecade = pointsPerDecade_;
+  return p;
+}
+
+
+void WorkPlane::applySettings(const PlotSettings& p)
+{
+  const bool sweepChanged = p.autoRange != autoRange_
+    || p.fStart != fStart_ || p.fStop != fStop_
+    || p.pointsPerDecade != pointsPerDecade_
+    || p.phaseDegrees != phaseDegrees_;
+
+  kind_ = p.kind;
+  magnitudeDb_ = p.magnitudeDb;
+  phaseDegrees_ = p.phaseDegrees;
+  angular_ = p.angular;
+  xLog_ = p.xLog;
+  yLog_ = p.yLog;
+  autoRange_ = p.autoRange;
+  fStart_ = p.fStart;
+  fStop_ = p.fStop;
+  pointsPerDecade_ = p.pointsPerDecade;
+
+  if(autoRange_ && !num_.empty())
+    autoFrequencyRange();
+  if(sweepChanged)
+    invalidateCurves();
+  if(!num_.empty())
+    showKind(kind_);
+}
+
+
+bool WorkPlane::markerValues(double hz, double* magnitude, double* phase) const
+{
+  // evaluated from the transfer function itself (not the plotted samples)
+  if(num_.empty() || !(hz > 0))
+    return false;
+  const std::pair<double, double> at(hz, hz * 1.000001);
+  std::pair< std::vector<double>, std::vector<double> > m =
+    magnitudeDb_ ? sapecng::gain(at, 1., true)(num_, den_, values_)
+                 : sapecng::magnitude(at, 1., true)(num_, den_, values_);
+  std::pair< std::vector<double>, std::vector<double> > p =
+    sapecng::phase(at, 1., true)(num_, den_, values_);
+  if(m.second.empty() || p.second.empty())
+    return false;
+  *magnitude = m.second.front();
+  *phase = phaseDegrees_ ? p.second.front() * 180. / (4. * std::atan(1.))
+                         : p.second.front();
+  return true;
+}
+
+
+QString WorkPlane::magnitudeText(double v) const
+{
+  return magnitudeDb_ ? QStringLiteral("%1 dB").arg(v, 0, 'f', 2)
+                      : units::format(QString::number(v, 'g', 6), "");
+}
+
+
+QString WorkPlane::phaseText(double v) const
+{
+  return phaseDegrees_ ? QStringLiteral("%1°").arg(v, 0, 'f', 1)
+                       : QStringLiteral("%1 rad").arg(v, 0, 'f', 3);
+}
+
+
+void WorkPlane::refreshMarkers()
+{
+  foreach(QwtPlotMarker* m, markerLines_) {
+    m->detach();
+    delete m;
+  }
+  markerLines_.clear();
+
+  const bool frequencyPlot = lastId_ != NOOP
+    && lastId_ != ZEROS && lastId_ != POLES;
+  markerPanel_->setVisible(frequencyPlot && markersPanelWanted_);
+
+  fillingTable_ = true;
+  markerTable_->setRowCount(markers_.size());
+  const double twoPi = 8. * std::atan(1.);
+  // labels of neighbouring markers go to different heights
+  const QwtScaleMap xMap = plot_->canvasMap(QwtPlot::xBottom);
+  const Qt::Alignment rows[] = { Qt::AlignTop, Qt::AlignBottom, Qt::AlignVCenter };
+  double lastPx[3] = { -1e9, -1e9, -1e9 };
+  for(int i = 0; i < markers_.size(); ++i) {
+    const double hz = markers_.at(i);
+    double mag = 0., ph = 0.;
+    const bool ok = markerValues(hz, &mag, &ph);
+
+    QTableWidgetItem* f = new QTableWidgetItem(units::format(
+      QString::number(hz, 'g', 8), "Hz"));
+    QTableWidgetItem* m = new QTableWidgetItem(ok ? magnitudeText(mag) : "-");
+    QTableWidgetItem* p = new QTableWidgetItem(ok ? phaseText(ph) : "-");
+    m->setFlags(m->flags() & ~Qt::ItemIsEditable);
+    p->setFlags(p->flags() & ~Qt::ItemIsEditable);
+    markerTable_->setItem(i, 0, f);
+    markerTable_->setItem(i, 1, m);
+    markerTable_->setItem(i, 2, p);
+
+    if(!frequencyPlot)
+      continue;
+
+    // dashed vertical line with the values at the top
+    QwtPlotMarker* line = new QwtPlotMarker;
+    line->setLineStyle(QwtPlotMarker::VLine);
+    QColor c = QApplication::palette().color(QPalette::Text);
+    c.setAlpha(150);
+    line->setLinePen(c, 1, Qt::DashLine);
+    line->setXValue(angular_ ? hz * twoPi : hz);
+    QString text = QStringLiteral("M%1  %2").arg(i + 1)
+      .arg(units::format(QString::number(hz, 'g', 6), "Hz"));
+    if(ok)
+      text += QLatin1Char('\n') + magnitudeText(mag)
+        + QLatin1Char('\n') + phaseText(ph);
+    QwtText label(text);
+    label.setColor(QApplication::palette().color(QPalette::Text));
+    QColor bg = QApplication::palette().color(QPalette::Base);
+    bg.setAlpha(220);
+    label.setBackgroundBrush(bg);
+    label.setBorderRadius(3);
+    label.setRenderFlags(Qt::AlignLeft | Qt::AlignTop);
+    line->setLabel(label);
+    const double px = xMap.transform(angular_ ? hz * twoPi : hz);
+    const int labelWidth = label.textSize(plot_->canvas()->font()).width() + 16;
+    int row = 0;
+    while(row < 2 && px - lastPx[row] < labelWidth)
+      ++row;
+    lastPx[row] = px;
+    line->setLabelAlignment(rows[row] | Qt::AlignRight);
+    line->setZ(30);
+    line->attach(plot_);
+    markerLines_.append(line);
+  }
+  fillingTable_ = false;
+  plot_->replot();
+}
+
+
+void WorkPlane::addMarker(double hz)
+{
+  if(!(hz > 0) || !std::isfinite(hz))
+    return;
+  markers_.append(hz);
+  std::sort(markers_.begin(), markers_.end());
+  refreshMarkers();
+  markerTable_->selectRow(markers_.indexOf(hz));
+}
+
+
+int WorkPlane::selectedMarker() const
+{
+  const QList<QTableWidgetSelectionRange> r = markerTable_->selectedRanges();
+  return r.isEmpty() ? -1 : r.first().topRow();
+}
+
+
+void WorkPlane::moveSelectedMarker(int direction)
+{
+  const int row = selectedMarker();
+  double step = 0.;
+  if(row < 0 || !units::parse(stepEdit_->text(), "Hz", &step) || !(step > 0))
+    return;
+  const double hz = markers_.at(row) + direction * step;
+  if(!(hz > 0))
+    return;
+  markers_[row] = hz;
+  std::sort(markers_.begin(), markers_.end());
+  refreshMarkers();
+  markerTable_->selectRow(markers_.indexOf(hz));
+}
+
+
+void WorkPlane::markerEdited(int row, int column)
+{
+  if(fillingTable_ || column != 0 || row < 0 || row >= markers_.size())
+    return;
+  double hz = 0.;
+  if(units::parse(markerTable_->item(row, 0)->text(), "Hz", &hz) && hz > 0) {
+    markers_[row] = hz;
+    std::sort(markers_.begin(), markers_.end());
+  }
+  // re-show the list (also when the text was not a frequency)
+  QTimer::singleShot(0, this, [this]() { refreshMarkers(); });
+}
+
+
+void WorkPlane::plotClicked(const QPointF& pos)
+{
+  if(lastId_ == NOOP || lastId_ == ZEROS || lastId_ == POLES)
+    return;
+  const double twoPi = 8. * std::atan(1.);
+  const double hz = angular_ ? pos.x() / twoPi : pos.x();
+
+  // a click on a marker line removes it
+  const QwtScaleMap map = plot_->canvasMap(QwtPlot::xBottom);
+  const double px = map.transform(pos.x());
+  for(int i = 0; i < markers_.size(); ++i) {
+    const double x = angular_ ? markers_.at(i) * twoPi : markers_.at(i);
+    if(qAbs(map.transform(x) - px) < 5.) {
+      markers_.removeAt(i);
+      refreshMarkers();
+      return;
+    }
+  }
+  // a clicked position: 3 significant digits (1.23 kHz) is plenty
+  addMarker(QString::number(hz, 'g', 3).toDouble());
+}
+
+
+void WorkPlane::setMarkersPanelVisible(bool visible)
+{
+  markersPanelWanted_ = visible;
+  refreshMarkers();
+}
+
+
 void WorkPlane::invalidateCurves()
 {
   for(int i = 0; i < curves_.size(); ++i)
@@ -1115,7 +1341,7 @@ void WorkPlane::editFrequencyRange()
   QLineEdit* stop = field(fStop_);
 
   QSpinBox* points = new QSpinBox;
-  points->setRange(10, 2000);
+  points->setRange(10, 10000);
   points->setValue(pointsPerDecade_);
   points->setToolTip(tr("Points per decade, spaced logarithmically"));
 
@@ -1236,6 +1462,24 @@ std::map<std::string, double> WorkPlane::actValues() const
 }
 
 
+namespace {
+
+// axes: 100, 1k, 10k, 1M instead of 100,000 and 1e+06
+class SiScaleDraw: public QwtScaleDraw
+{
+public:
+  QwtText label(double v) const override
+  {
+    // prefixes from 1000 up; below that the plain numbers read better
+    if(std::fabs(v) < 1000.)
+      return QwtScaleDraw::label(v);
+    return QwtText(units::format(QString::number(v, 'g', 6), QString()));
+  }
+};
+
+}
+
+
 void WorkPlane::createMainLayout()
 {
   plot_ = new QwtPlot_ContextMenu(this);
@@ -1259,8 +1503,88 @@ void WorkPlane::createMainLayout()
   grid_->attach(plot_);
   plot_->replot();
 
+  connect(plot_->axisWidget(QwtPlot::xBottom), &QwtScaleWidget::scaleDivChanged,
+    this, [this]() { if(!markers_.isEmpty()) QTimer::singleShot(0, this, [this]() { refreshMarkers(); }); });
+
+  plot_->setAxisScaleDraw(QwtPlot::xBottom, new SiScaleDraw);
+  plot_->setAxisScaleDraw(QwtPlot::yLeft, new SiScaleDraw);
+
+  // click on the plot: a marker at that frequency (or remove one there)
+  connect(tracker_, SIGNAL(selected(const QPointF&)),
+    this, SLOT(plotClicked(const QPointF&)));
+
+  // markers panel
+  markerTable_ = new QTableWidget(0, 3);
+  markerTable_->setHorizontalHeaderLabels(
+    { tr("Frequency"), tr("Magnitude"), tr("Phase") });
+  markerTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+  markerTable_->verticalHeader()->setVisible(false);
+  markerTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+  markerTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+  markerTable_->setToolTip(tr("Click a curve to add a marker; edit a "
+    "frequency here (10k, 2.5MEG)"));
+  connect(markerTable_, &QTableWidget::cellChanged,
+    this, &WorkPlane::markerEdited);
+
+  QPushButton* add = new QPushButton(tr("Add"));
+  add->setToolTip(tr("A marker in the middle of the visible range"));
+  connect(add, &QPushButton::clicked, this, [this]() {
+      const QwtScaleMap map = plot_->canvasMap(QwtPlot::xBottom);
+      double x = map.invTransform((map.p1() + map.p2()) / 2);
+      addMarker(angular_ ? x / (8. * std::atan(1.)) : x);
+    });
+  QPushButton* remove = new QPushButton(tr("Remove"));
+  connect(remove, &QPushButton::clicked, this, [this]() {
+      const int row = selectedMarker();
+      if(row >= 0) {
+        markers_.removeAt(row);
+        refreshMarkers();
+      }
+    });
+  QPushButton* left = new QPushButton(QStringLiteral("◀"));
+  left->setToolTip(tr("Move the selected marker down by the step"));
+  connect(left, &QPushButton::clicked, this, [this]() { moveSelectedMarker(-1); });
+  QPushButton* right = new QPushButton(QStringLiteral("▶"));
+  right->setToolTip(tr("Move the selected marker up by the step"));
+  connect(right, &QPushButton::clicked, this, [this]() { moveSelectedMarker(1); });
+  for(QPushButton* b : { left, right })
+    b->setMaximumWidth(32);
+  stepEdit_ = new QLineEdit(QStringLiteral("100"));
+  stepEdit_->setValidator(new units::ValueValidator(QStringLiteral("Hz"), stepEdit_));
+  stepEdit_->setToolTip(tr("Step for moving a marker, in Hz (10, 1k, 1MEG)"));
+  stepEdit_->setMaximumWidth(70);
+
+  QHBoxLayout* buttons = new QHBoxLayout;
+  buttons->addWidget(add);
+  buttons->addWidget(remove);
+  QHBoxLayout* move = new QHBoxLayout;
+  move->addWidget(left);
+  move->addWidget(right);
+  move->addWidget(new QLabel(tr("Step:")));
+  move->addWidget(stepEdit_);
+  move->addWidget(new QLabel(tr("Hz")));
+  move->addStretch();
+
+  QVBoxLayout* panelLayout = new QVBoxLayout;
+  panelLayout->setContentsMargins(4, 4, 4, 4);
+  panelLayout->addWidget(new QLabel(tr("<b>Markers</b>")));
+  panelLayout->addWidget(markerTable_, 1);
+  panelLayout->addLayout(buttons);
+  panelLayout->addLayout(move);
+  markerPanel_ = new QWidget;
+  markerPanel_->setLayout(panelLayout);
+  markerPanel_->setMinimumWidth(260);
+  markerPanel_->setMaximumWidth(380);
+
+  QSplitter* splitter = new QSplitter(Qt::Horizontal);
+  splitter->addWidget(plot_);
+  splitter->addWidget(markerPanel_);
+  splitter->setStretchFactor(0, 1);
+  splitter->setStretchFactor(1, 0);
+  splitter->setCollapsible(0, false);
+
   centralLayout_ = new QVBoxLayout;
-  centralLayout_->addWidget(plot_);
+  centralLayout_->addWidget(splitter);
 
   mainLayout_ = new QHBoxLayout;
   mainLayout_->setContentsMargins(0, 0, 0, 0);
@@ -1468,9 +1792,8 @@ void WorkPlane::setupCurves()
 
 void WorkPlane::clearMarkers()
 {
-  for(int i = 0; i < curves_.size(); ++i)
-    if(MarkableCurve* mc = dynamic_cast<MarkableCurve*>(curves_[i].first))
-      mc->clearPins();
+  markers_.clear();
+  refreshMarkers();
 }
 
 
@@ -1486,9 +1809,6 @@ void WorkPlane::setupCurve(
     std::copy(data.first.begin(), data.first.end(), x);
     double* y = new double [data.second.size()];
     std::copy(data.second.begin(), data.second.end(), y);
-
-    if(MarkableCurve* mc = dynamic_cast<MarkableCurve*>(curves_[f].first))
-      mc->clearPins();   // new data: old markers no longer apply
 
     curves_[f].first->setSamples(x, y,
         data.first.size() < data.second.size() ?

@@ -146,15 +146,18 @@ void Component::paint(
     painter->drawPath(path_);
 
     // the text box: the tag without its pointed end
-    const QRectF box = path_.boundingRect().adjusted(8, 0, 0, 0);
+    const QRectF box = path_.boundingRect().adjusted(7, 0, 0, 0);
     const QTransform t = transform();
     const QTransform upright =
       QTransform(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0).inverted();
     painter->translate(box.center());
     painter->setTransform(upright, true);
     const QRectF r = upright.inverted().mapRect(QRectF(QPointF(0, 0), box.size()));
-    // the font of the component names and values
-    painter->setFont(theme::schematicFont(10));
+    // the schematic font, sized in pixels so the caption fits the tag the
+    // same way on every platform (point sizes differ with the screen DPI)
+    QFont font = theme::schematicFont(10);
+    font.setPixelSize(qMax(6, qRound(box.height() * 0.7)));
+    painter->setFont(font);
     painter->setPen(text);
     painter->drawText(r.translated(-r.width() / 2, -r.height() / 2),
       Qt::AlignCenter, tag_);

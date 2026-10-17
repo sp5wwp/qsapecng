@@ -25,6 +25,9 @@
 
 #include <QMainWindow>
 #include <QModelIndex>
+#include <QPointer>
+#include <QHash>
+#include <QList>
 
 #include "gui/workplane/workplane.h"
 
@@ -119,6 +122,8 @@ private slots:
   void save();
   void saveAs();
   void print();
+  void printPlot();
+  void editPlotSettings();
   void exportSchematic();
 
   void props();
@@ -216,9 +221,20 @@ private:
   QMdiArea* mdiArea_;
   QSignalMapper* windowMapper_;
 
-  WorkPlane* workplane_;
+  // plots: one dock each, bound to the schematic they show
+  struct PlotEntry
+  {
+    QPointer<QDockWidget> dock;
+    QPointer<WorkPlane> plane;
+    QPointer<SchematicEditor> editor;
+  };
+  QList<PlotEntry> plots_;
+  QPointer<WorkPlane> currentPlot_;
+  QHash<SchematicEditor*, PlotSettings> pendingPlots_;   // after solving
+  WorkPlane* createPlot(SchematicEditor* editor, const PlotSettings& settings);
+  void updatePlotTitle(WorkPlane* plane);
+  void refreshPlots(SchematicEditor* editor);
 
-  QTabWidget* central_;
 
   QMenu* fileMenu_;
   QMenu* recentMenu_;
@@ -263,6 +279,7 @@ private:
   QAction* pasteAct_;
   QAction* rotateAct_;
   QAction* mirrorAct_;
+  QAction* flipVAct_;
   QAction* bringToFrontAct_;
   QAction* sendToBackAct_;
   QAction* zoomInAct_;
@@ -296,19 +313,13 @@ private:
   QAction* toggleGridAct_;
 
   QSignalMapper* fMapper_;
-  QAction* magnitudeAct_;
-  QAction* phaseAct_;
-  QAction* zerosPolesAct_;
-  QAction* dbAct_;
-  QAction* bodeAct_;
-  QAction* rangeAct_;
   QAction* vrangeAct_;
+  QAction* plotSettingsAct_;
+  QAction* clearMarkersAct_;
+  QAction* markersPanelAct_;
+  QAction* printPlotAct_;
   QAction* resetViewAct_;
-  QAction* degreesAct_;
-  QAction* angularAct_;
   /* plotter noop acts */
-  QAction* xLogAct_;
-  QAction* yLogAct_;
   QAction* replotAct_;
 
   enum { maxRecentFiles = 10 };

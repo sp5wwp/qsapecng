@@ -65,12 +65,15 @@ public slots:
 protected:
   QVariant itemChange(GraphicsItemChange change, const QVariant& value)
     override;
+  void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+  void mouseReleaseEvent(QGraphicsSceneMouseEvent* event) override;
 
 private:
   void init();
 
   QtProperty* property_;
   QString unit_;
+  bool dragging_ = false;   // snap to the grid only while the user drags
 
 };
 

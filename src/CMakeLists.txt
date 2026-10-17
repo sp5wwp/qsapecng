@@ -33,10 +33,12 @@ set(qsapecng_SRCS
   gui/resultpanel.cpp
   gui/units.cpp
   gui/formula.cpp
+  gui/plotdialog.cpp
   gui/theme.h
   gui/resultpanel.h
   gui/units.h
   gui/formula.h
+  gui/plotdialog.h
   gui/settings.cpp
   gui/qsapecngwindow.cpp
   gui/configdialog/configdialog.cpp

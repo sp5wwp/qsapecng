@@ -101,6 +101,14 @@ void circuit_builder::add_dual_component(
   replace_requested(va <= vb ? va : vb);
   replace_requested(va > vb ? va : vb);
 
+  if((c_type == abstract_builder::R || c_type == abstract_builder::L
+      || c_type == abstract_builder::C)
+    && props.count("ideal") && props["ideal"] == "0")
+  {
+    add_real_passive(c_type, name, value, symbolic, va, vb, props);
+    return;
+  }
+
   switch(c_type)
   {
   case abstract_builder::R:
@@ -215,6 +223,83 @@ void circuit_builder::add_dual_component(
   default:
     break;
   }
+}
+
+
+void circuit_builder::add_real_passive(
+    abstract_builder::dual_component_type c_type,
+    std::string name,
+    double value,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    std::map<std::string, std::string> props
+  )
+{
+  // R, L or C with parasitics (props, SI units; missing or 0: none):
+  //   R: "ls" series inductance, "cp" parallel capacitance
+  //   L: "rs" series (winding) resistance, "cp" parallel capacitance
+  //   C: "esr", "esl" in series, "rp" leakage across the capacitance
+  // The series parts form a chain va - ... - main part - vb through
+  // internal nodes; the parasitics are unnamed (numeric) so the result
+  // keeps only the component's own symbol.
+  props.erase("ideal");
+  std::map<std::string, std::string> none;
+  auto take = [&props](const char* key) {
+      double v = 0.;
+      std::map<std::string, std::string>::iterator i = props.find(key);
+      if(i != props.end()) {
+        std::istringstream in(i->second);
+        in >> v;
+        props.erase(i);
+      }
+      return (v > 0. && std::isfinite(v)) ? v : 0.;
+    };
+
+  struct Part { EdgeType type; double value; int degree; };
+  std::vector<Part> series;
+  double cp = 0., rp = 0.;
+  EdgeType type = Z;
+  int degree = 0;
+  switch(c_type)
+  {
+  case abstract_builder::R:
+    series.push_back({ Z, take("ls"), 1 });
+    cp = take("cp");
+    type = Z; degree = 0;
+    break;
+  case abstract_builder::L:
+    series.push_back({ Z, take("rs"), 0 });
+    cp = take("cp");
+    type = Z; degree = 1;
+    break;
+  default:  // C
+    series.push_back({ Z, take("esr"), 0 });
+    series.push_back({ Z, take("esl"), 1 });
+    rp = take("rp");
+    type = Y; degree = 1;
+    break;
+  }
+  props.erase("cp"); props.erase("ls"); props.erase("rs");
+  props.erase("esr"); props.erase("esl"); props.erase("rp");
+
+  circuit::vertex_descriptor cur = va;
+  for(const Part& part : series) {
+    if(!(part.value > 0.))
+      continue;
+    circuit::vertex_descriptor n = boost::add_vertex(*(circuit_.iG_));
+    requested_.push_front(boost::add_vertex(*(circuit_.vG_)));
+    add_edge(cur, n, cur, n, part.type, "", part.value, part.degree,
+      false, none);
+    cur = n;
+  }
+
+  add_edge(cur, vb, cur, vb, type, prefix_ + name, value, degree,
+    symbolic, props);
+  if(rp > 0.)
+    add_edge(cur, vb, cur, vb, Y, "", 1. / rp, 0, false, none);
+  if(cp > 0.)
+    add_edge(va, vb, va, vb, Y, "", cp, 1, false, none);
 }
 
 

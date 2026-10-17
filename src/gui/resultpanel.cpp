@@ -198,20 +198,6 @@ void ResultPanel::render()
   html += QStringLiteral("<p style='color:%1; margin: 0;'>%2</p>")
     .arg(dimCss, QFileInfo(result_.file).fileName().toHtmlEscaped());
 
-  // plots of the transfer function (open the Workplane)
-  const QList< QPair<QString, int> > plots = {
-    { tr("Frequency response"), WorkPlane::MagnitudeKind },
-    { tr("Phase response"), WorkPlane::PhaseKind },
-    { tr("Bode plot"), WorkPlane::BodeKind },
-    { tr("Poles & zeros"), WorkPlane::PoleZeroKind }
-  };
-  QStringList plotLinks;
-  for(const auto& p : plots)
-    plotLinks << QStringLiteral("<a href='plot:%1' style='color:%2;'>%3</a>")
-      .arg(p.second).arg(link.name(), p.first);
-  html += QStringLiteral("<p style='margin: 4px 0 0 0;'><b>%1</b>&nbsp; %2</p>")
-    .arg(tr("Plot:"), plotLinks.join(QStringLiteral(" &nbsp;·&nbsp; ")));
-
   struct Section { QString key, title, note; formula::Fraction f; };
   const Section sections[] = {
     { QStringLiteral("result"), tr("Result"),

@@ -48,3 +48,9 @@ add_test(NAME single_pin_source
   COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/single-pin-source.info
     "V1 / C1 * R1 * s + 1"
     "1 / 0.001 * s + 1")
+# real R (Cp = 1 nF) and real C (ESR = 10 ohm) in the RC low-pass above:
+# H = (ESR + 1/sC) / (R || 1/sCp + ESR + 1/sC)
+add_test(NAME real_passives
+  COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/real-passives.info
+    "C1 * R1 * V1 * s^2 + ( 1e+09 * C1 * V1 + 0.1 * R1 * V1 ) * s + 1e+08 * V1 / C1 * R1 * s^2 + ( 1e+09 * C1 + 0.1 * R1 + 1e+08 * C1 * R1 ) * s + 1e+08"
+    "1 * s^2 + 1.1e+06 * s + 1e+11 / 1 * s^2 + 1.011e+08 * s + 1e+11")

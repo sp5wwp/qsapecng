@@ -29,6 +29,7 @@
 #include <QGraphicsView>
 #include <QResizeEvent>
 #include <QScrollBar>
+#include <QTimer>
 #include <QWheelEvent>
 #include <QtMath>
 
@@ -110,15 +111,35 @@ public slots:
 
   void fitToView()
   {
-    const QRectF drawing = scene()
-      ? scene()->itemsBoundingRect().adjusted(-20, -20, 20, 20) : sceneRect();
-    fitInView(drawing, Qt::KeepAspectRatio);
-    // stay within the zoom limits
-    zoomBy(1.);
+    if(!scene())
+      return;
+    const QRectF drawing =
+      scene()->itemsBoundingRect().adjusted(-20, -20, 20, 20);
+    const QRectF vp = viewport()->rect();
+    if(drawing.isEmpty() || vp.isEmpty())
+      return;
+
+    // own scale (fitInView anchors on the old scroll position), then centre
+    const qreal s = qBound(qreal(0.1),
+      qMin(vp.width() / drawing.width(), vp.height() / drawing.height()),
+      qreal(8.));
+    const ViewportAnchor anchor = transformationAnchor();
+    setTransformationAnchor(QGraphicsView::NoAnchor);
+    resetTransform();
+    scale(s, s);
+    setTransformationAnchor(anchor);
     updateCanvas();
     centerOn(drawing.center());
-    emit zoomChanged(qAbs(transform().m11()) + qAbs(transform().m12()));
+    emit zoomChanged(s);
+
+    // scroll bars may appear or vanish once the canvas changes, resizing
+    // the viewport: centre again when the layout has settled
+    QTimer::singleShot(0, this, [this, drawing]() {
+      updateCanvas();
+      centerOn(drawing.center());
+    });
   }
+
 
 protected:
   // CAD-style box selection: dragging to the right selects what lies

@@ -31,7 +31,6 @@ QSapecNG CHANGELOG
     o Values can be typed with prefixes: 4.7k, 4k7, 4R7, 100n, 2.2u or
       2.2µ, 1meg, also with the unit (10 kΩ, 100nF); stored as plain numbers
     o Result panel: Copy LaTeX (\frac{...}{...}) next to each Copy
-    o Result panel: Plot links (magnitude, phase, gain, poles & zeros)
     o File > Export Schematic (Ctrl+E): SVG, PNG (~300 dpi) or PDF, black on
       white without the grid; printing also leaves out grid and selection
     o Example circuits: RC low-pass, RLC band-pass, inverting amplifier,
@@ -55,9 +54,34 @@ QSapecNG CHANGELOG
       wheel scroll), middle-button drag pans; the canvas extends around
       the drawing and the grid thins out when zoomed out
     o The Out marker is a tag ("Out") pointing at its terminal
-    o Plot markers: click a curve to pin a labelled marker, click it again
-      to remove it; WorkPlane > Clear Markers
-    o WorkPlane: Frequency Response, Phase Response, Bode Plot (both on
+    o Plot markers: click a plot to place a marker (a dashed line with
+      frequency, magnitude and phase), click the line to remove it. The
+      Markers panel beside each plot lists them: edit a frequency (10k,
+      2.5MEG), Add, Remove, and move the selected one left / right by a
+      step in Hz (prefixes allowed). Values come from the transfer
+      function, markers stay when the circuit is solved again; Plot >
+      Markers Panel (Ctrl+M), Plot > Clear Markers
+    o Plots in their own panels instead of the Editor / Workplane tabs:
+      Run > New Plot (F9) asks for the kind, frequency range and axes;
+      each plot is a tab beside Messages and Result that can be dragged
+      out; several plots at once. Plots follow every Resolve (F8), the
+      first Resolve opens a Bode plot, and a plot in view stays in view.
+      Plot > Plot Settings changes the current one
+    o Plot axes use prefixes (1k, 10M); pole and zero labels read
+      -5k + j5k
+    o Real resistors, inductors and capacitors: untick "Ideal" in the
+      parameters to add parasitics - R: series L and parallel C; L: winding
+      resistance and parallel C; C: ESR, ESL and leakage resistance (0 =
+      none). The part itself stays symbolic, the parasitics are numeric
+    o Context menu: Rotate (R), Flip Horizontally (H), Flip Vertically
+      (V), clipboard, order, and a Place submenu with every part; new
+      hotkeys G (ground), P (port), O (Out), T (label)
+    o A part being placed is centred on the pointer
+    o Dragged labels snap to the grid
+    o Fit to Window centres the drawing both ways
+    o Op-amp: GBW defaults to 1 MHz; its label reads G= for the gain
+    o Points per decade up to 10000
+    o Plots: Frequency Response, Phase Response, Bode Plot (both on
       one graph, phase on the right axis) and Poles & Zeros (centred on
       the origin), with units on the axes; options for magnitude in dB or
       linear, phase in degrees or radians, frequency in Hz or rad/s, and
@@ -65,10 +89,10 @@ QSapecNG CHANGELOG
       Loss plots, the Data box and the result tooltip are gone; values
       come from the schematic
     o Plots: mouse wheel zooms around the pointer (Shift: frequency only,
-      Ctrl: vertical only), middle button pans, WorkPlane > Reset View
-      (Home); WorkPlane > Vertical Range sets a fixed or automatic range,
+      Ctrl: vertical only), middle button pans, Plot > Reset View
+      (Home); Plot > Vertical Range sets a fixed or automatic range,
       kept per quantity (dB, linear, degrees, radians; both Bode axes)
-    o WorkPlane > Frequency Range: automatic (a decade beyond the poles
+    o Plot > Frequency Range: automatic (a decade beyond the poles
       and zeros, the default) or start/stop as typed (10k, 1MEG), with
       log-spaced points per decade instead of a fixed step
     o Status bar: what is going on and what the active tool expects, the

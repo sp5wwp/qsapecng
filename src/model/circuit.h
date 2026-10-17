@@ -148,6 +148,17 @@ public:
       std::map<std::string,std::string> props
     );
 
+  // R, L or C with parasitics (props "ideal" = "0" and e.g. "esr")
+  void add_real_passive(
+      abstract_builder::dual_component_type c_type,
+      std::string name,
+      double value,
+      bool symbolic,
+      unsigned int va,
+      unsigned int vb,
+      std::map<std::string,std::string> props
+    );
+
   // op-amp with open-loop gain a0 and gain-bandwidth product (props
   // "gbw", Hz; none or 0: no pole)
   void add_real_opamp(

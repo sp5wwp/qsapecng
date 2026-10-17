@@ -43,6 +43,7 @@ class QVBoxLayout;
 class QHBoxLayout;
 class QDoubleSpinBox;
 class QTableWidget;
+class QLineEdit;
 
 class QwtPlotGrid;
 class QwtPickerMachine;
@@ -103,8 +104,6 @@ public:
 
   // placed markers: a click on the plot pins one at the nearest point of
   // the curve, a click on a pinned marker removes it
-  void clearPins();
-  int pinCount() const { return pins_.size(); }
 
 public slots:
   void selected(const QPointF& pos);
@@ -120,7 +119,6 @@ private:
 private:
   QwtPlotMarker* marker_;
   QwtSymbol* symbol_;
-  QList<QwtPlotMarker*> pins_;
   QString xUnit_;
   QString yUnit_;
 
@@ -146,6 +144,26 @@ private:
 
 };
 
+
+
+// Everything a plot is set up with (Run > New Plot, Plot > Settings).
+struct PlotSettings
+{
+  int kind = 3;                 // WorkPlane::Kind, Bode by default
+  bool magnitudeDb = true;
+  bool phaseDegrees = true;
+  bool angular = false;         // frequency in rad/s
+  bool xLog = true;
+  bool yLog = false;            // linear magnitude only
+  bool autoRange = true;        // a decade beyond the poles and zeros
+  double fStart = 1.;           // Hz
+  double fStop = 1e5;           // Hz
+  int pointsPerDecade = 100;
+
+  // last used, as defaults for the next plot
+  static PlotSettings load();
+  void save() const;
+};
 
 
 class WorkPlane: public QWidget
@@ -182,6 +200,9 @@ public:
     );
 
   inline void setContextMenu(QMenu* menu) { plot_->setContextMenu(menu); }
+  PlotSettings settings() const;
+  inline int kind() const { return kind_; }
+  inline bool hasPlot() const { return lastId_ != NOOP; }
   inline QMenu* contextMenu() const { return plot_->contextMenu(); }
 
   const QwtPlot& const_plot() const { return *plot_; }
@@ -197,6 +218,8 @@ public slots:
 
   // what is plotted (WorkPlane::Kind), independent of its units
   void showKind(int kind);
+  // all settings at once; replots when there is data
+  void applySettings(const PlotSettings& settings);
   void setMagnitudeDb(bool db);
   void setPhaseDegrees(bool degrees);
   void setAngularFrequency(bool radPerSecond);
@@ -206,6 +229,10 @@ public slots:
   void editVerticalRange();
   // WorkPlane > Reset View: undo zooming and panning
   void resetView();
+  // markers (frequencies, Hz) and their panel
+  void addMarker(double hz);
+  void setMarkersPanelVisible(bool visible);
+  bool markersPanelVisible() const { return markersPanelWanted_; }
   void print(QPrinter& printer);
 
 private:
@@ -264,6 +291,26 @@ protected:
   QString phaseKey() const;
   void applyYRange(int axis, const QString& key);
 
+  // markers: vertical lines with magnitude and phase, listed in a panel
+  QList<double> markers_;                 // Hz
+  QList<QwtPlotMarker*> markerLines_;
+  QWidget* markerPanel_ = nullptr;
+  QTableWidget* markerTable_ = nullptr;
+  QLineEdit* stepEdit_ = nullptr;
+  bool fillingTable_ = false;
+  bool markersPanelWanted_ = true;
+  void refreshMarkers();
+  bool markerValues(double hz, double* magnitude, double* phase) const;
+  QString magnitudeText(double v) const;
+  QString phaseText(double v) const;
+  void moveSelectedMarker(int direction);
+  int selectedMarker() const;
+
+private slots:
+  void plotClicked(const QPointF& pos);
+  void markerEdited(int row, int column);
+
+private:
   // mouse wheel zoom around the pointer
   bool eventFilter(QObject* watched, QEvent* event) override;
   void zoomAt(const QPoint& pos, double factor, bool x, bool y);

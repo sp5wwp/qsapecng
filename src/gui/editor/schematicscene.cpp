@@ -136,13 +136,13 @@ QPainterPath SchematicScene::outPath()
   QPainterPath path;
   const qreal step = GridStep;
 
-  // 1.8 steps high, centred on the terminal
-  const qreal top = 0.1 * step, bottom = 1.9 * step;
+  // 1.6 steps high, 3.4 long, centred on the terminal
+  const qreal top = 0.2 * step, bottom = 1.8 * step;
   path.moveTo(0, step);
-  path.lineTo(0.8 * step, top);
-  path.lineTo(4 * step, top);
-  path.lineTo(4 * step, bottom);
-  path.lineTo(0.8 * step, bottom);
+  path.lineTo(0.7 * step, top);
+  path.lineTo(3.4 * step, top);
+  path.lineTo(3.4 * step, bottom);
+  path.lineTo(0.7 * step, bottom);
   path.closeSubpath();
 
   return path;
@@ -1107,6 +1107,17 @@ SchematicScene::~SchematicScene() {
 }
 
 
+QPointF SchematicScene::placementPos(const QPointF& pointer) const
+{
+  // the part being placed is centred on the pointer; the offset is a whole
+  // number of grid steps, so its pins stay on the grid
+  if(!item_)
+    return closestGridPoint(pointer);
+  const QRectF box = item_->transform().mapRect(item_->boundingRect());
+  return closestGridPoint(pointer) - closestGridPoint(box.center());
+}
+
+
 QPointF SchematicScene::closestGridPoint(const QPointF& pos) const
 {
   QPoint point = pos.toPoint();
@@ -1382,6 +1393,21 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
 
               name->addSubProperty(pS);
               name->addSubProperty(pV);
+
+              // R, L, C: ideal, or with parasitics
+              const QList<Parasitic> extra = parasitics(type);
+              if(!extra.isEmpty()) {
+                QtProperty* pI = boolManager_->addProperty(tr("Ideal"));
+                boolManager_->setValue(pI, true);
+                name->addSubProperty(pI);
+                foreach(const Parasitic& par, extra) {
+                  QtProperty* pp = stringManager_->addProperty(par.property);
+                  stringManager_->setRegExp(pp, Settings().notation());
+                  stringManager_->setValue(pp, par.defaultValue);
+                  pp->setToolTip(par.description);
+                  name->addSubProperty(pp);
+                }
+              }
             } else {
               // op-amp: ideal (nullor) or open-loop gain A0 with an
               // optional gain-bandwidth product (single-pole model)
@@ -1392,7 +1418,7 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
               QtProperty* pV = stringManager_->addProperty(tr("Value"));
               stringManager_->setValue(pV, "100000");
               QtProperty* pB = stringManager_->addProperty(tr("GBW"));
-              stringManager_->setValue(pB, "0");
+              stringManager_->setValue(pB, "1000000");
 
               name->addSubProperty(pI);
               name->addSubProperty(pS);
@@ -1969,6 +1995,37 @@ void SchematicScene::refreshComponentLabels()
 }
 
 
+QList<SchematicScene::Parasitic> SchematicScene::parasitics(
+    SchematicScene::SupportedItemType type)
+{
+  switch(type)
+  {
+  case ResistorItemType:
+    return {
+      { QStringLiteral("Ls"), "ls", QStringLiteral("H"), QStringLiteral("1e-09"),
+        tr("Series inductance (leads, film spiral)") },
+      { QStringLiteral("Cp"), "cp", QStringLiteral("F"), QStringLiteral("2e-13"),
+        tr("Parallel capacitance across the terminals") } };
+  case InductorItemType:
+    return {
+      { QStringLiteral("Rs"), "rs", QStringLiteral("Ω"), QStringLiteral("0.1"),
+        tr("Winding (DC) resistance") },
+      { QStringLiteral("Cp"), "cp", QStringLiteral("F"), QStringLiteral("1e-12"),
+        tr("Winding capacitance (sets the self-resonant frequency)") } };
+  case CapacitorItemType:
+    return {
+      { QStringLiteral("ESR"), "esr", QStringLiteral("Ω"), QStringLiteral("0.01"),
+        tr("Equivalent series resistance") },
+      { QStringLiteral("ESL"), "esl", QStringLiteral("H"), QStringLiteral("1e-09"),
+        tr("Equivalent series inductance") },
+      { QStringLiteral("Rp"), "rp", QStringLiteral("Ω"), QStringLiteral("0"),
+        tr("Leakage (insulation) resistance; 0 = none") } };
+  default:
+    return {};
+  }
+}
+
+
 QString SchematicScene::valueUnit(SchematicScene::SupportedItemType type)
 {
   switch(type)
@@ -2003,6 +2060,34 @@ void SchematicScene::rotatePlacedOrSelected()
   } else {
     rotateSelectedItems();
   }
+}
+
+
+void SchematicScene::mirrorPlacedOrSelected(bool vertical)
+{
+  // a vertical flip is a horizontal one turned by 180 degrees
+  if(isPlacingItem()) {
+    if(item_) {
+      item_->mirror();
+      if(vertical) {
+        item_->rotate();
+        item_->rotate();
+      }
+    }
+    return;
+  }
+
+  QList<QGraphicsItem*> items = selectedItems();
+  if(items.isEmpty())
+    return;
+  undoRedoStack_->beginMacro(vertical ? tr("Flip vertically")
+                                      : tr("Flip horizontally"));
+  undoRedoStack_->push(new MirrorItems(items));
+  if(vertical) {
+    undoRedoStack_->push(new RotateItems(items));
+    undoRedoStack_->push(new RotateItems(items));
+  }
+  undoRedoStack_->endMacro();
 }
 
 
@@ -2247,6 +2332,14 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
 
         undoRedoStack_->push(rotateCommand);
       }
+      if(item_->mirrored()) {
+        QGraphicsItem* placed = hasUserDefReq()
+          ? static_cast<QGraphicsItem*>(
+              static_cast<AddUserDefItem*>(addCommand)->item())
+          : static_cast<QGraphicsItem*>(
+              static_cast<AddSupportedItem*>(addCommand)->item());
+        undoRedoStack_->push(new MirrorItems(placed));
+      }
       undoRedoStack_->endMacro();
 
       event->accept();
@@ -2358,7 +2451,7 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
   lastMousePos_ = event->scenePos();
 
   if(hasActiveItem() || hasUserDefReq()) {
-    item_->setPos(closestGridPoint(event->scenePos()));
+    item_->setPos(placementPos(event->scenePos()));
     event->accept();
     return;
   }
@@ -2526,12 +2619,7 @@ void SchematicScene::dragEnterEvent(QGraphicsSceneDragDropEvent* event)
     if(item_) {
       resetNodes();
 
-      qreal xoffset = item_->boundingRect().width() / 2;
-      qreal yoffset = item_->boundingRect().height() / 2;
-
-      QPointF pos = closestGridPoint(
-        event->scenePos() - QPointF(xoffset, yoffset)
-      );
+      QPointF pos = placementPos(event->scenePos());
 
       addItem(item_);
       item_->setPos(pos);
@@ -2548,12 +2636,7 @@ void SchematicScene::dragEnterEvent(QGraphicsSceneDragDropEvent* event)
 void SchematicScene::dragMoveEvent(QGraphicsSceneDragDropEvent* event)
 {
   if(item_) {
-    qreal xoffset = item_->boundingRect().width() / 2;
-    qreal yoffset = item_->boundingRect().height() / 2;
-
-    QPointF pos = closestGridPoint(
-      event->scenePos() - QPointF(xoffset, yoffset)
-    );
+    QPointF pos = placementPos(event->scenePos());
     item_->setPos(pos);
     event->acceptProposedAction();
   } else {

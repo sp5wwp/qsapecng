@@ -242,6 +242,17 @@ void SchematicSceneParser::parse_item(
       QVector<int> nodes = component->nodes();
       storeLabel(props, component);
 
+      // a real R, L or C: the solver adds the parasitics
+      if(subproperties.contains("Ideal")
+          && !QVariant(subproperties.value("Ideal")).toBool())
+      {
+        props["ideal"] = "0";
+        foreach(const SchematicScene::Parasitic& par,
+            SchematicScene::parasitics(type))
+          props[par.key] = QString::number(
+            subproperties.value(par.property).toDouble(), 'g', 12).toStdString();
+      }
+
       builder.add_dual_component(
         dualMap_[type], subproperties.value("__NAME").toStdString(),
         subproperties.value("Value").toDouble(),
@@ -858,7 +869,24 @@ void SchematicSceneBuilder::setup_properties(
           );
   }
 
-  if(subproperties.contains("Ideal")) {
+  if(subproperties.contains("Ideal") && !subproperties.contains("GBW")) {
+    // R, L, C: ideal unless saved with parasitics
+    const bool ideal = props["ideal"] != "0";
+    if(QtBoolPropertyManager* bpm = qobject_cast<QtBoolPropertyManager*>(
+        subproperties.value("Ideal")->propertyManager()))
+      bpm->setValue(subproperties.value("Ideal"), ideal);
+    foreach(const SchematicScene::Parasitic& par,
+        SchematicScene::parasitics(SchematicScene::itemType(item)))
+    {
+      QtProperty* pp = subproperties.value(par.property);
+      if(!pp || !props.count(par.key))
+        continue;
+      if(QtStringPropertyManager* spm =
+          qobject_cast<QtStringPropertyManager*>(pp->propertyManager()))
+        spm->setValue(pp, QString::number(
+          QString::fromStdString(props[par.key]).toDouble()));
+    }
+  } else if(subproperties.contains("Ideal")) {
     // op-amp: older files have no "ideal" property (always ideal)
     const bool ideal = props["ideal"] != "0";
     QtBoolPropertyManager* bpm =
@@ -874,7 +902,7 @@ void SchematicSceneBuilder::setup_properties(
     if(spm && subproperties.contains("GBW"))
       spm->setValue(subproperties.value("GBW"),
         props.count("gbw") ? QString::number(
-          QString::fromStdString(props["gbw"]).toDouble()) : QString("0"));
+          QString::fromStdString(props["gbw"]).toDouble()) : QString("1000000"));
   }
 
   if(subproperties.contains("lp:name")) {
