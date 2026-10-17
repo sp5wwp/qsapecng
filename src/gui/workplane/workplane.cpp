@@ -21,6 +21,7 @@
 #include "model/metacircuit.h"
 #include "functor/functor.hpp"
 #include "gui/workplane/workplane.h"
+#include "gui/units.h"
 #include "gui/functor/functor_traits.hpp"
 #include "gui/qlogger.h"
 #include "gui/settings.h"
@@ -53,6 +54,8 @@
 #include <qwt_text.h>
 #include <qwt_picker_machine.h>
 #include <qwt_symbol.h>
+#include <qwt_scale_map.h>
+#include <qwt_text.h>
 
 #include <map>
 #include <limits>
@@ -64,9 +67,10 @@ namespace qsapecng
 
 MarkableCurve::~MarkableCurve()
 {
-    marker_->detach();
-    delete marker_;
-    // delete symbol_;
+  clearPins();
+  marker_->detach();
+  delete marker_;
+  // delete symbol_;
 }
 
 
@@ -77,13 +81,120 @@ void MarkableCurve::setVisible(bool on)
   if(on) marker_->attach(plot());
   else marker_->detach();
 
+  // pinned markers stay with their curve
+  foreach(QwtPlotMarker* pin, pins_) {
+    if(on) pin->attach(plot());
+    else pin->detach();
+  }
+
   QwtPlotCurve::setVisible(on);
 }
 
 
-void MarkableCurve::selected()
+void MarkableCurve::clearPins()
+{
+  foreach(QwtPlotMarker* pin, pins_) {
+    pin->detach();
+    delete pin;
+  }
+  pins_.clear();
+  if(plot())
+    plot()->replot();
+}
+
+
+int MarkableCurve::nearestSample(const QPointF& pos) const
+{
+  if(!data() || data()->size() == 0)
+    return -1;
+  std::size_t idx;
+  for(idx = 0; idx < (data()->size() - 1)
+      && data()->sample(idx + 1).x() < pos.x(); ++idx);
+  // the closer of the two samples around pos
+  if(idx + 1 < data()->size()
+      && qAbs(data()->sample(idx + 1).x() - pos.x())
+         < qAbs(data()->sample(idx).x() - pos.x()))
+    ++idx;
+  return int(idx);
+}
+
+
+QString MarkableCurve::labelFor(int idx) const
+{
+  const QPointF p = data()->sample(idx);
+  const QString x = units::format(QString::number(p.x(), 'g', 8), xUnit_);
+  QString y = QString::number(p.y(), 'g', 4);
+  if(!yUnit_.isEmpty())
+    y += QLatin1Char(' ') + yUnit_;
+  return x + QLatin1Char('\n') + y;
+}
+
+
+void MarkableCurve::placeLabel(QwtPlotMarker* marker, int idx) const
+{
+  const QPointF p = data()->sample(idx);
+  marker->setValue(p);
+
+  QwtText text(labelFor(idx));
+  text.setColor(QApplication::palette().color(QPalette::Text));
+  QColor bg = QApplication::palette().color(QPalette::Base);
+  bg.setAlpha(220);
+  text.setBackgroundBrush(bg);
+  text.setBorderRadius(3);
+  marker->setLabel(text);
+
+  // keep the label inside the plot: towards the middle
+  const Qt::Alignment h =
+      (p.x() >= minXValue() + (maxXValue() - minXValue()) / 2)
+    ? Qt::AlignLeft : Qt::AlignRight;
+  const Qt::Alignment v =
+      (p.y() >= minYValue() + (maxYValue() - minYValue()) / 2)
+    ? Qt::AlignBottom : Qt::AlignTop;
+  marker->setLabelAlignment(h | v);
+}
+
+
+void MarkableCurve::selected(const QPointF& pos)
 {
   marker_->setVisible(false);
+  if(!isVisible() || !plot())
+    return;
+
+  const int idx = nearestSample(pos);
+  if(idx < 0)
+    return;
+
+  // a pinned marker near the release point (in pixels) is removed
+  const QwtScaleMap xMap = plot()->canvasMap(xAxis());
+  const QwtScaleMap yMap = plot()->canvasMap(yAxis());
+  const QPointF at(xMap.transform(pos.x()), yMap.transform(pos.y()));
+  for(int i = 0; i < pins_.size(); ++i) {
+    const QPointF v = pins_.at(i)->value();
+    const QPointF pin(xMap.transform(v.x()), yMap.transform(v.y()));
+    if(QLineF(at, pin).length() < 10.
+        || qAbs(v.x() - data()->sample(idx).x()) == 0.)
+    {
+      QwtPlotMarker* m = pins_.takeAt(i);
+      m->detach();
+      delete m;
+      plot()->replot();
+      return;
+    }
+  }
+
+  QwtSymbol* symbol = new QwtSymbol(QwtSymbol::Diamond);
+  symbol->setSize(QSize(9, 9));
+  symbol->setPen(QPen(pen().color().darker(130), 1));
+  symbol->setBrush(pen().color());
+
+  QwtPlotMarker* pin = new QwtPlotMarker;
+  pin->setLineStyle(QwtPlotMarker::NoLine);
+  pin->setSymbol(symbol);
+  pin->setZ(z() + 1);
+  placeLabel(pin, idx);
+  pin->attach(plot());
+  pins_.append(pin);
+  plot()->replot();
 }
 
 
@@ -99,29 +210,10 @@ void MarkableCurve::appended(const QPointF& pos)
 void MarkableCurve::moved(const QPointF& pos)
 {
   if(isVisible()) {
-    std::size_t idx;
-    for(idx = 0; idx < (data()->size() - 1) && data()->sample(idx + 1).x() < pos.x(); ++idx);
-    marker_->setValue(data()->sample(idx).x(), data()->sample(idx).y());
-
-    QString label = "( " + QString::number(data()->sample(idx).x()) + ", "
-      + QString::number(data()->sample(idx).y()) + " ) ["
-      + QString::number(idx) + "]";
-    QwtText text(label);
-    text.setColor(QApplication::palette().color(QPalette::Text));
-    marker_->setLabel(text);
-
-    Qt::Alignment H =
-        (data()->sample(idx).x() >= minXValue() + ((maxXValue() - minXValue()) / 2))
-      ? Qt::AlignLeft
-      : Qt::AlignRight
-      ;
-    Qt::Alignment V =
-        (data()->sample(idx).y() >= minYValue() + ((maxYValue() - minYValue()) / 2))
-      ? Qt::AlignBottom
-      : Qt::AlignTop
-      ;
-    marker_->setLabelAlignment(H | V);
-
+    const int idx = nearestSample(pos);
+    if(idx < 0)
+      return;
+    placeLabel(marker_, idx);
     marker_->itemChanged();
   }
 }
@@ -782,7 +874,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::magnitude>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[MAGNITUDE].first, SLOT(selected()));
+    (MarkableCurve*) curves_[MAGNITUDE].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[MAGNITUDE].first,
     SLOT(appended(const QPointF&)));
@@ -801,7 +893,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::magnitude>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[MAGNITUDE_RAD].first, SLOT(selected()));
+    (MarkableCurve*) curves_[MAGNITUDE_RAD].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[MAGNITUDE_RAD].first,
     SLOT(appended(const QPointF&)));
@@ -820,7 +912,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::phase>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[PHASE].first, SLOT(selected()));
+    (MarkableCurve*) curves_[PHASE].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[PHASE].first,
     SLOT(appended(const QPointF&)));
@@ -838,7 +930,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::phase>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[PHASE_RAD].first, SLOT(selected()));
+    (MarkableCurve*) curves_[PHASE_RAD].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[PHASE_RAD].first,
     SLOT(appended(const QPointF&)));
@@ -857,7 +949,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::gain>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[GAIN].first, SLOT(selected()));
+    (MarkableCurve*) curves_[GAIN].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[GAIN].first,
     SLOT(appended(const QPointF&)));
@@ -875,7 +967,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::gain>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[GAIN_RAD].first, SLOT(selected()));
+    (MarkableCurve*) curves_[GAIN_RAD].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[GAIN_RAD].first,
     SLOT(appended(const QPointF&)));
@@ -894,7 +986,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::loss>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[LOSS].first, SLOT(selected()));
+    (MarkableCurve*) curves_[LOSS].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[LOSS].first, SLOT(appended(const QPointF&)));
   connect(tracker_, SIGNAL(moved(const QPointF&)),
@@ -911,7 +1003,7 @@ void WorkPlane::setupCurves()
     functor_traits<sapecng::loss>::attribute);
 
   connect(tracker_, SIGNAL(selected(const QPointF&)),
-    (MarkableCurve*) curves_[LOSS_RAD].first, SLOT(selected()));
+    (MarkableCurve*) curves_[LOSS_RAD].first, SLOT(selected(const QPointF&)));
   connect(tracker_, SIGNAL(appended(const QPointF&)),
     (MarkableCurve*) curves_[LOSS_RAD].first,
     SLOT(appended(const QPointF&)));
@@ -948,6 +1040,25 @@ void WorkPlane::setupCurves()
   applyPlotStyle(QApplication::palette(), plot_, grid_, curves_, ZEROS, POLES);
 
   lastId_ = NOOP;
+
+  // units in the marker labels
+  const struct { F f; const char* x; const char* y; } units[] = {
+    { MAGNITUDE, "Hz", "" }, { MAGNITUDE_RAD, "rad/s", "" },
+    { PHASE, "Hz", "rad" }, { PHASE_RAD, "rad/s", "rad" },
+    { GAIN, "Hz", "dB" }, { GAIN_RAD, "rad/s", "dB" },
+    { LOSS, "Hz", "dB" }, { LOSS_RAD, "rad/s", "dB" }
+  };
+  for(const auto& u : units)
+    if(MarkableCurve* mc = dynamic_cast<MarkableCurve*>(curves_[u.f].first))
+      mc->setUnits(QString::fromLatin1(u.x), QString::fromLatin1(u.y));
+}
+
+
+void WorkPlane::clearMarkers()
+{
+  for(int i = 0; i < curves_.size(); ++i)
+    if(MarkableCurve* mc = dynamic_cast<MarkableCurve*>(curves_[i].first))
+      mc->clearPins();
 }
 
 
@@ -963,6 +1074,9 @@ void WorkPlane::setupCurve(
     std::copy(data.first.begin(), data.first.end(), x);
     double* y = new double [data.second.size()];
     std::copy(data.second.begin(), data.second.end(), y);
+
+    if(MarkableCurve* mc = dynamic_cast<MarkableCurve*>(curves_[f].first))
+      mc->clearPins();   // new data: old markers no longer apply
 
     curves_[f].first->setSamples(x, y,
         data.first.size() < data.second.size() ?

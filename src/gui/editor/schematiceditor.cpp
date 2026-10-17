@@ -427,10 +427,14 @@ void SchematicEditor::showResult()
 {
   // results are displayed by the main window's Result panel
   lastResult_.file = currentFile();
+  // the result reads as H(s) times the input: sources are factored out
+  std::set<std::string> sources;
+  foreach(const QString& name, scene_->sourceNames())
+    sources.insert(name.toStdString());
   lastResult_.mixed = formula::simplified(
-    solver_.mixed_numerator(), solver_.mixed_denominator());
+    solver_.mixed_numerator(), solver_.mixed_denominator(), sources);
   lastResult_.raw = formula::simplified(
-    solver_.raw_numerator(), solver_.raw_denominator());
+    solver_.raw_numerator(), solver_.raw_denominator(), sources);
   lastResult_.digit = formula::simplified(
     solver_.digit_numerator(), solver_.digit_denominator());
   hasResult_ = true;
@@ -480,8 +484,9 @@ void SchematicEditor::init()
   view_ = new SchematicView(this);
 
   view_->setScene(scene_);
-  connect(scene_, SIGNAL(sceneRectChanged(const QRectF&)),
-    view_, SLOT(updateSceneRect(const QRectF&)));
+  // the view's scrollable area follows the drawing (see updateCanvas)
+  connect(scene_, &QGraphicsScene::sceneRectChanged,
+    view_, &SchematicView::updateCanvas);
 //   scene_->setSceneRect(0, 0, 1024, 768);
   scene_->setSceneRect(QRectF());
   scene_->addRect(0, 0, 1E-99, 1E-99)->setVisible(false);

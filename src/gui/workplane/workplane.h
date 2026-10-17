@@ -97,17 +97,32 @@ public:
 
   void setVisible(bool on);
 
+  // units for the marker labels ("Hz", "rad/s"; "dB", "rad")
+  void setUnits(const QString& x, const QString& y)
+    { xUnit_ = x; yUnit_ = y; }
+
+  // placed markers: a click on the plot pins one at the nearest point of
+  // the curve, a click on a pinned marker removes it
+  void clearPins();
+  int pinCount() const { return pins_.size(); }
+
 public slots:
-  void selected();
+  void selected(const QPointF& pos);
   void appended(const QPointF& pos);
   void moved(const QPointF& pos);
 
 private:
   void initialize();
+  int nearestSample(const QPointF& pos) const;
+  QString labelFor(int idx) const;
+  void placeLabel(QwtPlotMarker* marker, int idx) const;
 
 private:
   QwtPlotMarker* marker_;
   QwtSymbol* symbol_;
+  QList<QwtPlotMarker*> pins_;
+  QString xUnit_;
+  QString yUnit_;
 
 };
 
@@ -175,6 +190,7 @@ public slots:
   void plot(WorkPlane::F f);
   void plot(int f);
   void redraw();
+  void clearMarkers();
   void print(QPrinter& printer);
 
 private:

@@ -52,6 +52,8 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QPainter>
+
+#include <cmath>
 #include <QFileDialog>
 #include <QUndoCommand>
 #include <QGraphicsView>
@@ -129,17 +131,27 @@ QPainterPath SchematicScene::portPath()
 
 QPainterPath SchematicScene::outPath()
 {
+  // tag pointing at its terminal (0, step): <| Out |
   QPainterPath path;
-  uint step = GridStep;
+  const qreal step = GridStep;
 
   path.moveTo(0, step);
-  path.lineTo(step, step);
-  path.arcTo(
-      QRectF(step, step / 2, step, step),
-      180, 360
-    );
+  path.lineTo(0.8 * step, 0);
+  path.lineTo(4 * step, 0);
+  path.lineTo(4 * step, 2 * step);
+  path.lineTo(0.8 * step, 2 * step);
+  path.closeSubpath();
 
   return path;
+}
+
+
+QRectF SchematicScene::outPivotRect()
+{
+  // the box of the old round Out marker: rotation turns around it, so
+  // rotated markers in older files stay on their wires
+  const qreal step = GridStep;
+  return QRectF(0, step / 2, 2 * step, step);
 }
 
 
@@ -826,7 +838,9 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
     }
   case OutItemType:
     {
-      item = new Component(outPath(), QPointF(0, GridStep));
+      Component* out = new Component(outPath(), QPointF(0, GridStep));
+      out->setTag(QObject::tr("Out"), outPivotRect());
+      item = out;
       break;
     }
   case VoltmeterItemType:
@@ -1827,6 +1841,19 @@ QString SchematicScene::nextFreeName(SupportedItemType type)
 }
 
 
+QStringList SchematicScene::sourceNames() const
+{
+  QStringList names;
+  foreach(Item* item, standardList_) {
+    const SupportedItemType type = itemType(item);
+    if(type == VoltageSourceItemType || type == CurrentSourceItemType)
+      if(QtProperty* prop = item->data(1).value<QtProperty*>())
+        names << prop->valueText();
+  }
+  return names;
+}
+
+
 void SchematicScene::refreshComponentLabels()
 {
   QList<Item*> items = standardList_ + userDefList_;
@@ -2059,21 +2086,20 @@ void SchematicScene::drawBackground(QPainter* painter, const QRectF& rect)
     painter->setPen(QPen(theme::sheetGrid(), 0));
     painter->setBrush(Qt::NoBrush);
 
-    int left = rect.x();
-    if(left < 0) left -= (GridStep >> 1) - 1;
-    else left += (GridStep >> 1);
-    left -= left % GridStep;
+    // zoomed out, show every 5th / 25th... dot so the grid stays readable
+    const qreal scale = qMax(qreal(1e-6), painter->transform().m11() != 0.
+      ? qAbs(painter->transform().m11()) : qAbs(painter->transform().m12()));
+    int step = GridStep;
+    while(step * scale < 6.)
+      step *= 5;
 
-    int top = rect.y();
-    if(top < 0) top -= (GridStep >> 1) - 1;
-    else top += (GridStep >> 1);
-    top -= top % GridStep;
+    const int left = int(std::floor(rect.left() / step)) * step;
+    const int top = int(std::floor(rect.top() / step)) * step;
+    const qreal right = rect.right();
+    const qreal bottom = rect.bottom();
 
-    int right = rect.x() + rect.width();
-    int bottom = rect.y() + rect.height();
-
-    for(int x = left; x < right; x += GridStep)
-      for(int y = top; y < bottom; y += GridStep)
+    for(int x = left; x <= right; x += step)
+      for(int y = top; y <= bottom; y += step)
         painter->drawPoint(x, y);
 
     painter->restore();

@@ -50,6 +50,13 @@ QSapecNG CHANGELOG
       ((-V1) / 0.1 -> -10 V1), minus signs instead of "( - x )",
       parentheses only around a sum multiplied by s
     o The status bar progress indicator only appears while solving
+    o Results show the input factored out: -(R2 / R1) V1, H(s) V1
+    o Editor zoom with the mouse wheel around the pointer (Shift / Ctrl +
+      wheel scroll), middle-button drag pans; the canvas extends around
+      the drawing and the grid thins out when zoomed out
+    o The Out marker is a tag ("Out") pointing at its terminal
+    o Plot markers: click a curve to pin a labelled marker, click it again
+      to remove it; WorkPlane > Clear Markers
     o Settings > Component labels: name only (default) or name and value,
       e.g. "C1 / 1 µF"
     o Side panels start closed except Components and Messages (Window >

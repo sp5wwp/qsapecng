@@ -69,7 +69,7 @@ void Item::mirror()
 {
   mirrored_ = !mirrored_;
   scaleItem(this, -1, 1);
-  translateItem(this, -boundingRect().width(), 0);
+  translateItem(this, -pivotRect().width(), 0);
 }
 
 
@@ -82,12 +82,12 @@ void Item::rotate()
   case 90:
     angle_ = 180;
     transform.rotate(180);
-    transform.translate(-boundingRect().width(), -boundingRect().height());
+    transform.translate(-pivotRect().width(), -pivotRect().height());
     break;
   case 180:
     angle_ = 270;
     transform.rotate(270);
-    transform.translate(-boundingRect().width(), 0);
+    transform.translate(-pivotRect().width(), 0);
     break;
   case 270:
     angle_ = 0;
@@ -98,14 +98,14 @@ void Item::rotate()
   default:
     angle_ = 90;
     transform.rotate(90);
-    transform.translate(0, -boundingRect().height());
+    transform.translate(0, -pivotRect().height());
   }
 
   setTransform(transform);
 
   if(mirrored_) {
     scaleItem(this, -1, 1);
-    translateItem(this, -boundingRect().width(), 0);
+    translateItem(this, -pivotRect().width(), 0);
   }
 }
 

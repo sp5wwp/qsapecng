@@ -23,6 +23,7 @@
 #include <QRegularExpression>
 #include <QStringList>
 
+#include <algorithm>
 #include <cmath>
 
 
@@ -204,9 +205,12 @@ QString join(const Summands& summands, Style style)
 }
 
 
-Fraction simplified(const Expr& num, const Expr& den)
+Fraction simplified(const Expr& num, const Expr& den,
+    const std::set<std::string>& factorable)
 {
-  Fraction f{ withoutZeros(num), withoutZeros(den) };
+  Fraction f;
+  f.num = withoutZeros(num);
+  f.den = withoutZeros(den);
 
   double d = 0.;
   if(numericConstant(f.den, &d) && d != 0. && d != 1.) {
@@ -222,6 +226,37 @@ Fraction simplified(const Expr& num, const Expr& den)
       for(Term& t : g.second)
         t.first = -t.first;
     f.den = constant(1.);
+  }
+
+  // sources common to every numerator term: H(s) * V1
+  if(!f.num.empty()) {
+    for(const std::string& name : factorable) {
+      bool everywhere = true;
+      for(const auto& g : f.num)
+        for(const Term& t : g.second)
+          if(std::find(t.second.begin(), t.second.end(), name)
+              == t.second.end())
+            everywhere = false;
+      if(!everywhere)
+        continue;
+      for(auto& g : f.num)
+        for(Term& t : g.second)
+          t.second.erase(std::find(t.second.begin(), t.second.end(), name));
+      f.factor.push_back(name);
+    }
+  }
+
+  // a minus on every numerator term goes in front
+  bool allNegative = !f.num.empty();
+  for(const auto& g : f.num)
+    for(const Term& t : g.second)
+      if(t.first > 0)
+        allNegative = false;
+  if(allNegative) {
+    f.negative = true;
+    for(auto& g : f.num)
+      for(Term& t : g.second)
+        t.first = -t.first;
   }
 
   return f;
@@ -274,15 +309,57 @@ QString render(const Expr& expr, Style style)
 }
 
 
+QString renderFactor(const Fraction& f, Style style)
+{
+  QStringList parts;
+  for(const std::string& name : f.factor)
+    parts << symbol(name, style);
+  return parts.join(times(style));
+}
+
+
 QString clipboardText(const Fraction& f, Style style)
 {
-  const QString n = render(f.num, style);
-  if(isOne(f.den))
-    return n;
-  const QString d = render(f.den, style);
-  if(style == Style::Latex)
-    return QStringLiteral("\\frac{%1}{%2}").arg(n, d);
-  return QStringLiteral("(%1) / (%2)").arg(n, d);
+  const QString factor = renderFactor(f, style);
+  const QString sign = f.negative ? QStringLiteral("-") : QString();
+  const bool plainNum = isOne(f.num) && !factor.isEmpty();
+  QString n = render(f.num, style);
+
+  if(style == Style::Latex) {
+    QString body;
+    if(isOne(f.den))
+      body = plainNum ? QString() : n;
+    else
+      body = QStringLiteral("\\frac{%1}{%2}").arg(n, render(f.den, style));
+    if(!factor.isEmpty())
+      body += (body.isEmpty() ? QString() : QStringLiteral(" ")) + factor;
+    return sign + body;
+  }
+
+  // Text: parentheses around sums only
+  auto wrap = [](const Expr& e, const QString& t) {
+    int terms = 0;
+    for(const auto& g : withoutZeros(e))
+      terms += int(g.second.size());
+    return terms > 1 ? QStringLiteral("(%1)").arg(t) : t;
+  };
+  QString body;
+  if(isOne(f.den)) {
+    body = plainNum ? QString() : wrap(f.num, n);
+    if(!body.isEmpty())
+      body.prepend(sign);
+  } else {
+    body = wrap(f.num, n) + QStringLiteral(" / ")
+      + wrap(f.den, render(f.den, style));
+    if(f.negative)
+      body = QStringLiteral("-(%1)").arg(body);
+  }
+  if(!factor.isEmpty()) {
+    if(body.isEmpty())
+      return sign + factor;
+    body += times(style) + factor;
+  }
+  return body;
 }
 
 

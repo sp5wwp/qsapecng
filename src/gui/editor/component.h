@@ -100,6 +100,10 @@ public:
   void addNodes(QPointF node);
   QVector<int> nodes() const;
 
+  // tag symbols (the Out marker): filled shape with a caption
+  void setTag(const QString& text, const QRectF& pivot);
+  QRectF pivotRect() const override;
+
   inline void setPath(const QPainterPath& path)
     { prepareGeometryChange(); path_ = path; update(); updateLabelPosition(); }
   inline QPainterPath path() const { return path_; }
@@ -124,6 +128,8 @@ private:
   QPainterPath path_;
 
   PropertyTextItem* label_;
+  QString tag_;
+  QRectF pivot_;
   QPointF labelAnchor_;
   bool labelMoved_ = false;
   bool positioningLabel_ = false;

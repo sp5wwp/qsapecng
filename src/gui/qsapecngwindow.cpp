@@ -1373,6 +1373,14 @@ void QSapecNGWindow::createMenus()
   workplaneMenu_->addAction(yLogAct_);
   workplaneMenu_->addSeparator();
   workplaneMenu_->addAction(replotAct_);
+  workplaneMenu_->addSeparator();
+  QAction* clearMarkersAct = workplaneMenu_->addAction(tr("&Clear Markers"));
+  clearMarkersAct->setStatusTip(
+    tr("Remove the markers placed on the plots (click a curve to place one, "
+       "click a marker to remove it)"));
+  connect(clearMarkersAct, &QAction::triggered, this, [this]() {
+      workplane_->clearMarkers();
+    });
 
   toolMenu_ = menuBar()->addMenu(tr("&Tools"));
   toolMenu_->addAction(cursorAct_);

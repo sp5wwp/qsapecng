@@ -107,6 +107,7 @@ public:
 
   static QPainterPath groundPath();
   static QPainterPath portPath();
+  static QRectF outPivotRect();
   static QPainterPath outPath();
   static QPainterPath voltmeterPath();
   static QPainterPath ammeterPath();
@@ -177,6 +178,8 @@ public:
   void updateResistorSymbols();
   // rebuild every label (e.g. after the value display setting changed)
   void refreshComponentLabels();
+  // names of the independent voltage and current sources
+  QStringList sourceNames() const;
   // open the parameters dialog of an item (double-click); undoable
   void editItemProperties(QGraphicsItem* item);
   inline bool isPlacingItem() const

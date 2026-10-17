@@ -44,25 +44,47 @@ namespace
 
 QString fractionHtml(const formula::Fraction& f, const QColor& rule)
 {
-  const QString num = formula::render(f.num, formula::Style::Html);
+  // [-] num / den [* factor], laid out as one table row
+  const QString cell = QStringLiteral(
+    "<td valign='middle' style='padding: 0 4px; font-size: large;'>%1</td>");
+  const QString sign = f.negative ? cell.arg(QStringLiteral("−")) : QString();
+  const QString factor = formula::renderFactor(f, formula::Style::Html);
+  const bool plainNum = formula::isOne(f.num) && !factor.isEmpty();
 
-  // nothing to divide by: one line
-  if(formula::isOne(f.den))
+  QString middle;
+  if(formula::isOne(f.den)) {
+    // one line: "−10 · V1"
+    QString line = f.negative ? QStringLiteral("−") : QString();
+    if(!plainNum)
+      line += formula::render(f.num, formula::Style::Html);
+    if(!factor.isEmpty())
+      line += (plainNum ? QString() : QStringLiteral(" · ")) + factor;
     return QStringLiteral(
         "<p style='margin: 6px 0 4px 22px; font-size: large;'>%1</p>")
-      .arg(num);
+      .arg(line);
+  } else {
+    // the fraction line is the bottom border of the numerator cell
+    middle = QStringLiteral(
+        "<td valign='middle'><table cellspacing='0' cellpadding='0' "
+        "style='border-collapse: collapse;'>"
+        "<tr><td align='center' style='padding: 2px 10px 4px 10px; "
+        "border-bottom-style: solid; border-bottom-width: 1px; "
+        "border-bottom-color: %3; font-size: large;'>%1</td></tr>"
+        "<tr><td align='center' style='padding: 4px 10px 2px 10px; "
+        "font-size: large;'>%2</td></tr>"
+        "</table></td>")
+      .arg(formula::render(f.num, formula::Style::Html),
+           formula::render(f.den, formula::Style::Html), rule.name());
+  }
 
-  // the fraction line is the bottom border of the numerator cell
+  QString tail;
+  if(!factor.isEmpty())
+    tail = cell.arg((middle.isEmpty() ? QString() : QStringLiteral("· "))
+                    + factor);
+
   return QStringLiteral(
-      "<table cellspacing='0' cellpadding='0' "
-      "style='margin: 6px 0 4px 12px; border-collapse: collapse;'>"
-      "<tr><td align='center' style='padding: 2px 10px 4px 10px; "
-      "border-bottom-style: solid; border-bottom-width: 1px; "
-      "border-bottom-color: %3; font-size: large;'>%1</td></tr>"
-      "<tr><td align='center' style='padding: 4px 10px 2px 10px; "
-      "font-size: large;'>%2</td></tr>"
-      "</table>")
-    .arg(num, formula::render(f.den, formula::Style::Html), rule.name());
+      "<table cellspacing='0' cellpadding='0' style='margin: 6px 0 4px 12px;'>"
+      "<tr>%1%2%3</tr></table>").arg(sign, middle, tail);
 }
 
 

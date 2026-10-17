@@ -28,6 +28,9 @@
 #include <QPalette>
 #include <QGraphicsView>
 #include <QResizeEvent>
+#include <QScrollBar>
+#include <QWheelEvent>
+#include <QtMath>
 
 
 namespace qsapecng
@@ -57,6 +60,8 @@ public:
     setAlignment(Qt::AlignLeft | Qt::AlignTop);
     setAcceptDrops(true);
     setMouseTracking(true);
+    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+    setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setAttribute(Qt::WA_DeleteOnClose);
     adjustSize();
   }
@@ -76,27 +81,83 @@ protected:
 
 public slots:
   void zoomIn()
-    { scale(1.2, 1.2); }
+    { zoomBy(1.2); }
 
   void zoomOut()
-    { scale(1/1.2, 1/1.2); }
+    { zoomBy(1 / 1.2); }
 
   void normalSize()
-    { resetTransform(); }
+    { resetTransform(); updateCanvas(); }
+
+  // the scrollable area: the drawing plus a screenful around it, so there
+  // is always room to pan, place parts and zoom towards an edge
+  void updateCanvas()
+  {
+    if(!scene())
+      return;
+    QRectF r = scene()->itemsBoundingRect() | QRectF(0, 0, 1, 1);
+    const QRectF screen = mapToScene(viewport()->rect()).boundingRect();
+    r.adjust(-screen.width(), -screen.height(),
+             screen.width(), screen.height());
+    setSceneRect(r);
+    if(!placed_)
+      centerOn((scene()->itemsBoundingRect() | QRectF(0, 0, 1, 1)).center());
+  }
 
   void fitToView()
   {
-    fitInView(sceneRect(), Qt::KeepAspectRatio);
-    ensureVisible(sceneRect());
-    centerOn(sceneRect().center());
+    const QRectF drawing = scene()
+      ? scene()->itemsBoundingRect().adjusted(-20, -20, 20, 20) : sceneRect();
+    fitInView(drawing, Qt::KeepAspectRatio);
+    // stay within the zoom limits
+    zoomBy(1.);
+    updateCanvas();
+    centerOn(drawing.center());
   }
 
 protected:
   // CAD-style box selection: dragging to the right selects what lies
   // entirely inside the box (blue), dragging to the left also what it
   // touches (green)
+  // wheel: zoom around the pointer; Shift+wheel / Ctrl+wheel: scroll
+  // sideways / up and down (as in KiCad)
+  void wheelEvent(QWheelEvent* event) override
+  {
+    placed_ = true;
+    const QPoint delta = event->angleDelta();
+    if(event->modifiers() & Qt::ShiftModifier) {
+      horizontalScrollBar()->setValue(
+        horizontalScrollBar()->value() - (delta.y() ? delta.y() : delta.x()));
+    } else if(event->modifiers() & Qt::ControlModifier) {
+      verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+    } else if(delta.y() != 0) {
+      zoomBy(qPow(1.2, delta.y() / 120.));
+    }
+    event->accept();
+  }
+
+  void resizeEvent(QResizeEvent* event) override
+  {
+    QGraphicsView::resizeEvent(event);
+    updateCanvas();
+
+    // until the user scrolls, keep the drawing centred (the canvas
+    // extends a screen beyond it in every direction)
+    if(!placed_ && scene())
+      centerOn((scene()->itemsBoundingRect() | QRectF(0, 0, 1, 1)).center());
+  }
+
   void mousePressEvent(QMouseEvent* event) override
   {
+    // middle button: pan
+    placed_ = true;
+    if(event->button() == Qt::MiddleButton) {
+      panFrom_ = event->position().toPoint();
+      panning_ = true;
+      viewport()->setCursor(Qt::ClosedHandCursor);
+      event->accept();
+      return;
+    }
     boxStart_ = event->position().toPoint();
     boxDirection_ = 0;
     QGraphicsView::mousePressEvent(event);
@@ -104,6 +165,15 @@ protected:
 
   void mouseMoveEvent(QMouseEvent* event) override
   {
+    if(panning_) {
+      const QPoint p = event->position().toPoint();
+      const QPoint d = p - panFrom_;
+      panFrom_ = p;
+      horizontalScrollBar()->setValue(horizontalScrollBar()->value() - d.x());
+      verticalScrollBar()->setValue(verticalScrollBar()->value() - d.y());
+      event->accept();
+      return;
+    }
     if(event->buttons() & Qt::LeftButton) {
       const int dir = event->position().x() >= boxStart_.x() ? 1 : -1;
       if(dir != boxDirection_) {
@@ -121,6 +191,12 @@ protected:
 
   void mouseReleaseEvent(QMouseEvent* event) override
   {
+    if(panning_ && event->button() == Qt::MiddleButton) {
+      panning_ = false;
+      viewport()->unsetCursor();
+      event->accept();
+      return;
+    }
     QGraphicsView::mouseReleaseEvent(event);
     if(boxDirection_ != 0) {
       boxDirection_ = 0;
@@ -129,8 +205,24 @@ protected:
   }
 
 private:
+  void zoomBy(qreal factor)
+  {
+    // 10 % ... 800 %
+    const qreal current = transform().m11() ? qAbs(transform().m11())
+                                            : qAbs(transform().m12());
+    const qreal target = qBound(qreal(0.1), current * factor, qreal(8.));
+    factor = target / current;
+    if(qFuzzyCompare(factor, qreal(1)))
+      return;
+    scale(factor, factor);
+    updateCanvas();
+  }
+
   QPoint boxStart_;
   int boxDirection_ = 0;
+  QPoint panFrom_;
+  bool panning_ = false;
+  bool placed_ = false;
 
 protected:
 //   void resizeEvent(QResizeEvent* event)

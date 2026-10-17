@@ -39,15 +39,25 @@ namespace formula
 
 typedef sapecng::metacircuit::expression Expr;
 
+#include <set>
+#include <string>
+
+// sign * num / den * factor
 struct Fraction
 {
   Expr num;
   Expr den;
+  bool negative = false;
+  std::list<std::string> factor;   // e.g. the input source, V1
 };
 
-// Light, exact simplification: zero terms dropped, and a purely numeric
-// denominator divided into the numerator, e.g. (-V1) / 0.1 -> -10 V1.
-Fraction simplified(const Expr& num, const Expr& den);
+// Light, exact simplification: zero terms dropped, a purely numeric
+// denominator divided into the numerator ((-V1) / 0.1 -> -10 V1), the
+// given symbols (the independent sources) factored out when every
+// numerator term has them, and a minus common to all numerator terms
+// pulled in front: -R2 V1 / R1 -> -(R2 / R1) V1.
+Fraction simplified(const Expr& num, const Expr& den,
+    const std::set<std::string>& factorable = std::set<std::string>());
 
 // true when the expression is the constant 1
 bool isOne(const Expr& e);
@@ -60,8 +70,11 @@ enum class Style { Text, Html, Latex };
 // a power of s; minus signs as signs, not as "( - x )".
 QString render(const Expr& e, Style style);
 
-// whole fraction for the clipboard: "num" or "(num) / (den)" (Text),
-// "\frac{num}{den}" or "num" (Latex)
+// the factored-out symbols, e.g. "V1" ("" when none)
+QString renderFactor(const Fraction& f, Style style);
+
+// whole result for the clipboard: "-(num) / (den) * V1" (Text),
+// "-\frac{num}{den} V_{1}" (Latex)
 QString clipboardText(const Fraction& f, Style style);
 
 

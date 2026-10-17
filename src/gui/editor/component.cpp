@@ -131,12 +131,62 @@ void Component::paint(
     painter->restore();
   }
 
+  if(!tag_.isEmpty()) {
+    // filled tag with an upright caption
+    // same ink as the rest of the sheet
+    const QColor border = theme::sheetForeground();
+    const QColor fill = theme::sheetBackground();
+    const QColor text = theme::sheetForeground();
+
+    QPen pen = itemPen_;
+    pen.setColor(border);
+    pen.setJoinStyle(Qt::RoundJoin);
+    painter->setPen(pen);
+    painter->setBrush(fill);
+    painter->drawPath(path_);
+
+    // the text box: the tag without its pointed end
+    const QRectF box = path_.boundingRect().adjusted(8, 0, 0, 0);
+    const QTransform t = transform();
+    const QTransform upright =
+      QTransform(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0).inverted();
+    painter->translate(box.center());
+    painter->setTransform(upright, true);
+    const QRectF r = upright.inverted().mapRect(QRectF(QPointF(0, 0), box.size()));
+    QFont font = theme::schematicFont(8);
+    font.setBold(true);
+    painter->setFont(font);
+    painter->setPen(text);
+    painter->drawText(r.translated(-r.width() / 2, -r.height() / 2),
+      Qt::AlignCenter, tag_);
+
+    painter->restore();
+    return;
+  }
+
   QPen pen = itemPen_;
   pen.setColor(theme::sheetForeground());
   painter->setPen(pen);
   painter->drawPath(path_);
 
   painter->restore();
+}
+
+
+void Component::setTag(const QString& text, const QRectF& pivot)
+{
+  tag_ = text;
+  pivot_ = pivot;
+  update();
+}
+
+
+QRectF Component::pivotRect() const
+{
+  if(pivot_.isNull())
+    return boundingRect();
+  const qreal offset = penWidth();
+  return pivot_.adjusted(-offset, -offset, offset, offset);
 }
 
 
