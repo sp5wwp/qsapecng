@@ -139,9 +139,38 @@ ComponentDialog::ComponentDialog(
         true, QStringLiteral("H"), form);
   }
 
-  if(sub.contains(valueKey))
+  if(type == SchematicScene::OpAmplItemType && sub.contains("Ideal")) {
+    // ideal (nullor) or open-loop gain with an optional GBW
+    QtBoolPropertyManager* bpm =
+      qobject_cast<QtBoolPropertyManager*>(sub.value("Ideal")->propertyManager());
+    idealProperty_ = sub.value("Ideal");
+    ideal_ = new QCheckBox(tr("Ideal (infinite gain and bandwidth)"));
+    ideal_->setChecked(bpm && bpm->value(idealProperty_));
+    form->addRow(QString(), ideal_);
+
+    if(QLineEdit* gain = addTextField(sub.value("Value"),
+        tr("Open-loop gain:"), true, QString(), form))
+    {
+      gain->setToolTip(tr("A0 from the datasheet: 100dB, 200V/mV, 1e5V/V "
+                          "or a plain number (100k)"));
+      realOpAmpFields_ << gain;
+    }
+    if(sub.contains("GBW")) {
+      if(QLineEdit* gbw = addTextField(sub.value("GBW"), tr("GBW:"), true,
+          QStringLiteral("Hz"), form))
+      {
+        gbw->setToolTip(tr("Gain-bandwidth product, e.g. 1MEG or 10M "
+                           "(0: no bandwidth limit)"));
+        gbw->setPlaceholderText(tr("0 = no limit"));
+        realOpAmpFields_ << gbw;
+      }
+    }
+    connect(ideal_, &QCheckBox::toggled,
+      this, &ComponentDialog::updateOpAmpFields);
+  } else if(sub.contains(valueKey)) {
     addTextField(sub.value(valueKey), meaning.label + ":", true,
       meaning.unit, form);
+  }
 
   if(sub.contains("Symbolic")) {
     QtBoolPropertyManager* bpm =
@@ -149,7 +178,11 @@ ComponentDialog::ComponentDialog(
         sub.value("Symbolic")->propertyManager());
     if(bpm) {
       symbolicProperty_ = sub.value("Symbolic");
-      symbolic_ = new QCheckBox(tr("Keep symbolic in the result"));
+      symbolic_ = new QCheckBox(type == SchematicScene::OpAmplItemType
+        ? tr("Keep the open-loop gain symbolic (by name) in the result")
+        : tr("Keep symbolic in the result"));
+      if(type == SchematicScene::OpAmplItemType)
+        realOpAmpFields_ << symbolic_;
       symbolic_->setToolTip(
         tr("Checked: the component appears by name in the Result.\n"
            "Unchecked: its numeric value is used there instead.\n"
@@ -169,6 +202,7 @@ ComponentDialog::ComponentDialog(
   layout->addWidget(buttons_);
 
   setMinimumWidth(320);
+  updateOpAmpFields();
   validate();
 
   if(!fields_.isEmpty()) {
@@ -224,11 +258,21 @@ QLineEdit* ComponentDialog::addTextField(
 }
 
 
+void ComponentDialog::updateOpAmpFields()
+{
+  if(!ideal_)
+    return;
+  foreach(QWidget* w, realOpAmpFields_)
+    w->setEnabled(!ideal_->isChecked());
+  validate();
+}
+
+
 void ComponentDialog::validate()
 {
   bool ok = true;
   foreach(const Field& f, fields_)
-    ok = ok && f.edit->hasAcceptableInput();
+    ok = ok && (f.edit->hasAcceptableInput() || !f.edit->isEnabled());
   buttons_->button(QDialogButtonBox::Ok)->setEnabled(ok);
 }
 
@@ -253,6 +297,14 @@ QList<PropertyChange> ComponentDialog::changes() const
     }
     if(newValue != oldValue)
       result.append({ f.property, oldValue, newValue });
+  }
+
+  if(ideal_) {
+    QtBoolPropertyManager* bpm = qobject_cast<QtBoolPropertyManager*>(
+      idealProperty_->propertyManager());
+    const bool oldValue = bpm->value(idealProperty_);
+    if(ideal_->isChecked() != oldValue)
+      result.append({ idealProperty_, oldValue, ideal_->isChecked() });
   }
 
   if(symbolic_) {

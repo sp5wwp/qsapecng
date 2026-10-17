@@ -37,3 +37,9 @@ add_test(NAME rc_lowpass_netlist
   COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/rc-lowpass-2nd-order.crc
     "V1 / ( - C1 * C2 * R1 * R2 ) * s^2 + ( ( - C2 * R2 ) + ( - C1 * R1 ) + ( - C2 * R1 ) ) * s + ( - 1 )"
     "1 / ( - 1e-06 ) * s^2 + ( - 0.003 ) * s + ( - 1 )")
+# op-amp with open-loop gain 200000 and GBW 1 MHz (inverting x10):
+# DC gain -9.99945, closed-loop pole at 90.9 kHz
+add_test(NAME opamp_finite_gain
+  COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/opamp-finite-gain.info
+    "A1 * R2 * V1 / ( ( - 0.031831 * R2 ) + ( - 0.031831 * R1 ) ) * s + ( ( - R2 ) + ( - A1 * R1 ) + ( - R1 ) )"
+    "1 / ( - 1.7507e-07 ) * s + ( - 0.100005 )")

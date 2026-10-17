@@ -70,7 +70,24 @@ void PropertyTextItem::refreshText()
 
   QString text = property_->valueText();
 
-  if(theme::showComponentValues()) {
+  // op-amp: nothing for an ideal one, "A0 200k" (and the GBW) otherwise
+  QtProperty* ideal = 0;
+  QtProperty* gbw = 0;
+  foreach(QtProperty* sub, property_->subProperties()) {
+    if(sub->propertyName() == QLatin1String("Ideal")) ideal = sub;
+    if(sub->propertyName() == QLatin1String("GBW")) gbw = sub;
+  }
+  if(ideal && theme::showComponentValues()) {
+    if(ideal->valueText() != tr("True")
+        && ideal->valueText() != QLatin1String("True"))
+    {
+      foreach(QtProperty* sub, property_->subProperties())
+        if(sub->propertyName() == QLatin1String("Value"))
+          text += QStringLiteral("\nA0 ") + units::format(sub->valueText(), "");
+      if(gbw && gbw->valueText().toDouble() > 0)
+        text += QStringLiteral("\n") + units::format(gbw->valueText(), "Hz");
+    }
+  } else if(theme::showComponentValues()) {
     // the value of a component is its "Value" (or, for a mutual
     // inductance, "M") sub-property
     foreach(QtProperty* sub, property_->subProperties()) {

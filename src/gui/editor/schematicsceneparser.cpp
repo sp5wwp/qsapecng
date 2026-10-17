@@ -277,8 +277,23 @@ void SchematicSceneParser::parse_item(
       QVector<int> nodes = component->nodes();
       storeLabel(props, component);
 
+      // ideal: a nullor; otherwise the solver models open-loop gain A0
+      // (Value) and, when GBW > 0, a single pole at GBW / A0
+      const bool ideal = !subproperties.contains("Ideal")
+        || QVariant(subproperties.value("Ideal")).toBool();
+      double a0 = 1.;
+      bool symbolic = false;
+      if(!ideal) {
+        a0 = subproperties.value("Value").toDouble();
+        symbolic = QVariant(subproperties.value("Symbolic")).toBool();
+        props["ideal"] = "0";
+        props["gbw"] = QString::number(
+          subproperties.value("GBW").toDouble(), 'g', 12).toStdString();
+      }
+
       builder.add_quad_component(
-        quadMap_[type], subproperties.value("__NAME").toStdString(), 1., false,
+        quadMap_[type], subproperties.value("__NAME").toStdString(), a0,
+        symbolic,
         SchematicScene::Ground, nodes.at(2), nodes.at(1), nodes.at(0), props
       );
 
@@ -818,6 +833,25 @@ void SchematicSceneBuilder::setup_properties(
             subproperties.value("Symbolic"),
             symbolic
           );
+  }
+
+  if(subproperties.contains("Ideal")) {
+    // op-amp: older files have no "ideal" property (always ideal)
+    const bool ideal = props["ideal"] != "0";
+    QtBoolPropertyManager* bpm =
+      qobject_cast<QtBoolPropertyManager*>(
+        subproperties.value("Ideal")->propertyManager());
+    if(bpm)
+      bpm->setValue(subproperties.value("Ideal"), ideal);
+
+    QtStringPropertyManager* spm = qobject_cast<QtStringPropertyManager*>(
+      subproperties.value("Value")->propertyManager());
+    if(spm && ideal)
+      spm->setValue(subproperties.value("Value"), "100000");
+    if(spm && subproperties.contains("GBW"))
+      spm->setValue(subproperties.value("GBW"),
+        props.count("gbw") ? QString::number(
+          QString::fromStdString(props["gbw"]).toDouble()) : QString("0"));
   }
 
   if(subproperties.contains("lp:name")) {

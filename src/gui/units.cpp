@@ -114,6 +114,33 @@ bool parse(const QString& text, const QString& unit, double* value)
 {
   QString s = text.trimmed();
   s.remove(QLatin1Char(' '));
+
+  // ratios (gains, unit "" or "V/V"): datasheet forms 100dB, 200V/mV,
+  // 1e5V/V (or A/A)
+  if(unit.isEmpty() || unit == QLatin1String("V/V")) {
+    if(s.endsWith(QLatin1String("dB"), Qt::CaseInsensitive)) {
+      bool ok = false;
+      const double db = s.chopped(2).toDouble(&ok);
+      if(!ok)
+        return false;
+      *value = std::pow(10., db / 20.);
+      return std::isfinite(*value);
+    }
+    static const struct { const char16_t* suffix; double mult; } ratios[] = {
+      { u"V/mV", 1e3 }, { u"V/uV", 1e6 }, { u"V/µV", 1e6 }, { u"V/μV", 1e6 },
+      { u"V/V", 1. }, { u"A/A", 1. }, { u"A/mA", 1e3 }
+    };
+    for(const auto& r : ratios) {
+      const QString suffix = QString::fromUtf16(r.suffix);
+      if(s.endsWith(suffix, Qt::CaseInsensitive) && s.size() > suffix.size()) {
+        double v = 0.;
+        if(!parse(s.chopped(suffix.size()), QStringLiteral("-"), &v))
+          return false;
+        *value = v * r.mult;
+        return std::isfinite(*value);
+      }
+    }
+  }
   if(!unit.isEmpty() && s.endsWith(unit))
     s.chop(unit.size());
   // ohms are often typed as "R", "ohm" or "Ohm"

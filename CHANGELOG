@@ -69,6 +69,10 @@ QSapecNG CHANGELOG
       log-spaced points per decade instead of a fixed step
     o Status bar: what is going on and what the active tool expects, the
       number of parts and wires, zoom and pointer position
+    o Op-amps: "Ideal" (as before) or a real one with an open-loop gain
+      (100dB, 200V/mV, 1e5V/V or a number; can stay symbolic) and an
+      optional gain-bandwidth product (single-pole model)
+    o Gain values accept dB, V/mV and V/V
     o Settings > Component labels: name only (default) or name and value,
       e.g. "C1 / 1 µF"
     o Side panels start closed except Components and Messages (Window >
@@ -85,6 +89,8 @@ QSapecNG CHANGELOG
     o Fixed: Poles & Zeros crashed for a constant transfer function (e.g. an
       inverting amplifier); it now says there are none. Roots at s = 0 are
       no longer counted twice
+    o Fixed: an op-amp's value and symbolic flag were ignored when a file
+      was read
     o Fixed: segmentation fault on Resolve when terms cancel out in the
       transfer function (issue #6): the solver advanced an erased iterator
     o Fixed: saving without a known extension wrote an empty file and

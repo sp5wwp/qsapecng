@@ -246,6 +246,21 @@ Fraction simplified(const Expr& num, const Expr& den,
     }
   }
 
+  // a denominator with only negative terms: flip both signs
+  bool denNegative = !f.den.empty();
+  for(const auto& g : f.den)
+    for(const Term& t : g.second)
+      if(t.first > 0)
+        denNegative = false;
+  if(denNegative) {
+    for(auto& g : f.den)
+      for(Term& t : g.second)
+        t.first = -t.first;
+    for(auto& g : f.num)
+      for(Term& t : g.second)
+        t.first = -t.first;
+  }
+
   // a minus on every numerator term goes in front
   bool allNegative = !f.num.empty();
   for(const auto& g : f.num)

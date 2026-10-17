@@ -136,6 +136,31 @@ public:
         std::map<std::string,std::string>()
     );
 
+  // the edges of a VCVS between existing vertices (no node bookkeeping)
+  void add_vcvs_edges(
+      std::string name,
+      double value,
+      bool symbolic,
+      unsigned int va,
+      unsigned int vb,
+      unsigned int vac,
+      unsigned int vbc,
+      std::map<std::string,std::string> props
+    );
+
+  // op-amp with open-loop gain a0 and gain-bandwidth product (props
+  // "gbw", Hz; none or 0: no pole)
+  void add_real_opamp(
+      std::string name,
+      double a0,
+      bool symbolic,
+      unsigned int va,
+      unsigned int vb,
+      unsigned int vac,
+      unsigned int vbc,
+      std::map<std::string,std::string> props
+    );
+
   void add_unknow_component(
       std::map<std::string,std::string> props =
         std::map<std::string,std::string>()

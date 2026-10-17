@@ -25,6 +25,7 @@
 #include "gui/editor/schematicsceneparser.h"
 #include "gui/editor/undoredocommand.h"
 #include "gui/editor/component.h"
+#include "gui/editor/propertytextitem.hpp"
 #include "gui/editor/label.h"
 #include "gui/editor/wire.h"
 #include "gui/editor/graphicsnode.h"
@@ -1316,6 +1317,13 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
               static_cast<Component*>(item)->label(),
               SLOT(valueChanged(QtProperty*, const QString&))
             );
+            // e.g. an op-amp switched between ideal and real
+            PropertyTextItem* label = static_cast<Component*>(item)->label();
+            connect(boolManager_, &QtBoolPropertyManager::valueChanged,
+              label, [label, name](QtProperty* p, bool) {
+                if(name->subProperties().contains(p))
+                  label->refreshText();
+              });
 
             if(type != OpAmplItemType) {
               QtProperty* pS = boolManager_->addProperty(tr("Symbolic"));
@@ -1344,6 +1352,22 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
 
               name->addSubProperty(pS);
               name->addSubProperty(pV);
+            } else {
+              // op-amp: ideal (nullor) or open-loop gain A0 with an
+              // optional gain-bandwidth product (single-pole model)
+              QtProperty* pI = boolManager_->addProperty(tr("Ideal"));
+              boolManager_->setValue(pI, true);
+              QtProperty* pS = boolManager_->addProperty(tr("Symbolic"));
+              boolManager_->setValue(pS, false);
+              QtProperty* pV = stringManager_->addProperty(tr("Value"));
+              stringManager_->setValue(pV, "100000");
+              QtProperty* pB = stringManager_->addProperty(tr("GBW"));
+              stringManager_->setValue(pB, "0");
+
+              name->addSubProperty(pI);
+              name->addSubProperty(pS);
+              name->addSubProperty(pV);
+              name->addSubProperty(pB);
             }
 
             if(type == MutualInductanceItemType) {

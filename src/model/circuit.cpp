@@ -19,6 +19,9 @@
 
 #include "model/circuit.h"
 
+#include <cmath>
+#include <sstream>
+
 #include <algorithm>
 
 
@@ -215,6 +218,86 @@ void circuit_builder::add_dual_component(
 }
 
 
+void circuit_builder::add_real_opamp(
+    std::string name,
+    double a0,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    unsigned int vac,
+    unsigned int vbc,
+    std::map<std::string, std::string> props
+  )
+{
+  // output (vb, ref va) = A(s) * control voltage (vac, vbc), with
+  // A(s) = A0 / (1 + s / wp), wp = 2 pi GBW / A0. Without a GBW it is a
+  // plain VCVS of gain A0 (named after the op-amp, so A0 can stay
+  // symbolic); with one, the VCVS drives an internal RC pole followed by
+  // a unity-gain buffer. Internal parts are unnamed: they stay numeric
+  // and do not show up in the results.
+  props.erase("ideal");
+  double gbw = 0.;
+  if(props.count("gbw")) {
+    std::istringstream in(props["gbw"]);
+    in >> gbw;
+    props.erase("gbw");
+  }
+
+  if(!(gbw > 0.) || !(a0 > 0.)) {
+    add_quad_component(abstract_builder::VCVS, name, a0, symbolic,
+      va, vb, vac, vbc, props);
+    return;
+  }
+
+  const double wp = 2. * 4. * std::atan(1.) * gbw / a0;
+
+  // two internal nodes: gain stage output and pole node
+  circuit::vertex_descriptor n1 = boost::add_vertex(*(circuit_.iG_));
+  requested_.push_front(boost::add_vertex(*(circuit_.vG_)));
+  circuit::vertex_descriptor n2 = boost::add_vertex(*(circuit_.iG_));
+  requested_.push_front(boost::add_vertex(*(circuit_.vG_)));
+
+  // edges are added directly: add_dual/quad_component would treat the
+  // internal nodes as requested ones and move their edges away
+  std::map<std::string, std::string> none;
+  add_vcvs_edges(name, a0, symbolic, va, n1, vac, vbc, props);
+  add_edge(n1, n2, n1, n2, Y, "", 1., 0, false, none);            // G = 1 S
+  add_edge(n2, va, n2, va, Y, "", 1. / wp, 1, false, none);       // C
+  add_vcvs_edges("", 1., false, va, vb, va, n2, none);            // buffer
+}
+
+
+void circuit_builder::add_vcvs_edges(
+    std::string name,
+    double value,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    unsigned int vac,
+    unsigned int vbc,
+    std::map<std::string, std::string> props
+  )
+{
+  // as abstract_builder::VCVS in add_quad_component
+  circuit::vertex_descriptor vdesc = boost::add_vertex(*(circuit_.iG_));
+  requested_.push_front(boost::add_vertex(*(circuit_.vG_)));
+
+  add_edge(
+      vdesc, vbc, vbc, vac, Y,
+      name.empty() ? std::string() : prefix_ + name, value,
+      0, symbolic, props
+    );
+  add_edge(
+      vdesc, vbc, vb, va, Y,
+      "", -1., 0, false, props
+    );
+  add_edge(
+      vb, va, vbc, vdesc, F,
+      "", 1., 0, true, props
+    );
+}
+
+
 void circuit_builder::add_quad_component(
     abstract_builder::quad_component_type c_type,
     std::string name,
@@ -309,6 +392,12 @@ void circuit_builder::add_quad_component(
     }
   case abstract_builder::AO:
     {
+      // ideal op-amp (nullor) unless the GUI says otherwise
+      if(props.count("ideal") && props["ideal"] == "0") {
+        add_real_opamp(name, value, symbolic, va, vb, vac, vbc, props);
+        break;
+      }
+
       add_edge(
           vb, va, vbc, vac, F,
           "", 1., 0, true, props

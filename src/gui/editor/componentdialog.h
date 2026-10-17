@@ -76,6 +76,7 @@ public:
 
 private slots:
   void validate();
+  void updateOpAmpFields();
 
 private:
   struct Field
@@ -92,6 +93,9 @@ private:
   QList<Field> fields_;
   QtProperty* symbolicProperty_;
   QCheckBox* symbolic_;
+  QtProperty* idealProperty_ = 0;   // op-amp only
+  QCheckBox* ideal_ = 0;
+  QList<QWidget*> realOpAmpFields_;
   QDialogButtonBox* buttons_;
 
 };

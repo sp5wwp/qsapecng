@@ -222,9 +222,11 @@ void ir_parser::parse_rec(
             );
           break;
         case 'A':
+          // value / symbolic: open-loop gain of a non-ideal op-amp (props
+          // "ideal" = 0); an ideal one ignores them
           builder.add_quad_component(
               abstract_builder::AO,
-              name, 1., false,
+              name, value, symbolic,
               nodes.at(0), nodes.at(1),
               nodes.at(2), nodes.at(3),
               imap
