@@ -64,6 +64,7 @@ namespace qsapecng
 class Component;
 class Item;
 class Wire;
+class Label;
 
 
 class SchematicScene: public QGraphicsScene
@@ -185,6 +186,8 @@ public:
   void modifyWire(Wire* wire);
 
   void createLabel();
+  // asks for a label's text (several lines); undoable. false: cancelled
+  bool editLabelText(Label* label, bool fresh = false);
 
   void moveSelectedItems(QPointF pos);
   // a mouse drag of the selection: wires attached to the moved pins
@@ -299,6 +302,11 @@ private:
   // pasted items follow the pointer until a click places them (one undo
   // step with the paste); Esc takes the paste back
   bool floatingPaste_ = false;
+  // a click on a pin or a wire end (press and release without moving)
+  // starts a wire there
+  bool pinPressed_ = false;
+  QPointF pinPoint_, pinPressScreen_;
+  bool connectionAt(const QPointF& point, QPointF* exact) const;
   QList<QGraphicsItem*> floating_;
   QPointF floatAnchor_, floatTotal_;
   void finishFloatingPaste(bool place);
@@ -336,10 +344,13 @@ private:
     QPointF total;
   } drag_;
   void numberNetLabels();
+  void ensurePreview();
   // after a move: merges wires lying on top of each other on one line and
   // removes the given wires (and merged ones) left with an end that
   // connects nothing; part of the open undo macro
   void tidyWires(QList<Wire*> fresh);
+  // splits wires at T-junctions made by the given (new) wires
+  void splitAtJunctions(QList<Wire*> fresh);
   void beginDrag();
   void updateDragPreview();
   void endDrag(bool commit);

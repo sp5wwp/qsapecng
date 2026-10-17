@@ -91,6 +91,14 @@ QColor sheetBackground();
 QColor sheetForeground();
 QColor sheetGrid();
 
+// the grid of the schematic: dots or lines, and how strong
+enum class GridStyle { Dots, Lines };
+GridStyle gridStyle();
+void setGridStyle(GridStyle style);
+// 0 faint, 1 medium (default), 2 strong
+int gridStrength();
+void setGridStrength(int strength);
+
 // Colour of a solved net (wires are coloured per net after Resolve).
 QColor netColor(int net);
 

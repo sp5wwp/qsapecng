@@ -239,8 +239,23 @@ void Wire::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
       Wire* wire =
         static_cast<Wire*>(graphicsItem);
 
-      if(wire->orientation() == orientation_ && schematicScene())
-        schematicScene()->joinWires(this, wire);
+      // only wires lying on top of this one (after a drag): merely
+      // touching ones stay apart, the point between them may be a
+      // junction (a click used to glue a split wire back together)
+      if(wire->orientation() == orientation_ && schematicScene()) {
+        const QPointF a1 = mapToScene(fromPoint()), a2 = mapToScene(toPoint());
+        const QPointF b1 = wire->mapToScene(wire->fromPoint());
+        const QPointF b2 = wire->mapToScene(wire->toPoint());
+        const bool horizontal = orientation_ == Qt::Horizontal;
+        const bool sameLine = horizontal ? qAbs(a1.y() - b1.y()) < 0.5
+                                         : qAbs(a1.x() - b1.x()) < 0.5;
+        const qreal lo = horizontal ? qMax(qMin(a1.x(), a2.x()), qMin(b1.x(), b2.x()))
+                                    : qMax(qMin(a1.y(), a2.y()), qMin(b1.y(), b2.y()));
+        const qreal hi = horizontal ? qMin(qMax(a1.x(), a2.x()), qMax(b1.x(), b2.x()))
+                                    : qMin(qMax(a1.y(), a2.y()), qMax(b1.y(), b2.y()));
+        if(sameLine && hi - lo > 0.5)
+          schematicScene()->joinWires(this, wire);
+      }
     }
   }
 

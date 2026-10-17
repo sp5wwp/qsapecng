@@ -19,6 +19,7 @@
 
 
 #include "gui/editor/propertytextitem.hpp"
+#include <QLineF>
 #include "gui/units.h"
 #include "gui/editor/schematicscene.h"
 
@@ -148,6 +149,12 @@ QVariant PropertyTextItem::itemChange(
     const QPointF centre = pos + transform().map(boundingRect().center());
     const QPointF onSheet = parentItem()->mapToScene(centre);
     const qreal step = SchematicScene::GridStep;
+    // near its automatic place (centred on the part): there
+    if(automaticCentre) {
+      const QPointF home = automaticCentre();
+      if(QLineF(onSheet, parentItem()->mapToScene(home)).length() < 0.8 * step)
+        return pos + (home - centre);
+    }
     const QPointF snapped(std::round(onSheet.x() / step) * step,
                           std::round(onSheet.y() / step) * step);
     return pos + (parentItem()->mapFromScene(snapped) - centre);

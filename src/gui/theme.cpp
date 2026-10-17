@@ -449,7 +449,41 @@ QColor readableOn(const QColor& color)
 
 QColor sheetGrid()
 {
-  return sheetIsDark() ? QColor(0x4a, 0x50, 0x58) : QColor(0xa8, 0xb0, 0xbc);
+  // between the sheet and its ink, by the chosen strength
+  static const qreal mix[] = { 0.18, 0.32, 0.55 };
+  const qreal k = mix[qBound(0, gridStrength(), 2)];
+  const QColor a = sheetBackground(), b = sheetForeground();
+  return QColor::fromRgbF(
+    a.redF() + (b.redF() - a.redF()) * k,
+    a.greenF() + (b.greenF() - a.greenF()) * k,
+    a.blueF() + (b.blueF() - a.blueF()) * k);
+}
+
+
+GridStyle gridStyle()
+{
+  return QSettings().value(QStringLiteral("Schematic/gridStyle")).toString()
+      == QLatin1String("lines") ? GridStyle::Lines : GridStyle::Dots;
+}
+
+
+void setGridStyle(GridStyle style)
+{
+  QSettings().setValue(QStringLiteral("Schematic/gridStyle"),
+    style == GridStyle::Lines ? QStringLiteral("lines") : QStringLiteral("dots"));
+}
+
+
+int gridStrength()
+{
+  return qBound(0, QSettings().value(
+    QStringLiteral("Schematic/gridStrength"), 1).toInt(), 2);
+}
+
+
+void setGridStrength(int strength)
+{
+  QSettings().setValue(QStringLiteral("Schematic/gridStrength"), qBound(0, strength, 2));
 }
 
 

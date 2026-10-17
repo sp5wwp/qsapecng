@@ -95,10 +95,15 @@ public:
   inline bool hasCustomLabelPosition() const { return labelMoved_; }
   inline QPointF labelAnchor() const { return labelAnchor_; }
   void setLabelAnchor(const QPointF& anchor);
+  // the label back to its automatic place (centred beside the part)
+  void resetLabelPosition();
+  QPointF automaticLabelCentre() const;
 
   void addNodes(QList<QPointF> nodes);
   void addNodes(QPointF node);
   QVector<int> nodes() const;
+  // the pins, in the component's own coordinates
+  QList<QPointF> pinPoints() const;
 
   // tag symbols (the Out marker): filled shape with a caption
   void setTag(const QString& text, const QRectF& pivot);

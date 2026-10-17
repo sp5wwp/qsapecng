@@ -101,6 +101,7 @@ private slots:
   void toggleScreenMode();
 
   void configDialog();
+  void refreshSchematics();
   void changeWorkspace();
 
   void zoomIn();

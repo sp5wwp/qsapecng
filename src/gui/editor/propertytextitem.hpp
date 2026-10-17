@@ -58,6 +58,9 @@ public:
 
   // called when the user drags the label (not when the program moves it)
   std::function<void()> onMoved;
+  // the automatic centre of the label (parent coordinates): a dragged
+  // label close to it snaps there, as if never moved
+  std::function<QPointF()> automaticCentre;
 
 public slots:
   void valueChanged(QtProperty* property, const QString& value);

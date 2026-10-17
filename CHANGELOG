@@ -92,7 +92,23 @@ QSapecNG CHANGELOG
     o Context menu: Rotate (R), Flip Horizontally (H), Flip Vertically
       (V), clipboard, order, and a Place submenu with every part; new
       hotkeys G (ground), P (port), O (Out), T (label)
-    o A part being placed is centred on the pointer
+    o A part being placed hangs on the pointer by its pin (one-pin parts),
+      the middle between its pins (two pins) or its centre (more), always
+      on a grid point
+    o Click a pin or a wire end to start a wire there (a drag still moves
+      the part)
+    o Text labels: T hangs a label on the pointer and asks for its text
+      (several lines) when it is placed; a click selects it, a drag moves
+      it on the grid, a double-click edits it
+    o Component labels sit closer to their parts; a dragged label snaps
+      back to its centred place when brought near it; right-click > Reset
+      Label Position
+    o Settings > Grid: dots or lines, faint / medium / strong
+    o A wire ending on the middle of another splits it there, so a click
+      selects wires only up to the junction (a click no longer glues
+      touching wires together)
+    o Fixed: a crash when a part was picked with its hotkey (T, G, P, O)
+      while the pointer was over the schematic
     o Pasted parts follow the pointer until a click places them (right
       click rotates, Esc takes the paste back) and get names of their own
       (a copy of R2 becomes R3; duplicate names merged in the result)

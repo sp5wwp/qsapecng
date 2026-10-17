@@ -19,6 +19,8 @@
 
 #include "gui/theme.h"
 #include "gui/editor/label.h"
+#include <QGraphicsSceneMouseEvent>
+#include "gui/editor/schematicscene.h"
 
 #include <QPainter>
 
@@ -39,9 +41,12 @@ Label::Label(QGraphicsItem* parent, SchematicScene* scene)
   label_.setParentItem(this);
   label_.setDefaultTextColor(theme::sheetForeground());
   label_.setFont(theme::schematicFont(10));
-  label_.setPlainText(QObject::tr("notext"));
-  label_.setTextInteractionFlags(Qt::TextEditorInteraction);
-  label_.setPos(Hook, 0);
+  label_.setPlainText(QObject::tr("Text"));
+  // the text is not edited in place: a click selects and drags the
+  // label, a double-click edits it (SchematicScene::editLabelText)
+  label_.setTextInteractionFlags(Qt::NoTextInteraction);
+  label_.setAcceptedMouseButtons(Qt::NoButton);
+  label_.setPos(0, 0);
 }
 
 
@@ -52,8 +57,8 @@ QRectF Label::boundingRect() const
   QRectF rect(
       0 - offset,
       0 - offset,
-      label_.boundingRect().bottomRight().x() + offset + Hook,
-      label_.boundingRect().bottomRight().y() + offset
+      label_.boundingRect().bottomRight().x() + 2 * offset,
+      label_.boundingRect().bottomRight().y() + 2 * offset
     );
 
   return rect;
@@ -81,11 +86,10 @@ void Label::paint(
     painter->restore();
   }
 
-  QPen pen = itemPen_;
-  pen.setColor(theme::sheetForeground());
-  painter->setPen(pen);
-  painter->drawPath(path_);
-
+  // follow the sheet's ink (theme switch); setting it repaints, so only
+  // when it changed
+  if(label_.defaultTextColor() != theme::sheetForeground())
+    label_.setDefaultTextColor(theme::sheetForeground());
   painter->restore();
 }
 
@@ -102,17 +106,11 @@ void Label::setText(const QString& label)
 }
 
 
-void Label::focusInEvent(QFocusEvent* event)
+void Label::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 {
-  path_.addRect(0, 0, Hook, label_.boundingRect().height());
-  update();
-}
-
-
-void Label::focusOutEvent(QFocusEvent* event)
-{
-  path_ = QPainterPath();
-  update();
+  if(schematicScene())
+    schematicScene()->editLabelText(this);
+  event->accept();
 }
 
 

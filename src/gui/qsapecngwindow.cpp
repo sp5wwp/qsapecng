@@ -20,6 +20,7 @@
 #include "gui/theme.h"
 #include "gui/resultpanel.h"
 #include "gui/plotdialog.h"
+#include "gui/editor/component.h"
 #include "config.h"
 
 #include "exception/sapecngexception.h"
@@ -196,6 +197,18 @@ void QSapecNGWindow::closeEvent(QCloseEvent* event)
 void QSapecNGWindow::toggleScreenMode()
 {
   setWindowState(windowState() ^ Qt::WindowFullScreen);
+}
+
+
+void QSapecNGWindow::refreshSchematics()
+{
+  // redraw every open schematic (grid, symbols)
+  foreach(QMdiSubWindow* window, mdiArea_->subWindowList())
+    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window)) {
+      editor->view().resetCachedContent();
+      editor->scene().update();
+      editor->view().viewport()->update();
+    }
 }
 
 
@@ -1659,6 +1672,36 @@ void QSapecNGWindow::createMenus()
     });
   }
 
+  QMenu* gridMenu = settingMenu_->addMenu(tr("&Grid"));
+  QActionGroup* gridStyleGroup = new QActionGroup(gridMenu);
+  for(const auto& g : QList< QPair<QString, theme::GridStyle> >{
+      { tr("&Dots"), theme::GridStyle::Dots },
+      { tr("&Lines"), theme::GridStyle::Lines } })
+  {
+    QAction* act = gridMenu->addAction(g.first);
+    act->setCheckable(true);
+    act->setChecked(theme::gridStyle() == g.second);
+    gridStyleGroup->addAction(act);
+    const theme::GridStyle style = g.second;
+    connect(act, &QAction::triggered, this, [this, style]() {
+      theme::setGridStyle(style);
+      refreshSchematics();
+    });
+  }
+  gridMenu->addSeparator();
+  QActionGroup* gridStrengthGroup = new QActionGroup(gridMenu);
+  const QStringList strengths = { tr("&Faint"), tr("&Medium"), tr("&Strong") };
+  for(int i = 0; i < strengths.size(); ++i) {
+    QAction* act = gridMenu->addAction(strengths.at(i));
+    act->setCheckable(true);
+    act->setChecked(theme::gridStrength() == i);
+    gridStrengthGroup->addAction(act);
+    connect(act, &QAction::triggered, this, [this, i]() {
+      theme::setGridStrength(i);
+      refreshSchematics();
+    });
+  }
+
   QMenu* labelMenu = settingMenu_->addMenu(tr("Component &labels"));
   QActionGroup* labelGroup = new QActionGroup(labelMenu);
   const QList< QPair<QString, bool> > labelModes = {
@@ -1727,6 +1770,19 @@ void QSapecNGWindow::createMenus()
   sceneMenu_->addSeparator();
   sceneMenu_->addAction(bringToFrontAct_);
   sceneMenu_->addAction(sendToBackAct_);
+  QAction* resetLabels = sceneMenu_->addAction(tr("Reset &Label Position"));
+  resetLabels->setStatusTip(tr("Put the labels of the selected parts back "
+                               "beside them"));
+  connect(resetLabels, &QAction::triggered, this, [this]() {
+      if(SchematicEditor* editor = activeEditor())
+        foreach(QGraphicsItem* item, editor->scene().selectedItems()) {
+          Component* c = dynamic_cast<Component*>(item);
+          if(!c && item->parentItem())     // the label itself selected
+            c = dynamic_cast<Component*>(item->parentItem());
+          if(c)
+            c->resetLabelPosition();
+        }
+    });
   sceneMenu_->addSeparator();
 
   // Place: every component of the list, then wires and markers

@@ -20,6 +20,7 @@
 #include "gui/theme.h"
 #include "gui/editor/itemtransform.h"
 #include "gui/editor/component.h"
+#include <QLineF>
 #include "gui/editor/graphicsnode.h"
 #include "gui/editor/wire.h"
 
@@ -257,6 +258,15 @@ void Component::addNodes(QPointF node)
 }
 
 
+QList<QPointF> Component::pinPoints() const
+{
+  QList<QPointF> points;
+  foreach(GraphicsNode* node, nodeList_)
+    points.append(node->pos());
+  return points;
+}
+
+
 QVector<int> Component::nodes() const
 {
   QVector<int> values;
@@ -334,14 +344,32 @@ void Component::setupLabel()
     &QAbstractTextDocumentLayout::documentSizeChanged,
     label_, [this]() { updateLabelPosition(); });
 
+  label_->automaticCentre = [this]() { return automaticLabelCentre(); };
   label_->onMoved = [this]() {
     if(positioningLabel_)
       return;
-    // dragged by the user: remember its centre
-    labelMoved_ = true;
-    labelAnchor_ = label_->pos()
+    // dragged by the user: remember its centre (back on the automatic
+    // place: automatic again)
+    const QPointF centre = label_->pos()
       + label_->transform().map(label_->boundingRect().center());
+    labelMoved_ = QLineF(centre, automaticLabelCentre()).length() > 0.5;
+    labelAnchor_ = centre;
   };
+}
+
+
+QPointF Component::automaticLabelCentre() const
+{
+  const QTransform t = transform();
+  const QTransform orientation(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0);
+  return defaultLabelAnchor(label_->boundingRect().size(), orientation);
+}
+
+
+void Component::resetLabelPosition()
+{
+  labelMoved_ = false;
+  updateLabelPosition();
 }
 
 
@@ -356,7 +384,19 @@ void Component::setLabelAnchor(const QPointF& anchor)
 QPointF Component::defaultLabelAnchor(
     const QSizeF& textSize, const QTransform& orientation) const
 {
-  const QRectF body = path_.boundingRect();
+  // the drawn body: some symbols carry invisible points (tiny rectangles)
+  // that pad their box for rotation; the label goes beside what is drawn
+  QRectF body;
+  foreach(const QPolygonF& poly, path_.toSubpathPolygons()) {
+    const QRectF r = poly.boundingRect();
+    if(r.width() < 1e-6 && r.height() < 1e-6)
+      continue;
+    body = body.isNull() ? r : body.united(r);
+  }
+  if(body.isNull())
+    body = path_.boundingRect();
+  // the centre across the terminals stays that of the full symbol (the
+  // label is centred on the part)
   const QPointF centre = body.center();
 
   // beside the body, perpendicular to the terminals: to the right of a
@@ -378,7 +418,9 @@ QPointF Component::defaultLabelAnchor(
   const qreal halfText = qAbs(onSheet.x()) * textSize.width() / 2.
                        + qAbs(onSheet.y()) * textSize.height() / 2.;
 
-  const qreal gap = 3.;
+  // the text box has a little air of its own (document margin, line
+  // spacing): a small gap is enough
+  const qreal gap = 1.;
   return centre + side * (halfBody + gap + halfText);
 }
 

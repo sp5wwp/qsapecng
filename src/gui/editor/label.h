@@ -57,14 +57,13 @@ public:
   void setText(const QString& label);
 
 protected:
-  void focusInEvent(QFocusEvent* event);
-  void focusOutEvent(QFocusEvent* event);
+  // double-click: edit the text
+  void mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event) override;
 
 private:
   qreal penWidth() const;
 
   QGraphicsTextItem label_;
-  QPainterPath path_;
 
 };
 

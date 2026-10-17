@@ -23,6 +23,7 @@
 
 #include "gui/editor/schematicscene.h"
 #include <QGraphicsLineItem>
+#include <QInputDialog>
 #include <utility>
 #include "gui/editor/schematicsceneparser.h"
 #include "gui/editor/undoredocommand.h"
@@ -969,8 +970,10 @@ QString SchematicScene::itemNameByType(SchematicScene::SupportedItemType type)
     return QString(QObject::tr("Operational Amplifier"));
   case UserDefItemType:
     return QString(QObject::tr("User Defined"));
+  case LabelItemType:
+    return QString(QObject::tr("Label"));
   default:
-    return QString(QObject::tr("Unknow"));
+    return QString(QObject::tr("Unknown"));
   }
 
   return QString();
@@ -1117,12 +1120,24 @@ SchematicScene::~SchematicScene() {
 
 QPointF SchematicScene::placementPos(const QPointF& pointer) const
 {
-  // the part being placed is centred on the pointer; the offset is a whole
-  // number of grid steps, so its pins stay on the grid
+  // where the pointer holds the part being placed (a grid point, so the
+  // pins stay on the grid):
+  //   one pin (ground, Out, 1-pin source, port): the pin
+  //   two pins: the grid point nearest the middle between them
+  //   more (op-amp, transformer, controlled sources): the grid point
+  //   nearest the centre of the symbol
   if(!item_)
     return closestGridPoint(pointer);
-  const QRectF box = item_->transform().mapRect(item_->boundingRect());
-  return closestGridPoint(pointer) - closestGridPoint(box.center());
+  const QTransform t = item_->transform();
+  QPointF anchor = t.mapRect(item_->boundingRect()).center();
+  if(const Component* c = dynamic_cast<const Component*>(item_)) {
+    const QList<QPointF> pins = c->pinPoints();
+    if(pins.size() == 1)
+      anchor = t.map(pins.first());
+    else if(pins.size() == 2)
+      anchor = t.map((pins.at(0) + pins.at(1)) / 2);
+  }
+  return closestGridPoint(pointer) - closestGridPoint(anchor);
 }
 
 
@@ -1797,11 +1812,43 @@ void SchematicScene::modifyWire(Wire* wire)
 
 void SchematicScene::createLabel()
 {
-  resetStatus();
+  // the label follows the pointer like a part; its text is asked for
+  // when it is placed
+  setActiveItem(LabelItemType);
+}
 
-  AddItems* command = new AddItems(this,
-    itemByType(LabelItemType), QPointF(3 * GridStep, 3 * GridStep));
-  undoRedoStack_->push(command);
+
+namespace {
+
+// the text of a label (double-click), undoable
+class SetLabelText: public QUndoCommand
+{
+public:
+  SetLabelText(Label* label, const QString& text)
+    : label_(label), old_(label->text()), new_(text)
+    { setText(QObject::tr("Edit label")); }
+  void undo() override { label_->setText(old_); label_->update(); }
+  void redo() override { label_->setText(new_); label_->update(); }
+private:
+  Label* label_;
+  QString old_, new_;
+};
+
+}
+
+
+bool SchematicScene::editLabelText(Label* label, bool fresh)
+{
+  QWidget* parent = views().isEmpty() ? 0 : views().first()->window();
+  bool ok = false;
+  const QString text = QInputDialog::getMultiLineText(parent,
+    fresh ? tr("New Label") : tr("Edit Label"), tr("Text:"),
+    fresh ? QString() : label->text(), &ok);
+  if(!ok || text.trimmed().isEmpty())
+    return false;
+  if(text != label->text())
+    undoRedoStack_->push(new SetLabelText(label, text));
+  return true;
 }
 
 
@@ -2067,6 +2114,100 @@ void SchematicScene::tidyWires(QList<Wire*> fresh)
         changed = true;
       }
     }
+  }
+
+  splitAtJunctions(fresh);
+}
+
+
+void SchematicScene::splitAtJunctions(QList<Wire*> fresh)
+{
+  // T-junctions become wire ends: a new wire ending on the middle of
+  // another splits it there, and a new wire passing over another wire's
+  // end or a pin is split there. The circuit does not change; a click
+  // then selects a wire only up to the junction
+  auto present = [this](Wire* w) {
+      return w && wireList_.contains(w) && w->isVisible();
+    };
+  auto ends = [](Wire* w) {
+      return QPair<QPointF, QPointF>(w->mapToScene(w->fromPoint()),
+                                     w->mapToScene(w->toPoint()));
+    };
+  // p strictly inside the wire (not at its ends)
+  auto inside = [&](Wire* w, const QPointF& p) {
+      const QPair<QPointF, QPointF> e = ends(w);
+      const QPointF a = e.first, b = e.second;
+      if(qAbs(a.y() - b.y()) < 0.5)        // horizontal
+        return qAbs(p.y() - a.y()) < 0.5
+          && p.x() > qMin(a.x(), b.x()) + 0.5 && p.x() < qMax(a.x(), b.x()) - 0.5;
+      return qAbs(p.x() - a.x()) < 0.5
+        && p.y() > qMin(a.y(), b.y()) + 0.5 && p.y() < qMax(a.y(), b.y()) - 0.5;
+    };
+  auto split = [&](Wire* w, const QPointF& at) {
+      const QPair<QPointF, QPointF> e = ends(w);
+      const bool junctions = w->isJunctionsConnected();
+      undoRedoStack_->push(new RemoveItems(this, w));
+      QList<Wire*> parts;
+      for(const QLineF& line : { QLineF(e.first, at), QLineF(at, e.second) }) {
+        const QPointF topLeft(qMin(line.x1(), line.x2()), qMin(line.y1(), line.y2()));
+        AddWire* add = new AddWire(this, topLeft, line, junctions);
+        undoRedoStack_->push(add);
+        parts.append(static_cast<Wire*>(add->wire()));
+      }
+      return parts;
+    };
+
+  for(int guard = 0; guard < 200; ++guard) {
+    bool changed = false;
+    for(int i = 0; i < fresh.size() && !changed; ++i) {
+      Wire* n = fresh.at(i);
+      if(!present(n))
+        continue;
+      const QPair<QPointF, QPointF> ne = ends(n);
+      // (a) its ends on the middle of another wire
+      foreach(Item* item, wireList_) {
+        Wire* o = static_cast<Wire*>(item);
+        if(o == n || !present(o))
+          continue;
+        for(const QPointF& p : { ne.first, ne.second })
+          if(inside(o, p)) {
+            fresh.append(split(o, p));
+            changed = true;
+            break;
+          }
+        if(changed)
+          break;
+      }
+      if(changed)
+        break;
+      // (b) another wire's end or a pin on its middle
+      QList<QPointF> points;
+      foreach(Item* item, wireList_) {
+        Wire* o = static_cast<Wire*>(item);
+        if(o != n && present(o)) {
+          const QPair<QPointF, QPointF> oe = ends(o);
+          points << oe.first << oe.second;
+        }
+      }
+      QList<Item*> parts;
+      parts << standardList_ << groundList_ << portList_ << userDefList_;
+      if(out_)
+        parts << out_;
+      foreach(Item* item, parts)
+        if(const Component* c = dynamic_cast<const Component*>(item))
+          foreach(const QPointF& pin, c->pinPoints())
+            points << c->mapToScene(pin);
+      foreach(const QPointF& p, points)
+        if(inside(n, p)) {
+          const QList<Wire*> halves = split(n, p);
+          fresh.removeAt(i);
+          fresh << halves;
+          changed = true;
+          break;
+        }
+    }
+    if(!changed)
+      break;
   }
 }
 
@@ -2736,14 +2877,15 @@ void SchematicScene::drawBackground(QPainter* painter, const QRectF& rect)
 //     painter->setRenderHints(
 //       QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
     painter->setRenderHints(QPainter::SmoothPixmapTransform);
-    painter->setPen(QPen(theme::sheetGrid(), 0));
     painter->setBrush(Qt::NoBrush);
+    const QColor colour = theme::sheetGrid();
 
-    // zoomed out, show every 5th / 25th... dot so the grid stays readable
+    // zoomed out, show every 5th / 25th... point or line so the grid stays
+    // readable
     const qreal scale = qMax(qreal(1e-6), painter->transform().m11() != 0.
       ? qAbs(painter->transform().m11()) : qAbs(painter->transform().m12()));
     int step = GridStep;
-    while(step * scale < 6.)
+    while(step * scale < (theme::gridStyle() == theme::GridStyle::Lines ? 8. : 6.))
       step *= 5;
 
     const int left = int(std::floor(rect.left() / step)) * step;
@@ -2751,9 +2893,30 @@ void SchematicScene::drawBackground(QPainter* painter, const QRectF& rect)
     const qreal right = rect.right();
     const qreal bottom = rect.bottom();
 
-    for(int x = left; x <= right; x += step)
-      for(int y = top; y <= bottom; y += step)
-        painter->drawPoint(x, y);
+    if(theme::gridStyle() == theme::GridStyle::Lines) {
+      // every 5th line a little stronger
+      QColor faint = colour;
+      faint.setAlphaF(0.55);
+      const QPen minor(faint, 0), major(colour, 0);
+      const int majorStep = step * 5;
+      for(int x = left; x <= right; x += step) {
+        painter->setPen(x % majorStep == 0 ? major : minor);
+        painter->drawLine(QPointF(x, rect.top()), QPointF(x, bottom));
+      }
+      for(int y = top; y <= bottom; y += step) {
+        painter->setPen(y % majorStep == 0 ? major : minor);
+        painter->drawLine(QPointF(rect.left(), y), QPointF(right, y));
+      }
+    } else {
+      // strong: bigger dots (2 px on the screen)
+      QPen pen(colour, theme::gridStrength() == 2 ? 2. : 0.);
+      pen.setCosmetic(true);
+      pen.setCapStyle(Qt::SquareCap);
+      painter->setPen(pen);
+      for(int x = left; x <= right; x += step)
+        for(int y = top; y <= bottom; y += step)
+          painter->drawPoint(x, y);
+    }
 
     painter->restore();
   }
@@ -2775,6 +2938,9 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
   }
 
   if(hasActiveItem() || hasUserDefReq()) {
+    ensurePreview();
+    if(item_ && event->button() == Qt::LeftButton)
+      item_->setPos(placementPos(event->scenePos()));
     switch(event->button())
     {
     case Qt::RightButton:
@@ -2793,6 +2959,20 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
           item_->pos());
       } else {
           addCommand = new AddSupportedItem(this, activeItem_, item_->pos());
+      }
+
+      // a label: its text first (cancel: nothing placed)
+      if(activeItem_ == LabelItemType && !hasUserDefReq()) {
+        Label* label = dynamic_cast<Label*>(
+          static_cast<AddSupportedItem*>(addCommand)->item());
+        undoRedoStack_->beginMacro(tr("Add label"));
+        undoRedoStack_->push(addCommand);
+        const bool ok = label && editLabelText(label, true);
+        undoRedoStack_->endMacro();
+        if(!ok)
+          undoRedoStack_->undo();
+        event->accept();
+        return;
       }
 
       undoRedoStack_->beginMacro(addCommand->text());
@@ -2888,6 +3068,20 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
     }
   }
 
+  // on a pin or a wire end: maybe the start of a wire (decided on release)
+  pinPressed_ = false;
+  if(event->button() == Qt::LeftButton && !hasActiveItem() && !hasUserDefReq()
+      && !hasPendingWire() && !floatingPaste_
+      && !(event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier)))
+  {
+    QPointF exact;
+    if(connectionAt(event->scenePos(), &exact)) {
+      pinPressed_ = true;
+      pinPoint_ = exact;
+      pinPressScreen_ = event->screenPos();
+    }
+  }
+
   if(!hasActiveItem() && !hasUserDefReq() && !hasPendingWire()
       && selectedItems().isEmpty() && itemAt(event->scenePos(), QTransform())) {
     clearSelection();
@@ -2902,6 +3096,25 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
 
 void SchematicScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 {
+  if(pinPressed_ && event->button() == Qt::LeftButton) {
+    pinPressed_ = false;
+    const bool moved = QLineF(pinPressScreen_, event->screenPos()).length() > 3
+      || drag_.active;
+    if(!moved) {
+      QGraphicsScene::mouseReleaseEvent(event);
+      // as W and a first click there
+      clearSelection();
+      setWireSessionRequest(false);
+      fromPoint_ = pinPoint_;
+      bendDecided_ = false;
+      hasValidFromPoint_ = true;
+      preWireItem_->setLine(QLineF(fromPoint_, fromPoint_));
+      preWireItem_->setVisible(true);
+      emit placementChanged();
+      event->accept();
+      return;
+    }
+  }
   QGraphicsScene::mouseReleaseEvent(event);
   if(drag_.active && event->button() == Qt::LeftButton)
     endDrag(true);
@@ -2933,7 +3146,9 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
   lastMousePos_ = event->scenePos();
 
   if(hasActiveItem() || hasUserDefReq()) {
-    item_->setPos(placementPos(event->scenePos()));
+    ensurePreview();
+    if(item_)
+      item_->setPos(placementPos(event->scenePos()));
     event->accept();
     return;
   }
@@ -3063,23 +3278,34 @@ void SchematicScene::keyPressEvent(QKeyEvent* event)
 }
 
 
+void SchematicScene::ensurePreview()
+{
+  // the part that follows the pointer; made on entering the view, or at
+  // the first move when the tool was picked with the pointer already
+  // inside (a hotkey): it used to be missing then (crash)
+  if(item_ || !(hasActiveItem() || hasUserDefReq()))
+    return;
+  item_ = SchematicScene::itemByType(activeItem_);
+  if(hasUserDefReq()) {
+    static_cast<Component*>(item_)->setPath(userDefPath(userDefSize_));
+    static_cast<Component*>(item_)->addNodes(userDefNodes(userDefSize_));
+  }
+  addItem(item_);
+}
+
+
 bool SchematicScene::event(QEvent* event)
 {
   // enter event
   if(event->type() == QEvent::Enter)
   {
     if(hasActiveItem() || hasUserDefReq()) {
-      if(item_)
+      if(item_) {
+        removeItem(item_);
         delete item_;
-
-      item_ = SchematicScene::itemByType(activeItem_);
-      
-      if(hasUserDefReq()) {
-        static_cast<Component*>(item_)->setPath(userDefPath(userDefSize_));
-        static_cast<Component*>(item_)->addNodes(userDefNodes(userDefSize_));
+        item_ = 0;
       }
-      
-      addItem(item_);
+      ensurePreview();
       event->accept();
       return true;
     }
@@ -3331,6 +3557,44 @@ void SchematicScene::setPrePostWireLine(QPointF toPoint)
 }
 
 
+bool SchematicScene::connectionAt(const QPointF& point, QPointF* exact) const
+{
+  // a pin of a part, or the end of a wire, within a few pixels (computed:
+  // the node markers have no reliable shape to hit)
+  auto near = [&point](const QPointF& p) {
+      return qAbs(p.x() - point.x()) <= 4 && qAbs(p.y() - point.y()) <= 4;
+    };
+  QList<Item*> parts;
+  parts << standardList_ << groundList_ << portList_ << userDefList_;
+  if(out_)
+    parts << out_;
+  foreach(Item* item, parts) {
+    const Component* c = dynamic_cast<const Component*>(item);
+    if(!c || !c->isVisible())
+      continue;
+    foreach(const QPointF& pin, c->pinPoints()) {
+      const QPointF p = c->mapToScene(pin);
+      if(near(p)) {
+        *exact = closestGridPoint(p);
+        return true;
+      }
+    }
+  }
+  foreach(Item* item, wireList_) {
+    const Wire* w = static_cast<const Wire*>(item);
+    if(!w->isVisible())
+      continue;
+    for(const QPointF& end : { w->mapToScene(w->fromPoint()),
+                               w->mapToScene(w->toPoint()) })
+      if(near(end)) {
+        *exact = closestGridPoint(end);
+        return true;
+      }
+  }
+  return false;
+}
+
+
 bool SchematicScene::isConnectionPoint(const QPointF& point) const
 {
   const QRectF probe(point - QPointF(1.5, 1.5), QSizeF(3, 3));
@@ -3451,6 +3715,8 @@ void SchematicScene::addWires()
   AddWire* preWireCommand = new AddWire(this, pos,
     preWireItem_->line(), connectedWire_);
   undoRedoStack_->push(preWireCommand);
+  QList<Wire*> fresh;
+  fresh.append(static_cast<Wire*>(preWireCommand->wire()));
 
   if(postWireItem_->isVisible()) {
     if(postWireItem_->line().y1() == postWireItem_->line().y2())
@@ -3469,7 +3735,10 @@ void SchematicScene::addWires()
     AddWire* postWireCommand = new AddWire(this, pos,
       postWireItem_->line(), connectedWire_);
     undoRedoStack_->push(postWireCommand);
+    fresh.append(static_cast<Wire*>(postWireCommand->wire()));
   }
+
+  splitAtJunctions(fresh);
 
   if(wireInProgress_) {
     undoRedoStack_->endMacro();
