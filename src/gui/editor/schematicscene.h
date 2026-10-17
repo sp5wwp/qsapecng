@@ -55,6 +55,8 @@ class QtStringPropertyManager;
 class QtProperty;
 
 
+class QGraphicsLineItem;
+
 namespace qsapecng
 {
 
@@ -185,6 +187,9 @@ public:
   void createLabel();
 
   void moveSelectedItems(QPointF pos);
+  // a mouse drag of the selection: wires attached to the moved pins
+  // stretch along (preview), committed as one undo step on release
+  void dragSelectedBy(const QPointF& offset);
   void cutSelectedItems();
   void copySelectedItems();
   void pasteItems();
@@ -206,6 +211,8 @@ public:
   int wireCount() const;
   // open the parameters dialog of an item (double-click); undoable
   void editItemProperties(QGraphicsItem* item);
+  inline SupportedItemType activeItemType() const { return activeItem_; }
+  inline bool hasActiveItemType() const { return activeItem_ != NilItemType; }
   inline bool isPlacingItem() const
     { return hasActiveItem() || hasUserDefReq(); }
   void mirrorSelectedItems();
@@ -301,6 +308,30 @@ private:
   QList<Item*> groundList_;
   QList<Item*> standardList_;
   QList<Item*> wireList_;
+
+  // moving parts keeps their wires attached (see dragSelectedBy)
+  struct RubberWire
+  {
+    Wire* wire;        // null: a new wire from a pin that stays
+    QPointF fixed;     // the end that stays
+    QPointF moving;    // the end on a moved pin (before the move)
+    Qt::Orientation orientation;
+    QGraphicsLineItem* preview[2];
+  };
+  struct DragSession
+  {
+    bool active = false;
+    QList<QGraphicsItem*> items;
+    QList<QPointF> origin;
+    QList<RubberWire> rubber;
+    QPointF total;
+  } drag_;
+  void numberNetLabels();
+  void beginDrag();
+  void updateDragPreview();
+  void endDrag(bool commit);
+  static QList<QLineF> rubberSegments(const QPointF& fixed,
+      const QPointF& moving, Qt::Orientation orientation);
   QList<Item*> labelList_;
   QList<Item*> userDefList_;
   

@@ -18,6 +18,8 @@
 
 
 #include "gui/editor/schematicsceneparser.h"
+#include "gui/qlogger.h"
+#include <functional>
 #include "gui/editor/component.h"
 #include "gui/editor/label.h"
 #include "gui/editor/wire.h"
@@ -81,10 +83,76 @@ void SchematicSceneParser::parse(
     sapecng::abstract_builder& builder
   )
 {
-  foreach(Item* item, items_)
+  const QSet<Item*> floating = skipFloating_ ? floatingParts() : QSet<Item*>();
+  foreach(Item* item, items_) {
+    if(floating.contains(item)) {
+      QtProperty* properties = SchematicScene::itemProperties(item);
+      QLogger::warning(QObject::tr("%1 is not connected to the rest of the "
+        "circuit and was left out").arg(properties ? properties->valueText()
+                                                   : QObject::tr("A part")));
+      continue;
+    }
     parse_item(builder, item);
+  }
 
   builder.flush();
+}
+
+
+QSet<Item*> SchematicSceneParser::floatingParts() const
+{
+  // nets joined by parts (union-find); a part none of whose nets reaches
+  // the ground net floats
+  QHash<int, int> parent;
+  std::function<int(int)> root = [&](int n) {
+      if(!parent.contains(n))
+        parent.insert(n, n);
+      int r = n;
+      while(parent.value(r) != r)
+        r = parent.value(r);
+      parent[n] = r;
+      return r;
+    };
+  auto join = [&](int a, int b) { parent[root(a)] = root(b); };
+
+  QList<Item*> parts;
+  bool grounded = false;
+  foreach(Item* item, items_) {
+    const SchematicScene::SupportedItemType type = SchematicScene::itemType(item);
+    switch(type) {
+    case SchematicScene::GroundItemType:
+      grounded = true;
+      break;
+    case SchematicScene::WireItemType:
+    case SchematicScene::LabelItemType:
+    case SchematicScene::OutItemType:
+    case SchematicScene::PortItemType:
+      break;
+    default:
+      if(Component* c = dynamic_cast<Component*>(item)) {
+        const QVector<int> nodes = c->nodes();
+        if(nodes.isEmpty())
+          break;
+        parts.append(item);
+        for(int i = 1; i < nodes.size(); ++i)
+          join(nodes.at(i), nodes.at(0));
+        // referenced to the ground inside the part
+        if(type == SchematicScene::SingleVoltageSourceItemType
+            || type == SchematicScene::OpAmplItemType)
+          join(nodes.at(0), SchematicScene::Ground);
+      }
+      break;
+    }
+  }
+
+  QSet<Item*> floating;
+  if(!grounded)
+    return floating;    // nothing to measure against: leave it to the solver
+  const int ground = root(SchematicScene::Ground);
+  foreach(Item* item, parts)
+    if(root(static_cast<Component*>(item)->nodes().at(0)) != ground)
+      floating.insert(item);
+  return floating;
 }
 
 

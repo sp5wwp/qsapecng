@@ -25,6 +25,7 @@
 #include "gui/editor/item.h"
 
 #include <QGraphicsItem>
+#include <QGraphicsTextItem>
 #include <QPainterPath>
 
 #include <QExplicitlySharedDataPointer>
@@ -81,6 +82,9 @@ public:
   inline void setTap(bool tap) { tap_ = tap; }
 
   void showNodeValue();
+  // the label shown for its net, if this node carries it
+  inline bool showsNodeValue() const { return label_ && label_->isVisible(); }
+  void setDisplayedValue(int number);
   void hideNodeValue();
 
   void setOwner(Item* owner);

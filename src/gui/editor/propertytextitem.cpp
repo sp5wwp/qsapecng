@@ -81,7 +81,8 @@ void PropertyTextItem::refreshText()
     if(sub->propertyName() == QLatin1String("Ideal")) ideal = sub;
     if(sub->propertyName() == QLatin1String("GBW")) gbw = sub;
   }
-  if(ideal && theme::showComponentValues()) {
+  // (R, L and C also have "Ideal"; only an op-amp has a GBW)
+  if(ideal && gbw && theme::showComponentValues()) {
     if(ideal->valueText() != tr("True")
         && ideal->valueText() != QLatin1String("True"))
     {

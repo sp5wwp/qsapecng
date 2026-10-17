@@ -336,6 +336,7 @@ void SchematicEditor::solve()
   QLogger::info(QObject::tr("Generating circuit..."));
 
   SchematicSceneParser* parser = new SchematicSceneParser(*scene_);
+  parser->setSkipFloating(true);
   solver_.apply(*parser);
   delete parser;
 

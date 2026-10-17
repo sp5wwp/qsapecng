@@ -22,6 +22,7 @@
 #include "parser/parser_factory.h"
 
 #include "gui/editor/schematicscene.h"
+#include <QGraphicsLineItem>
 #include "gui/editor/schematicsceneparser.h"
 #include "gui/editor/undoredocommand.h"
 #include "gui/editor/component.h"
@@ -136,8 +137,8 @@ QPainterPath SchematicScene::outPath()
   QPainterPath path;
   const qreal step = GridStep;
 
-  // 1.6 steps high, 3.4 long, centred on the terminal
-  const qreal top = 0.2 * step, bottom = 1.8 * step;
+  // 1.44 steps high, 3.4 long, centred on the terminal
+  const qreal top = 0.28 * step, bottom = 1.72 * step;
   path.moveTo(0, step);
   path.lineTo(0.7 * step, top);
   path.lineTo(3.4 * step, top);
@@ -1799,12 +1800,187 @@ void SchematicScene::createLabel()
 
 void SchematicScene::moveSelectedItems(QPointF offset)
 {
-  QList<QGraphicsItem*> items = selectedItems();
-  if(items.isEmpty())
+  // arrow keys: one step, wires attached to the moved pins follow
+  if(drag_.active)
+    endDrag(true);
+  if(selectedItems().isEmpty())
+    return;
+  beginDrag();
+  drag_.total = offset;
+  endDrag(true);
+}
+
+
+void SchematicScene::dragSelectedBy(const QPointF& offset)
+{
+  if(!drag_.active) {
+    if(selectedItems().isEmpty())
+      return;
+    beginDrag();
+  }
+  drag_.total += offset;
+  foreach(QGraphicsItem* item, drag_.items)
+    item->moveBy(offset.x(), offset.y());
+  updateDragPreview();
+}
+
+
+QList<QLineF> SchematicScene::rubberSegments(const QPointF& fixed,
+    const QPointF& moving, Qt::Orientation orientation)
+{
+  // straight when still in line; otherwise an L whose leg at the moved
+  // pin keeps the wire's direction (the pin is entered as before)
+  if(fixed == moving)
+    return {};
+  if(fixed.x() == moving.x() || fixed.y() == moving.y())
+    return { QLineF(fixed, moving) };
+  const QPointF corner = (orientation == Qt::Horizontal)
+    ? QPointF(fixed.x(), moving.y()) : QPointF(moving.x(), fixed.y());
+  return { QLineF(fixed, corner), QLineF(corner, moving) };
+}
+
+
+void SchematicScene::beginDrag()
+{
+  drag_ = DragSession();
+  drag_.active = true;
+
+  // the moved items (top level only: labels move with their part)
+  foreach(QGraphicsItem* item, selectedItems())
+    if(!item->parentItem() && dynamic_cast<Item*>(item))
+      drag_.items.append(item);
+
+  // their connection points: pins, and the points of moved wires
+  QList<QPointF> points;
+  foreach(QGraphicsItem* item, drag_.items)
+    foreach(QGraphicsItem* child, item->childItems())
+      if(dynamic_cast<GraphicsNode*>(child))
+        points.append(child->scenePos());
+  auto attached = [&points](const QPointF& p) {
+      foreach(const QPointF& q, points)
+        if(qAbs(p.x() - q.x()) < 0.5 && qAbs(p.y() - q.y()) < 0.5)
+          return true;
+      return false;
+    };
+
+  // wires that are not moved but end on a moved point
+  foreach(Item* item, wireList_) {
+    Wire* wire = static_cast<Wire*>(item);
+    if(drag_.items.contains(wire) || !wire->isVisible() || !wire->scene())
+      continue;
+    const QPointF a = wire->mapToScene(wire->fromPoint());
+    const QPointF b = wire->mapToScene(wire->toPoint());
+    const bool onA = attached(a), onB = attached(b);
+    if(onA && onB) {
+      drag_.items.append(wire);           // between two moved pins
+    } else if(onA || onB) {
+      RubberWire r;
+      r.wire = wire;
+      r.fixed = onA ? b : a;
+      r.moving = onA ? a : b;
+      r.orientation = wire->orientation();
+      for(int i = 0; i < 2; ++i) {
+        r.preview[i] = new QGraphicsLineItem;
+        r.preview[i]->setPen(wirePen_);
+        r.preview[i]->setZValue(wire->zValue());
+        r.preview[i]->setVisible(false);
+        addItem(r.preview[i]);
+      }
+      wire->setVisible(false);
+      drag_.rubber.append(r);
+    }
+  }
+
+  // pins of parts that stay, touching a moved pin directly (e.g. a ground
+  // on a capacitor): a new wire joins them
+  foreach(QGraphicsItem* item, items()) {
+    GraphicsNode* node = dynamic_cast<GraphicsNode*>(item);
+    if(!node || !node->parentItem() || !node->isVisible())
+      continue;
+    QGraphicsItem* owner = node->parentItem();
+    if(drag_.items.contains(owner) || dynamic_cast<Wire*>(owner))
+      continue;
+    const QPointF p = node->scenePos();
+    if(!attached(p))
+      continue;
+    RubberWire r;
+    r.wire = 0;
+    r.fixed = p;
+    r.moving = p;
+    // leave the pin the way it points out of its part
+    const QPointF out = p - owner->sceneBoundingRect().center();
+    r.orientation = qAbs(out.x()) > qAbs(out.y()) ? Qt::Horizontal : Qt::Vertical;
+    for(int i = 0; i < 2; ++i) {
+      r.preview[i] = new QGraphicsLineItem;
+      r.preview[i]->setPen(wirePen_);
+      r.preview[i]->setVisible(false);
+      addItem(r.preview[i]);
+    }
+    drag_.rubber.append(r);
+  }
+
+  foreach(QGraphicsItem* item, drag_.items)
+    drag_.origin.append(item->pos());
+  updateDragPreview();
+}
+
+
+void SchematicScene::updateDragPreview()
+{
+  for(RubberWire& r : drag_.rubber) {
+    const QList<QLineF> segments = r.wire
+      ? rubberSegments(r.fixed, r.moving + drag_.total, r.orientation)
+      : rubberSegments(r.moving + drag_.total, r.fixed, r.orientation);
+    for(int i = 0; i < 2; ++i) {
+      r.preview[i]->setVisible(i < segments.size());
+      if(i < segments.size())
+        r.preview[i]->setLine(segments.at(i));
+    }
+  }
+}
+
+
+void SchematicScene::endDrag(bool commit)
+{
+  if(!drag_.active)
+    return;
+  DragSession drag = drag_;
+  drag_ = DragSession();
+
+  // back to the start; the commands below make the move (undoable)
+  for(int i = 0; i < drag.items.size(); ++i)
+    drag.items.at(i)->setPos(drag.origin.at(i));
+  for(RubberWire& r : drag.rubber) {
+    for(int i = 0; i < 2; ++i) {
+      removeItem(r.preview[i]);
+      delete r.preview[i];
+    }
+    if(r.wire)
+      r.wire->setVisible(true);
+  }
+
+  if(!commit || drag.total.isNull() || drag.items.isEmpty())
     return;
 
-  MoveItems* command = new MoveItems(this, items, offset);
-  undoRedoStack_->push(command);
+  undoRedoStack_->beginMacro(tr("Move item(s)"));
+  undoRedoStack_->push(new MoveItems(this, drag.items, drag.total));
+  for(const RubberWire& r : drag.rubber) {
+    const bool junctions = r.wire ? r.wire->isJunctionsConnected() : false;
+    if(r.wire)
+      undoRedoStack_->push(new RemoveItems(this, r.wire));
+    // a new wire leaves the fixed pin straight (the leg at the moved pin
+    // keeps the old wire's direction)
+    const QList<QLineF> lines = r.wire
+      ? rubberSegments(r.fixed, r.moving + drag.total, r.orientation)
+      : rubberSegments(r.moving + drag.total, r.fixed, r.orientation);
+    foreach(const QLineF& line, lines)
+    {
+      const QPointF topLeft(qMin(line.x1(), line.x2()),
+                            qMin(line.y1(), line.y2()));
+      undoRedoStack_->push(new AddWire(this, topLeft, line, junctions));
+    }
+  }
+  undoRedoStack_->endMacro();
 }
 
 
@@ -2179,12 +2355,77 @@ void SchematicScene::assignNodes(int seed)
   if(out_)
     seed = static_cast<Component*>(out_)->propagate(seed);
 
+  numberNetLabels();
+
   // sub-circuits propagation
   foreach(Item* item, userDefList_) {
     QPointer<qsapecng::SchematicScene> rep =
       item->data(101).value< QPointer<qsapecng::SchematicScene> >();
 
     rep->assignNodes(seed);
+  }
+}
+
+
+void SchematicScene::numberNetLabels()
+{
+  // only nets that join two or more pins (the Out tag counts) get a
+  // number, 1, 2, 3 ... in the order of the parts; a lone wire or a pin
+  // left open is not worth a label. Display only: the solver keeps its
+  // own numbering
+  QHash<int, int> pins;
+  QList<int> order;
+  QList<Item*> parts;
+  parts << standardList_ << portList_ << userDefList_;
+  if(out_)
+    parts << out_;
+  foreach(Item* item, parts)
+    foreach(int net, static_cast<Component*>(item)->nodes()) {
+      if(!pins.contains(net))
+        order.append(net);
+      ++pins[net];
+    }
+
+  QHash<int, int> shown;
+  foreach(int net, order)
+    if(net != Ground && pins.value(net) >= 2)
+      shown.insert(net, shown.size() + 1);
+
+  // one label per net: on a wire end if the net has wires (a pin's
+  // label can sit on the part's lead), the top-left one
+  // preference: a wire corner or junction (2), a wire end on a pin (1),
+  // a pin (0); then the top-left one
+  QHash<int, GraphicsNode*> carrier;
+  QHash<int, int> rank;
+  foreach(QGraphicsItem* item, items()) {
+    GraphicsNode* node = dynamic_cast<GraphicsNode*>(item);
+    if(!node || !node->parentItem() || !node->isVisible())
+      continue;
+    node->hideNodeValue();
+    const int net = node->constNode()->value();
+    if(!shown.contains(net))
+      continue;
+    int r = 0;
+    if(dynamic_cast<Wire*>(node->parentItem())) {
+      r = 2;
+      foreach(GraphicsNode* other, node->itemSet())
+        if(other->parentItem() && !dynamic_cast<Wire*>(other->parentItem()))
+          r = 1;
+    }
+    GraphicsNode* best = carrier.value(net);
+    bool better = !best || r > rank.value(net);
+    if(best && r == rank.value(net)) {
+      const QPointF a = node->scenePos(), b = best->scenePos();
+      better = a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
+    }
+    if(better) {
+      carrier.insert(net, node);
+      rank.insert(net, r);
+    }
+  }
+  for(auto i = carrier.constBegin(); i != carrier.constEnd(); ++i) {
+    i.value()->showNodeValue();
+    i.value()->setDisplayedValue(shown.value(i.key()));
   }
 }
 
@@ -2423,6 +2664,8 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
 void SchematicScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 {
   QGraphicsScene::mouseReleaseEvent(event);
+  if(drag_.active && event->button() == Qt::LeftButton)
+    endDrag(true);
   // a click without a move ends with only the clicked item selected
   selectWireRunAt(event);
 }

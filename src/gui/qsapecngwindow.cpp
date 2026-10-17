@@ -952,6 +952,24 @@ void QSapecNGWindow::sceneSelectionChanged()
   bool hasSelectedItems = false;
   SchematicEditor* editor = activeEditor();
 
+  // the parts list shows the part being placed (none: no highlight)
+  if(sideBarView_) {
+    QModelIndex current;
+    if(editor && editor->scene().hasActiveItemType())
+      for(int row = 0; row < sideBarModel_->rowCount(); ++row) {
+        const QModelIndex i = sideBarModel_->index(row);
+        if(sideBarModel_->data(i, Qt::UserRole).toInt()
+            == editor->scene().activeItemType())
+          current = i;
+      }
+    if(current.isValid())
+      sideBarView_->setCurrentIndex(current);
+    else {
+      sideBarView_->clearSelection();
+      sideBarView_->setCurrentIndex(QModelIndex());
+    }
+  }
+
   if(editor)
     hasSelectedItems =
       (editor->scene().selectedItems().size() != 0);
@@ -1762,6 +1780,17 @@ void QSapecNGWindow::createSideBarDockLayout()
 
   connect(sideBarView_, SIGNAL(activated(const QModelIndex&)),
     this, SLOT(activated(const QModelIndex&)));
+  // one click picks the part to place (dragging still works)
+  connect(sideBarView_, &QAbstractItemView::clicked, this, [this](const QModelIndex& index) {
+      SchematicEditor* editor = activeEditor();
+      const int type = sideBarModel_->data(index, Qt::UserRole).toInt();
+      if(!editor || editor->scene().activeItemType() != type)
+        activated(index);
+    });
+  connect(sideBarView_, &SideBarView::emptyAreaClicked, this, [this]() {
+      if(SchematicEditor* editor = activeEditor())
+        editor->scene().setActiveItem(SchematicScene::NilItemType);
+    });
 }
 
 

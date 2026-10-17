@@ -57,7 +57,12 @@ public:
 
   void parse(sapecng::abstract_builder& builder);
 
+  // solving: leave out parts not connected (through other parts) to the
+  // ground; they would make the circuit unsolvable (result 0)
+  inline void setSkipFloating(bool skip) { skipFloating_ = skip; }
+
 private:
+  QSet<Item*> floatingParts() const;
   void storeItemData(
       std::map<std::string,std::string>& props,
       SchematicScene::SupportedItemType type,
@@ -81,6 +86,7 @@ private:
 
   QList<Item*> items_;
   int discard_;
+  bool skipFloating_ = false;
 
 };
 

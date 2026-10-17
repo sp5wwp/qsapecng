@@ -38,8 +38,13 @@ class SideBarView: public QListView
 public:
   SideBarView(QWidget* parent = 0);
 
+signals:
+  // a click below the parts: back to the plain pointer
+  void emptyAreaClicked();
+
 protected:
   void startDrag(Qt::DropActions supportedActions);
+  void mousePressEvent(QMouseEvent* event) override;
 
 };
 

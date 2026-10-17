@@ -20,6 +20,7 @@
 #include "gui/sidebarview.h"
 
 #include <QDrag>
+#include <QMouseEvent>
 
 
 namespace qsapecng
@@ -37,6 +38,18 @@ SideBarView::SideBarView(QWidget* parent)
   setAlternatingRowColors(true);
   setEditTriggers(QAbstractItemView::NoEditTriggers);
   setResizeMode(QListView::Adjust);
+}
+
+
+void SideBarView::mousePressEvent(QMouseEvent* event)
+{
+  if(!indexAt(event->position().toPoint()).isValid()) {
+    clearSelection();
+    emit emptyAreaClicked();
+    event->accept();
+    return;
+  }
+  QListView::mousePressEvent(event);
 }
 
 

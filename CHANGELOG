@@ -73,6 +73,7 @@ QSapecNG CHANGELOG
       and phase (in the panel and on the plot) and in frequency
     o Plot axes use prefixes (1k, 10M); pole and zero labels read
       -5k + j5k
+    o Out tag 10 % lower
     o Real resistors, inductors and capacitors: untick "Ideal" in the
       parameters to add parasitics - R: series L and parallel C; L: winding
       resistance and parallel C; C: ESR, ESL and leakage resistance (0 =
@@ -81,6 +82,18 @@ QSapecNG CHANGELOG
       (V), clipboard, order, and a Place submenu with every part; new
       hotkeys G (ground), P (port), O (Out), T (label)
     o A part being placed is centred on the pointer
+    o Components list: one click picks the part to place (dragging still
+      works); a click below the list goes back to the plain pointer; the
+      list shows the part being placed
+    o Moving parts keeps them connected: wires ending on a moved pin
+      stretch along (straight, or with a bend so the pin is entered as
+      before), and a part touching a moved pin directly gets a new wire;
+      a mouse drag or an arrow key is one undo step
+    o Net numbers after Resolve only for nets joining two or more pins
+      (the Out tag counts), numbered 1, 2, 3 ... without gaps, placed on a
+      wire corner beside the wires instead of on a lead
+    o Resolve leaves out parts connected to nothing (they made the whole
+      result 0) and says so in Messages
     o Dragged labels snap to the grid
     o Fit to Window centres the drawing both ways
     o Op-amp: GBW defaults to 1 MHz; its label reads G= for the gain

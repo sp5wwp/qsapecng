@@ -224,6 +224,15 @@ void GraphicsNode::showNodeValue()
 }
 
 
+void GraphicsNode::setDisplayedValue(int number)
+{
+  if(!label_)
+    return;
+  label_->setPlainText(QString::number(number));
+  updateLabelPosition();
+}
+
+
 void GraphicsNode::hideNodeValue()
 {
   if(label_)
@@ -245,71 +254,44 @@ Item* GraphicsNode::owner() const
 
 void GraphicsNode::updateLabelPosition()
 {
-  QPointF top = QPointF(
-      (boundingRect().width() - label_->boundingRect().width()) / 2,
-      -3/2 * label_->boundingRect().height()
-    );
-  label_->setPos(top);
-  if(label_->collidingItems().size() == 0)
-    return;
+  // the first free spot of eight around the node: free of wires (their
+  // lines, not their boxes), parts and other labels
+  const QRectF text = label_->boundingRect();
+  const QPointF centre = boundingRect().center();
+  const qreal dx = text.width() / 2 + 1, dy = text.height() / 2 - 1;
+  const QPointF offsets[] = {
+    QPointF(dx, -dy), QPointF(-dx, -dy), QPointF(dx, dy), QPointF(-dx, dy),
+    QPointF(0, -dy - 3), QPointF(dx + 2, 0), QPointF(-dx - 2, 0), QPointF(0, dy + 3)
+  };
 
-  QPointF left = QPointF(
-      -label_->boundingRect().width(),
-      (boundingRect().height() - label_->boundingRect().height()) / 2
-    );
-  label_->setPos(left);
-  if(label_->collidingItems().size() == 0)
-    return;
+  auto blocked = [this](const QRectF& sceneRect) {
+      if(!scene())
+        return false;
+      const QRectF probe = sceneRect.adjusted(3, 3, -3, -3);
+      foreach(QGraphicsItem* item, scene()->items(probe)) {
+        if(item == label_ || item == this || !item->isVisible())
+          continue;
+        if(Wire* wire = dynamic_cast<Wire*>(item)) {
+          const QRectF line = QRectF(wire->mapToScene(wire->fromPoint()),
+            wire->mapToScene(wire->toPoint())).normalized().adjusted(-1, -1, 1, 1);
+          if(line.intersects(probe))
+            return true;
+        } else if(dynamic_cast<QGraphicsTextItem*>(item)) {
+          return true;     // another label
+        } else if(dynamic_cast<Item*>(item)) {
+          return true;     // a part
+        }
+      }
+      return false;
+    };
 
-  QPointF bottom = QPointF(
-      (boundingRect().width() - label_->boundingRect().width()) / 2,
-      boundingRect().height() + 1/2 * label_->boundingRect().height()
-    );
-  label_->setPos(bottom);
-  if(label_->collidingItems().size() == 0)
-    return;
-
-  QPointF right = QPointF(
-      boundingRect().width(),
-      (boundingRect().height() - label_->boundingRect().height()) / 2
-    );
-  label_->setPos(right);
-  if(label_->collidingItems().size() == 0)
-    return;
-
-  QPointF topLeft = QPointF(
-      -label_->boundingRect().width(),
-      -3/2 * label_->boundingRect().height()
-    );
-  label_->setPos(topLeft);
-  if(label_->collidingItems().size() == 0)
-    return;
-
-  QPointF bottomLeft = QPointF(
-      -label_->boundingRect().width(),
-      boundingRect().height() + 1/2 * label_->boundingRect().height()
-    );
-  label_->setPos(bottomLeft);
-  if(label_->collidingItems().size() == 0)
-    return;
-
-  QPointF topRight = QPointF(
-      boundingRect().width(),
-      -3/2 * label_->boundingRect().height()
-    );
-  label_->setPos(topRight);
-  if(label_->collidingItems().size() == 0)
-    return;
-
-  QPointF bottomRight = QPointF(
-      boundingRect().width(),
-      boundingRect().height() + 1/2 * label_->boundingRect().height()
-    );
-  label_->setPos(bottomRight);
-  if(label_->collidingItems().size() == 0)
-    return;
-
-  label_->setPos(top);
+  for(const QPointF& offset : offsets) {
+    const QPointF pos = centre + offset - text.center();
+    label_->setPos(pos);
+    if(!blocked(label_->sceneBoundingRect()))
+      return;
+  }
+  label_->setPos(centre + offsets[0] - text.center());
 }
 
 

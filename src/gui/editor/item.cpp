@@ -182,7 +182,7 @@ void Item::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
     );
 
   if(schematicScene()) {
-    schematicScene()->moveSelectedItems(offset);
+    schematicScene()->dragSelectedBy(offset);
   } else {
     if(scene()) {
       QList<QGraphicsItem*> items = scene()->selectedItems();
