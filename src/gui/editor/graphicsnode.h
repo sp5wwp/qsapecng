@@ -73,6 +73,9 @@ public:
 
   // a tap is a connection point added in the middle of a wire
   inline bool isTap() const { return tap_; }
+
+  // wires / pins meeting here (see paint)
+  int branchCount() const;
   inline void setTap(bool tap) { tap_ = tap; }
 
   void showNodeValue();
@@ -88,6 +91,8 @@ private:
   void updateLabelPosition();
 
 private:
+  int branches() const;
+
   Item* owner_;
 
   bool colliding_;

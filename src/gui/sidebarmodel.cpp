@@ -20,6 +20,8 @@
 #include "gui/theme.h"
 #include "gui/sidebarmodel.h"
 
+#include <QHash>
+
 #include "gui/editor/schematicscene.h"
 
 #include <QMap>
@@ -212,17 +214,37 @@ void SideBarModel::setupSideBar()
 
 void SideBarModel::refreshSymbols()
 {
+  // re-tint every symbol (palette change) and follow the resistor style
+  static const QHash<int, QString> names = {
+    { SchematicScene::InductorItemType, "inductor" },
+    { SchematicScene::CapacitorItemType, "capacitor" },
+    { SchematicScene::VoltageSourceItemType, "voltage" },
+    { SchematicScene::CurrentSourceItemType, "current" },
+    { SchematicScene::VCVSItemType, "vcvs" },
+    { SchematicScene::CCVSItemType, "ccvs" },
+    { SchematicScene::VCCSItemType, "vccs" },
+    { SchematicScene::CCCSItemType, "cccs" },
+    { SchematicScene::OpAmplItemType, "opampl" },
+    { SchematicScene::TransformerItemType, "transformer" },
+    { SchematicScene::MutualInductanceItemType, "mutualinductance" }
+  };
+
   for(int row = 0; row < componentList_.size(); ++row) {
     const int type = componentList_[row][Qt::UserRole].toInt();
+    QString name = names.value(type);
     if(type == SchematicScene::ResistorItemType
         || type == SchematicScene::ConductanceItemType)
-    {
-      componentList_[row][Qt::DecorationRole] =
-        theme::symbolPixmap(theme::resistorSymbolName(), QSize(32, 32));
-      const QModelIndex i = index(row);
-      emit dataChanged(i, i, { Qt::DecorationRole });
-    }
+      name = theme::resistorSymbolName();
+    if(name.isEmpty())
+      continue;
+
+    componentList_[row][Qt::DecorationRole] =
+      theme::symbolPixmap(name, QSize(32, 32));
   }
+
+  if(!componentList_.isEmpty())
+    emit dataChanged(index(0), index(componentList_.size() - 1),
+      { Qt::DecorationRole });
 }
 
 

@@ -19,6 +19,7 @@
 
 #include "gui/theme.h"
 #include "gui/editor/graphicsnode.h"
+#include "gui/editor/wire.h"
 
 #include <QGraphicsTextItem>
 #include <QGraphicsScene>
@@ -73,13 +74,39 @@ void GraphicsNode::paint(
     QWidget* widget
   )
 {
-  if(isColliding()) {
+  // a dot only marks a junction: three or more branches meeting. A wire
+  // end or a pin is one branch, a point inside a wire two (it goes on);
+  // plain bends, wire ends on pins and touching pins get no dot.
+  if(isColliding() && branchCount() >= 3) {
     painter->save();
     painter->setBrush(QBrush(theme::sheetForeground(), Qt::SolidPattern));
     painter->setPen(QPen(theme::sheetForeground(), 0));
     painter->drawPath(path_);
     painter->restore();
   }
+}
+
+
+int GraphicsNode::branches() const
+{
+  if(isTap())
+    return 2;
+  if(Wire* wire = dynamic_cast<Wire*>(owner_)) {
+    const QPointF p = pos();
+    if(QLineF(p, wire->fromPoint()).length() > 0.5
+        && QLineF(p, wire->toPoint()).length() > 0.5)
+      return 2;   // grid point inside a "wire cross" wire
+  }
+  return 1;
+}
+
+
+int GraphicsNode::branchCount() const
+{
+  int count = branches();
+  foreach(GraphicsNode* other, itemSet_)
+    count += other->branches();
+  return count;
 }
 
 
@@ -101,6 +128,7 @@ void GraphicsNode::attach(GraphicsNode* item)
     setNode(item->node());
     itemSet_.insert(item);
     colliding_ = true;
+    update();   // the dot may appear (one more branch)
   }
 }
 
@@ -109,6 +137,7 @@ void GraphicsNode::detach(GraphicsNode* item)
 {
   itemSet_.remove(item);
   colliding_ = !itemSet_.isEmpty();
+  update();
 }
 
 
@@ -150,6 +179,7 @@ void GraphicsNode::updateItemSet()
   }
 
   colliding_ = !itemSet_.isEmpty();
+  update();
 }
 
 

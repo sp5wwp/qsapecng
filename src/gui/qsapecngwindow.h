@@ -89,6 +89,7 @@ public:
 
 protected:
   void closeEvent(QCloseEvent* event);
+  void changeEvent(QEvent* event) override;
 
 private slots:
   void toggleScreenMode();

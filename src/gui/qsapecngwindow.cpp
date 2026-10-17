@@ -52,6 +52,7 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QDir>
+#include <QSettings>
 
 #include <QLabel>
 #include <QLineEdit>
@@ -761,9 +762,28 @@ void QSapecNGWindow::about()
 }
 
 
+void QSapecNGWindow::changeEvent(QEvent* event)
+{
+  QMainWindow::changeEvent(event);
+
+  if(event->type() == QEvent::PaletteChange) {
+    // QMdiArea keeps the background brush it was created with, and the
+    // component list holds pixmaps tinted for the old palette
+    mdiArea_->setBackground(palette().brush(QPalette::Dark));
+    sideBarModel_->refreshSymbols();
+  }
+}
+
+
 void QSapecNGWindow::activated(const QModelIndex& index)
 {
   SchematicEditor* editor = activeEditor();
+
+  // picking a component with no schematic open starts a new one
+  if(!editor) {
+    newFile();
+    editor = activeEditor();
+  }
 
   if(editor)
     editor->scene().setActiveItem(
@@ -893,7 +913,7 @@ void QSapecNGWindow::updateDocks()
 {
   bool hasEditor = (activeEditor() != 0);
 
-  sideBarDock_->widget()->setEnabled(hasEditor);
+  // the component list stays usable: a pick opens a new schematic
   undoRedoDock_->widget()->setEnabled(hasEditor);
 }
 
@@ -1404,8 +1424,8 @@ void QSapecNGWindow::createMenus()
   QMenu* resistorMenu = settingMenu_->addMenu(tr("&Resistor symbol"));
   QActionGroup* resistorGroup = new QActionGroup(resistorMenu);
   const QList< QPair<QString, theme::ResistorStyle> > resistorStyles = {
-    { tr("&ANSI (zigzag)"), theme::ResistorStyle::Ansi },
-    { tr("&IEC / DIN (rectangle)"), theme::ResistorStyle::Din }
+    { tr("&ANSI"), theme::ResistorStyle::Ansi },
+    { tr("&IEC / DIN"), theme::ResistorStyle::Din }
   };
   for(const auto& r : resistorStyles) {
     QAction* act = resistorMenu->addAction(r.first);
@@ -1434,6 +1454,15 @@ void QSapecNGWindow::createMenus()
       setShowComponentValues(show);
     });
   }
+
+  QAction* splashAct = settingMenu_->addAction(tr("Show &splash screen"));
+  splashAct->setCheckable(true);
+  splashAct->setChecked(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/showSplash"), true).toBool());
+  connect(splashAct, &QAction::toggled, this, [](bool on) {
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue(QStringLiteral("Application/showSplash"), on);
+    });
 
   settingMenu_->addSeparator();
   settingMenu_->addAction(configureAppAct_);

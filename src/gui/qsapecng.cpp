@@ -19,6 +19,7 @@
 
 #include "gui/qsapecngwindow.h"
 #include "gui/theme.h"
+#include "config.h"
 
 #include <QApplication>
 #include <QSplashScreen>
@@ -26,6 +27,11 @@
 #include <QMainWindow>
 #include <QString>
 #include <QStringList>
+#include <QSettings>
+#include <QElapsedTimer>
+#include <QTimer>
+
+#include <memory>
 
 
 int main(int argc, char** argv)
@@ -39,17 +45,24 @@ int main(int argc, char** argv)
   QGuiApplication::setDesktopFileName(QStringLiteral("qsapecng"));
   qsapecng::theme::applyAppearance(app);
   
-//   QPixmap pixmap(":/images/qsapecng-splash-ng.png");
-  QPixmap pixmap(":/images/qsapecng-splash.png");
-  QSplashScreen splash(pixmap);
-  splash.show();
+  // splash screen (Settings > Show splash screen), kept up for a moment
+  // in front of the main window; a click closes it early
+  const bool showSplash = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/showSplash"), true).toBool();
+  const int splashMs = 2500;
 
-  splash.showMessage(
-      QObject::tr("Loading QSapecNG..."),
-      Qt::AlignBottom | Qt::AlignLeft
-    );
-  app.processEvents();
-  
+  QElapsedTimer started;
+  started.start();
+  std::unique_ptr<QSplashScreen> splash;
+  if(showSplash) {
+    splash.reset(new QSplashScreen(QPixmap(":/images/qsapecng-splash.png"),
+      Qt::WindowStaysOnTopHint));
+    splash->show();
+    splash->showMessage(QObject::tr("Loading QSapecNG..."),
+      Qt::AlignBottom | Qt::AlignLeft);
+    app.processEvents();
+  }
+
   qsapecng::QSapecNGWindow window;
 
   // Show the main window before opening files given on the command line:
@@ -58,17 +71,21 @@ int main(int argc, char** argv)
 
   const QStringList args = app.arguments();
   if(args.size() > 1) {
-    splash.showMessage(
-        QObject::tr("Loading file(s)..."),
-        Qt::AlignBottom | Qt::AlignLeft
-    );
-    app.processEvents();
+    if(splash) {
+      splash->showMessage(QObject::tr("Loading file(s)..."),
+        Qt::AlignBottom | Qt::AlignLeft);
+      app.processEvents();
+    }
 
     for(int i = 1; i < args.size(); ++i)
       window << args.at(i);
   }
 
-  splash.finish(&window);
+  if(splash) {
+    splash->raise();
+    const int left = qMax(0, splashMs - int(started.elapsed()));
+    QTimer::singleShot(left, splash.get(), &QSplashScreen::close);
+  }
 
   return app.exec();
 }
