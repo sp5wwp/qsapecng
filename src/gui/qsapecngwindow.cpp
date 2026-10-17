@@ -215,6 +215,8 @@ void QSapecNGWindow::refreshSchematics()
 void QSapecNGWindow::configDialog()
 {
   ConfigDialog configDialog(this);
+  connect(&configDialog, &ConfigDialog::appearanceApplied,
+    this, &QSapecNGWindow::appearanceChanged);
   configDialog.exec();
 
   Settings settings;
@@ -932,25 +934,24 @@ void QSapecNGWindow::license()
 }
 
 
-void QSapecNGWindow::setResistorStyle(theme::ResistorStyle style)
+void QSapecNGWindow::appearanceChanged()
 {
-  theme::setResistorStyle(style);
-
+  // the settings are stored already (Configure > Appearance); redraw
   foreach(QMdiSubWindow* window, mdiArea_->subWindowList())
-    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window))
+    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window)) {
       editor->scene().updateResistorSymbols();
-
-  sideBarModel_->refreshSymbols();
-}
-
-
-void QSapecNGWindow::setShowComponentValues(bool show)
-{
-  theme::setShowComponentValues(show);
-
-  foreach(QMdiSubWindow* window, mdiArea_->subWindowList())
-    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window))
       editor->scene().refreshComponentLabels();
+    }
+  sideBarModel_->refreshSymbols();
+  refreshSchematics();
+
+  {
+    QSignalBlocker block(antialiasAct_);
+    antialiasAct_->setChecked(WorkPlane::antialiased());
+  }
+  for(const PlotEntry& e : plots_)
+    if(e.plane)
+      e.plane->applyAntialiasing();
 }
 
 
@@ -1639,95 +1640,6 @@ void QSapecNGWindow::createMenus()
   toolbarMenu_->addAction(toolToolBar_->toggleViewAction());
   settingMenu_->addAction(toggleScreenModeAct_);
 
-  QMenu* appearanceMenu = settingMenu_->addMenu(tr("&Appearance"));
-  QActionGroup* appearanceGroup = new QActionGroup(appearanceMenu);
-  const QList< QPair<QString, theme::Mode> > modes = {
-    { tr("Follow &system"), theme::Mode::System },
-    { tr("&Light"), theme::Mode::Light },
-    { tr("&Dark"), theme::Mode::Dark }
-  };
-  for(const auto& m : modes) {
-    QAction* act = appearanceMenu->addAction(m.first);
-    act->setCheckable(true);
-    act->setChecked(theme::mode() == m.second);
-    appearanceGroup->addAction(act);
-    const theme::Mode mode = m.second;
-    connect(act, &QAction::triggered, this, [mode]() { theme::setMode(mode); });
-  }
-
-  QMenu* resistorMenu = settingMenu_->addMenu(tr("&Resistor symbol"));
-  QActionGroup* resistorGroup = new QActionGroup(resistorMenu);
-  const QList< QPair<QString, theme::ResistorStyle> > resistorStyles = {
-    { tr("&ANSI"), theme::ResistorStyle::Ansi },
-    { tr("&IEC / DIN"), theme::ResistorStyle::Din }
-  };
-  for(const auto& r : resistorStyles) {
-    QAction* act = resistorMenu->addAction(r.first);
-    act->setCheckable(true);
-    act->setChecked(theme::resistorStyle() == r.second);
-    resistorGroup->addAction(act);
-    const theme::ResistorStyle style = r.second;
-    connect(act, &QAction::triggered, this, [this, style]() {
-      setResistorStyle(style);
-    });
-  }
-
-  QMenu* gridMenu = settingMenu_->addMenu(tr("&Grid"));
-  QActionGroup* gridStyleGroup = new QActionGroup(gridMenu);
-  for(const auto& g : QList< QPair<QString, theme::GridStyle> >{
-      { tr("&Dots"), theme::GridStyle::Dots },
-      { tr("&Lines"), theme::GridStyle::Lines } })
-  {
-    QAction* act = gridMenu->addAction(g.first);
-    act->setCheckable(true);
-    act->setChecked(theme::gridStyle() == g.second);
-    gridStyleGroup->addAction(act);
-    const theme::GridStyle style = g.second;
-    connect(act, &QAction::triggered, this, [this, style]() {
-      theme::setGridStyle(style);
-      refreshSchematics();
-    });
-  }
-  gridMenu->addSeparator();
-  QActionGroup* gridStrengthGroup = new QActionGroup(gridMenu);
-  const QStringList strengths = { tr("&Faint"), tr("&Medium"), tr("&Strong") };
-  for(int i = 0; i < strengths.size(); ++i) {
-    QAction* act = gridMenu->addAction(strengths.at(i));
-    act->setCheckable(true);
-    act->setChecked(theme::gridStrength() == i);
-    gridStrengthGroup->addAction(act);
-    connect(act, &QAction::triggered, this, [this, i]() {
-      theme::setGridStrength(i);
-      refreshSchematics();
-    });
-  }
-
-  QMenu* labelMenu = settingMenu_->addMenu(tr("Component &labels"));
-  QActionGroup* labelGroup = new QActionGroup(labelMenu);
-  const QList< QPair<QString, bool> > labelModes = {
-    { tr("&Name only"), false },
-    { tr("Name and &value"), true }
-  };
-  for(const auto& l : labelModes) {
-    QAction* act = labelMenu->addAction(l.first);
-    act->setCheckable(true);
-    act->setChecked(theme::showComponentValues() == l.second);
-    labelGroup->addAction(act);
-    const bool show = l.second;
-    connect(act, &QAction::triggered, this, [this, show]() {
-      setShowComponentValues(show);
-    });
-  }
-
-  QAction* splashAct = settingMenu_->addAction(tr("Show &splash screen"));
-  splashAct->setCheckable(true);
-  splashAct->setChecked(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
-    .value(QStringLiteral("Application/showSplash"), true).toBool());
-  connect(splashAct, &QAction::toggled, this, [](bool on) {
-      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
-        .setValue(QStringLiteral("Application/showSplash"), on);
-    });
-
   settingMenu_->addSeparator();
   settingMenu_->addAction(configureAppAct_);
 
@@ -1770,6 +1682,14 @@ void QSapecNGWindow::createMenus()
   sceneMenu_->addSeparator();
   sceneMenu_->addAction(bringToFrontAct_);
   sceneMenu_->addAction(sendToBackAct_);
+  QAction* reverseMeters = sceneMenu_->addAction(tr("Reverse &Polarity"));
+  reverseMeters->setStatusTip(tr("Voltmeter: swap + and -; ammeter: the "
+    "arrow the other way (the result changes sign)"));
+  connect(reverseMeters, &QAction::triggered, this, [this]() {
+      if(SchematicEditor* editor = activeEditor())
+        if(!editor->scene().reverseSelectedMeters())
+          statusBar()->showMessage(tr("Select a voltmeter or an ammeter first"), 3000);
+    });
   QAction* resetLabels = sceneMenu_->addAction(tr("Reset &Label Position"));
   resetLabels->setStatusTip(tr("Put the labels of the selected parts back "
                                "beside them"));

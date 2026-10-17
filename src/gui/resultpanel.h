@@ -66,6 +66,7 @@ signals:
 
 protected:
   void changeEvent(QEvent* event) override;
+  void resizeEvent(QResizeEvent* event) override;
 
 private slots:
   void linkClicked(const QUrl& url);
@@ -74,6 +75,7 @@ private:
   void render();
 
   QTextBrowser* view_;
+  bool sideBySide_ = false;
   SolveResult result_;
   bool hasResult_;
   bool outOfDate_;

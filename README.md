@@ -36,6 +36,15 @@ A previous version of SapecNG is available too, on [SourceForge.net](https://sou
 Pre-compiled packages will also be available from the projects' pages.
 
 
+## Quick start
+
+1. Draw the circuit: pick parts in the Components list (or with their keys),
+   W draws wires, mark the output with Out (O).
+2. Press F8 (Run > Resolve): the transfer function appears in the Result
+   panel and a Bode plot opens.
+3. Run > New Plot (F9) for other plots; click a plot to place markers.
+
+
 ## Installation
 
 * Windows: open the setup executable and follow the instructions.
@@ -153,14 +162,3 @@ is installed on the system) and a .dmg file with the application bundle on macOS
 * RedHat users may execute (as root) `cpack -G RPM` instead of
   `make package` to build a .rpm binary file (this command has not
   been tested).
-
-
-## Translations
-
-Currently only the English language is supported.
-The Italian one is in progress and other translations are welcome.
-
-
-## Usage
-
-TODO

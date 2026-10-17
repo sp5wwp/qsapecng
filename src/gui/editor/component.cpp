@@ -20,6 +20,7 @@
 #include "gui/theme.h"
 #include "gui/editor/itemtransform.h"
 #include "gui/editor/component.h"
+#include <QTransform>
 #include <QLineF>
 #include "gui/editor/graphicsnode.h"
 #include "gui/editor/wire.h"
@@ -193,6 +194,25 @@ void Component::paint(
   }
 
   painter->restore();
+}
+
+
+void Component::setReversed(bool reversed)
+{
+  if(reversed == reversed_ || nodeList_.size() != 2)
+    return;
+  reversed_ = reversed;
+  // mirror across the perpendicular bisector of the pins
+  const QPointF a = nodeList_.at(0)->pos(), b = nodeList_.at(1)->pos();
+  const QPointF mid = (a + b) / 2;
+  QTransform t;
+  if(qAbs(a.x() - b.x()) < 0.5)      // pins one above the other
+    t = QTransform(1, 0, 0, -1, 0, 2 * mid.y());
+  else
+    t = QTransform(-1, 0, 0, 1, 2 * mid.x(), 0);
+  prepareGeometryChange();
+  path_ = t.map(path_);
+  update();
 }
 
 

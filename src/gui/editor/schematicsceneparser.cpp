@@ -291,9 +291,14 @@ void SchematicSceneParser::parse_item(
       Component* component = static_cast<Component*>(item);
       QVector<int> nodes = component->nodes();
 
+      // reversed polarity: the other way round (and so in the file)
+      const bool reversed = component->isReversed();
+      if(reversed)
+        props["reversed"] = "1";
       builder.add_dual_component(
         dualMap_[type], "", 1., true,
-        nodes.at(1), nodes.at(0),
+        reversed ? nodes.at(0) : nodes.at(1),
+        reversed ? nodes.at(1) : nodes.at(0),
         props
       );
 
@@ -608,12 +613,16 @@ void SchematicSceneBuilder::add_dual_component(
       {
         component = static_cast<Component*>(
           SchematicScene::itemByType(SchematicScene::VoltmeterItemType));
+        if(component && props["reversed"] == "1")
+          component->setReversed(true);
         break;
       }
     case sapecng::abstract_builder::AM:
       {
         component = static_cast<Component*>(
           SchematicScene::itemByType(SchematicScene::AmmeterItemType));
+        if(component && props["reversed"] == "1")
+          component->setReversed(true);
         break;
       }
     default:

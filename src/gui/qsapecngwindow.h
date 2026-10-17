@@ -163,8 +163,7 @@ private slots:
   void syncWithCurrentEditor();
   void updateResultPanel();
   void updateStatus();
-  void setResistorStyle(theme::ResistorStyle style);
-  void setShowComponentValues(bool show);
+  void appearanceChanged();
   void subWindowActivated(QMdiSubWindow* window);
   void stackEditor(SchematicEditor* editor);
   

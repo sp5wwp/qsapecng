@@ -107,6 +107,10 @@ public:
 
   // tag symbols (the Out marker): filled shape with a caption
   void setTag(const QString& text, const QRectF& pivot);
+  // a meter's polarity: the symbol mirrored end to end between its two
+  // pins (+ / arrow at the other end); the pins stay
+  void setReversed(bool reversed);
+  inline bool isReversed() const { return reversed_; }
   // a small caption centred on a point of the symbol, kept upright
   void addCaption(const QPointF& centre, const QString& text);
   QRectF pivotRect() const override;
@@ -136,6 +140,7 @@ private:
 
   PropertyTextItem* label_;
   QString tag_;
+  bool reversed_ = false;
   QList< QPair<QPointF, QString> > captions_;
   QRectF pivot_;
   QPointF labelAnchor_;

@@ -1837,6 +1837,43 @@ private:
 }
 
 
+namespace {
+
+// a meter's polarity (right-click > Reverse Polarity), undoable
+class ReverseMeters: public QUndoCommand
+{
+public:
+  explicit ReverseMeters(const QList<Component*>& meters): meters_(meters)
+    { setText(QObject::tr("Reverse polarity")); }
+  void undo() override { redo(); }
+  void redo() override
+  {
+    foreach(Component* c, meters_)
+      c->setReversed(!c->isReversed());
+  }
+private:
+  QList<Component*> meters_;
+};
+
+}
+
+
+bool SchematicScene::reverseSelectedMeters()
+{
+  QList<Component*> meters;
+  foreach(QGraphicsItem* item, selectedItems()) {
+    const SupportedItemType type = itemType(item);
+    if(type == VoltmeterItemType || type == AmmeterItemType)
+      if(Component* c = dynamic_cast<Component*>(item))
+        meters.append(c);
+  }
+  if(meters.isEmpty())
+    return false;
+  undoRedoStack_->push(new ReverseMeters(meters));
+  return true;
+}
+
+
 bool SchematicScene::editLabelText(Label* label, bool fresh)
 {
   QWidget* parent = views().isEmpty() ? 0 : views().first()->window();

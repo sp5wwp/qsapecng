@@ -30,6 +30,9 @@
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <cmath>
+#include <QTimer>
+#include <QTextDocument>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -122,6 +125,15 @@ void ResultPanel::showPlaceholder()
   hasResult_ = false;
   outOfDate_ = false;
   render();
+}
+
+
+void ResultPanel::resizeEvent(QResizeEvent* event)
+{
+  QWidget::resizeEvent(event);
+  // the layout (side by side or stacked) may change with the width
+  if(hasResult_)
+    QTimer::singleShot(0, this, [this]() { render(); });
 }
 
 
@@ -231,15 +243,41 @@ void ResultPanel::render()
       result_.digit }
   };
 
+  QStringList blocks;
   for(const Section& s : sections) {
-    html += QStringLiteral(
+    QString block = QStringLiteral(
         "<p style='margin: 12px 0 0 0;'><b>%1</b> "
         "<span style='color:%2;'>&nbsp;%3&nbsp;&nbsp;</span>"
         "<a href='copy:%4' style='color:%5;'>%6</a>&nbsp;&nbsp;"
         "<a href='latex:%4' style='color:%5;'>%7</a></p>")
       .arg(s.title, dimCss, s.note, s.key, link.name(), tr("Copy"),
            tr("Copy LaTeX"));
-    html += fractionHtml(s.f, text);
+    block += fractionHtml(s.f, text);
+    blocks << block;
+  }
+
+  // side by side when the three fit in the panel's width (wide screens),
+  // otherwise one below the other
+  const int gap = 32;
+  int needed = 0;
+  for(const QString& block : blocks) {
+    QTextDocument doc;
+    doc.setDefaultFont(view_->font());
+    doc.setDocumentMargin(0);
+    doc.setHtml(block);
+    needed += int(std::ceil(doc.idealWidth())) + gap;
+  }
+  const int available = view_->viewport()->width()
+    - 2 * int(view_->document()->documentMargin()) - 12;
+  sideBySide_ = needed <= available;
+  if(sideBySide_) {
+    html += QStringLiteral("<table cellspacing='0' cellpadding='0'><tr>");
+    for(const QString& block : blocks)
+      html += QStringLiteral("<td valign='top' style='padding-right: %1px;'>%2</td>")
+        .arg(gap).arg(block);
+    html += QStringLiteral("</tr></table>");
+  } else {
+    html += blocks.join(QString());
   }
 
   html += QStringLiteral("</body></html>");

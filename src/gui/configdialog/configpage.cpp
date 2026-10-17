@@ -19,12 +19,18 @@
 
 #include "gui/configdialog/configpage.h"
 #include "gui/settings.h"
+#include "config.h"
+#include "gui/theme.h"
+#include "gui/workplane/workplane.h"
 
 #include "logger/logger.h"
 
 #include <QApplication>
 
+#include <QCheckBox>
 #include <QComboBox>
+#include <QFormLayout>
+#include <QSettings>
 #include <QPushButton>
 #include <QGroupBox>
 #include <QLabel>
@@ -49,19 +55,16 @@ GeneralPage::GeneralPage(QWidget* parent)
   Settings settings;
 
   /*
-   * Project Settings Box
+   * Startup Box
    */
-  QGroupBox* projectSettingsBox = new QGroupBox(
-      tr("Project Settings"), this
-    );
-  projectSettingsBox->setCheckable(false);
-  projectSettingsBox->setAlignment(Qt::AlignLeft);
-
-  QHBoxLayout* projectSettingsLayout = new QHBoxLayout;
-  projectSettingsLayout->addWidget(
-    new QLabel(tr("Nothing to do here, that's good!! :-)")));
-
-  projectSettingsBox->setLayout(projectSettingsLayout);
+  QGroupBox* startupBox = new QGroupBox(tr("Startup"), this);
+  splash_ = new QCheckBox(tr("Show the &splash screen"));
+  splash_->setChecked(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/showSplash"), true).toBool());
+  connect(splash_, &QCheckBox::toggled, this, [this]() { setPageModified(true); });
+  QHBoxLayout* startupLayout = new QHBoxLayout;
+  startupLayout->addWidget(splash_);
+  startupBox->setLayout(startupLayout);
 
   /*
    * Log Settings Box
@@ -69,9 +72,6 @@ GeneralPage::GeneralPage(QWidget* parent)
   QGroupBox* logSettingsBox = new QGroupBox(
       tr("Log Settings"), this
     );
-  projectSettingsBox->setCheckable(false);
-  projectSettingsBox->setAlignment(Qt::AlignLeft);
-
   logLevel_ = new QComboBox;
   logLevel_->addItem(tr("Debug"), QVariant(sapecng::Logger::DEBUG));
   logLevel_->addItem(tr("Info"), QVariant(sapecng::Logger::INFO));
@@ -180,7 +180,7 @@ GeneralPage::GeneralPage(QWidget* parent)
    * Main layout
    */
   QVBoxLayout* mainLayout = new QVBoxLayout;
-  mainLayout->addWidget(projectSettingsBox);
+  mainLayout->addWidget(startupBox);
   mainLayout->addWidget(logSettingsBox);
   mainLayout->addStretch();
   setLayout(mainLayout);
@@ -189,6 +189,9 @@ GeneralPage::GeneralPage(QWidget* parent)
 
 void GeneralPage::apply()
 {
+  QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .setValue(QStringLiteral("Application/showSplash"), splash_->isChecked());
+
   SettingsManager manager;
 
   manager.setLogLvl(logLevel_->itemData(logLevel_->currentIndex()).toInt());
@@ -267,6 +270,81 @@ void GeneralPage::changeColor(int id)
 void GeneralPage::levelChanged()
 {
   setPageModified(true);
+}
+
+
+AppearancePage::AppearancePage(QWidget* parent)
+  : ConfigPage(parent)
+{
+  auto combo = [this](const QStringList& items, int current) {
+      QComboBox* box = new QComboBox;
+      box->addItems(items);
+      box->setCurrentIndex(current);
+      connect(box, &QComboBox::currentIndexChanged, this,
+        [this]() { setPageModified(true); });
+      return box;
+    };
+
+  mode_ = combo({ tr("Follow the system"), tr("Light"), tr("Dark") },
+    static_cast<int>(theme::mode()));
+
+  QGroupBox* windowBox = new QGroupBox(tr("Colours"), this);
+  QFormLayout* windowLayout = new QFormLayout;
+  windowLayout->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+  windowLayout->addRow(tr("&Theme:"), mode_);
+  windowBox->setLayout(windowLayout);
+
+  resistor_ = combo({ tr("ANSI"), tr("IEC / DIN") },
+    theme::resistorStyle() == theme::ResistorStyle::Ansi ? 0 : 1);
+  labels_ = combo({ tr("Name only"), tr("Name and value") },
+    theme::showComponentValues() ? 1 : 0);
+  gridStyle_ = combo({ tr("Dots"), tr("Lines") },
+    theme::gridStyle() == theme::GridStyle::Dots ? 0 : 1);
+  gridStrength_ = combo({ tr("Faint"), tr("Medium"), tr("Strong") },
+    theme::gridStrength());
+
+  QGroupBox* schematicBox = new QGroupBox(tr("Schematic"), this);
+  QFormLayout* schematicLayout = new QFormLayout;
+  schematicLayout->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+  schematicLayout->addRow(tr("&Resistor symbol:"), resistor_);
+  schematicLayout->addRow(tr("Component &labels:"), labels_);
+  schematicLayout->addRow(tr("&Grid:"), gridStyle_);
+  schematicLayout->addRow(tr("Grid &strength:"), gridStrength_);
+  schematicBox->setLayout(schematicLayout);
+
+  antialias_ = new QCheckBox(tr("Smooth (&antialiased) curves and lines"));
+  antialias_->setChecked(WorkPlane::antialiased());
+  connect(antialias_, &QCheckBox::toggled, this, [this]() { setPageModified(true); });
+
+  QGroupBox* plotBox = new QGroupBox(tr("Plots"), this);
+  QVBoxLayout* plotLayout = new QVBoxLayout;
+  plotLayout->addWidget(antialias_);
+  plotBox->setLayout(plotLayout);
+
+  QVBoxLayout* mainLayout = new QVBoxLayout;
+  mainLayout->addWidget(windowBox);
+  mainLayout->addWidget(schematicBox);
+  mainLayout->addWidget(plotBox);
+  mainLayout->addStretch();
+  setLayout(mainLayout);
+}
+
+
+void AppearancePage::apply()
+{
+  const theme::Mode mode = static_cast<theme::Mode>(mode_->currentIndex());
+  if(mode != theme::mode())
+    theme::setMode(mode);
+  theme::setResistorStyle(resistor_->currentIndex() == 0
+    ? theme::ResistorStyle::Ansi : theme::ResistorStyle::Din);
+  theme::setShowComponentValues(labels_->currentIndex() == 1);
+  theme::setGridStyle(gridStyle_->currentIndex() == 0
+    ? theme::GridStyle::Dots : theme::GridStyle::Lines);
+  theme::setGridStrength(gridStrength_->currentIndex());
+  WorkPlane::setAntialiasedDefault(antialias_->isChecked());
+
+  setPageModified(false);
+  emit applied();
 }
 
 

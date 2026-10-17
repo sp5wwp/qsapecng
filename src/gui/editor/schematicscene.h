@@ -188,6 +188,8 @@ public:
   void createLabel();
   // asks for a label's text (several lines); undoable. false: cancelled
   bool editLabelText(Label* label, bool fresh = false);
+  // the selected voltmeters / ammeters the other way round; undoable
+  bool reverseSelectedMeters();
 
   void moveSelectedItems(QPointF pos);
   // a mouse drag of the selection: wires attached to the moved pins

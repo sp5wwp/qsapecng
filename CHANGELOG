@@ -10,7 +10,7 @@ QSapecNG CHANGELOG
       (double-click, or Edit > Properties...)
     o New look: Fusion style where the platform style is dated, scalable
       line icons, HiDPI symbol icons, tabbed documents, sans-serif labels,
-      restyled plots; Settings > Appearance offers system / light / dark
+      restyled plots; system, light or dark theme
     o Double-click a component to edit its parameters in a dialog (name,
       value with unit, symbolic flag; both coils of a mutual inductance);
       undoable
@@ -19,7 +19,7 @@ QSapecNG CHANGELOG
       a corner and drawing continues until it ends on a pin or a wire, or
       on a double-click; the bend follows the first move (right-click or /
       flips it); Esc drops the unfinished segment, a second Esc leaves
-    o Settings > Resistor symbol: IEC / DIN (rectangle, default) or ANSI
+    o Resistor symbol: IEC / DIN (rectangle, default) or ANSI
       (zigzag)
     o Result panel (tabbed with Messages) replaces the result popup: real
       fractions, Result / Raw / Digit sections with Copy links, and a notice
@@ -39,7 +39,7 @@ QSapecNG CHANGELOG
     o Junction dots only where three or more wires or pins meet; plain
       bends and wire ends on pins have none
     o Picking a component with no schematic open starts a new one
-    o Settings > Show splash screen; the splash stays up about 2.5 s
+    o The splash screen can be turned off; it stays up about 2.5 s
     o A bent wire acts as one object: clicking a segment selects the whole
       run up to junctions and pins (move, delete), and a wire drawn in one
       go is one undo step. "Wire cross" removed (W draws all wires)
@@ -78,7 +78,7 @@ QSapecNG CHANGELOG
       that the reference (bandwidth in the difference columns)
     o Pole-zero map: the same scale on both axes, whatever the window's
       shape
-    o Plot > Antialiasing: smooth curves on or off (kept)
+    o Plot > Antialiasing (and Configure): smooth curves on or off (kept)
     o Differential markers: Reference makes the selected marker the
       reference; the others show their difference from it in magnitude
       and phase (in the panel and on the plot) and in frequency
@@ -103,7 +103,7 @@ QSapecNG CHANGELOG
     o Component labels sit closer to their parts; a dragged label snaps
       back to its centred place when brought near it; right-click > Reset
       Label Position
-    o Settings > Grid: dots or lines, faint / medium / strong
+    o Grid: dots or lines, faint / medium / strong
     o A wire ending on the middle of another splits it there, so a click
       selects wires only up to the junction (a click no longer glues
       touching wires together)
@@ -167,7 +167,7 @@ QSapecNG CHANGELOG
       its own type, so older versions open it as a two-pin source)
     o Repository cleanup: unused bitmap icons and symbols (no longer built
       into the program), old SapecNG images, macOS leftovers, the 2014 TODO
-    o Settings > Component labels: name only (default) or name and value,
+    o Component labels: name only (default) or name and value,
       e.g. "C1 / 1 µF"
     o Side panels start closed except Components and Messages (Window >
       Show); a saved layout from an earlier version is replaced once
@@ -217,6 +217,16 @@ QSapecNG CHANGELOG
       among them an independent numeric solver (modified nodal analysis)
       that checks the engine on random circuits with every component
       type, the poles and zeros, and the plotted frequency response
+    o Settings > Configure QSapecNG gathers the options: General (splash
+      screen, log), Appearance (theme, resistor symbol, component labels,
+      grid style and strength, plot antialiasing) and Font; OK, Apply
+      (every page) and Close
+    o Voltmeter and ammeter: right-click > Reverse Polarity swaps the + / -
+      ends (the arrow for an ammeter) and so the sign of the result; undoable
+      and saved
+    o Result panel: the Result, Raw and Digit sections sit side by side
+      when they fit the panel's width
+    o README: Quick start instead of the old Usage and Translations
 
  * 2.1.1
     o Porting to Qwt6

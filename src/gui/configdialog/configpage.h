@@ -24,6 +24,7 @@
 #include <QWidget>
 
 
+class QCheckBox;
 class QComboBox;
 class QFontDialog;
 class QPushButton;
@@ -69,6 +70,7 @@ private slots:
   void levelChanged();
 
 private:
+  QCheckBox* splash_;
   QComboBox* logLevel_;
 
   QSignalMapper* colorMapper_;
@@ -77,6 +79,33 @@ private:
   QPushButton* warningColor_;
   QPushButton* errorColor_;
   QPushButton* fatalColor_;
+
+};
+
+
+// How the program looks: colour scheme, schematic symbols and grid, plots.
+// apply() stores the choices and emits applied(); the main window then
+// redraws what is open.
+class AppearancePage: public ConfigPage
+{
+
+  Q_OBJECT
+
+public:
+  AppearancePage(QWidget* parent = 0);
+
+  void apply();
+
+signals:
+  void applied();
+
+private:
+  QComboBox* mode_;
+  QComboBox* resistor_;
+  QComboBox* labels_;
+  QComboBox* gridStyle_;
+  QComboBox* gridStrength_;
+  QCheckBox* antialias_;
 
 };
 
