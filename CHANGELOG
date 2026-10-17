@@ -151,7 +151,28 @@ QSapecNG CHANGELOG
     o Fixed: dropping a wire onto a component treated the component as a
       wire (undefined behaviour while looking for wires to merge)
     o Fixed: delete vs delete[] mismatches in the solver
-    o Solver regression tests (cmake -DQSAPECNG_BUILD_TESTS=ON, ctest)
+    o Fixed: mutual inductance read its coil values as whole numbers
+      (0.001 H became 0 H, 1.5 H became 1 H), so every circuit with one
+      had a wrong result
+    o Fixed: a netlist whose node numbers have a gap (an unused number,
+      e.g. a net with only a loose wire, or a hand-written netlist) was
+      solved as 0; nodes are now numbered internally
+    o Circuits without a unique solution (a loop of voltage sources,
+      current sources in series, a floating group, an op-amp without
+      feedback) are reported as such, with the usual causes, instead of a
+      result of 0 or 1/0; no plot opens for them
+    o Plots use the numeric result directly (as Digit in the Result panel)
+      instead of evaluating the symbolic one with values collected again
+      from the parts, where a name not found counted as 0
+    o Saving numbers the nodes in the file even when the circuit was never
+      solved (they were all saved as 0, so the file was no usable
+      netlist); the examples are saved again
+    o Faster solving of larger circuits: equal terms are found through an
+      index instead of a linear search (25 parts: 65 s down to 9 s)
+    o Solver regression tests (cmake -DQSAPECNG_BUILD_TESTS=ON, ctest),
+      among them an independent numeric solver (modified nodal analysis)
+      that checks the engine on random circuits with every component
+      type, the poles and zeros, and the plotted frequency response
 
  * 2.1.1
     o Porting to Qwt6

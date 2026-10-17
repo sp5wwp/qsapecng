@@ -43,6 +43,7 @@ struct SolveResult
   formula::Fraction mixed;   // "Result": symbolic components by name
   formula::Fraction raw;     // every component by name
   formula::Fraction digit;   // numeric
+  bool singular = false;     // no unique solution: the fractions mean nothing
 };
 
 

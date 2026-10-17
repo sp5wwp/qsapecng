@@ -18,6 +18,8 @@
 
 
 #include "model/metacircuit.h"
+
+#include <iterator>
 #include "boost-sapecng/mrt.hpp"
 
 
@@ -122,6 +124,7 @@ std::string metacircuit::as_string(const basic_expression& e)
 void metacircuit::operator()(const circuit& circuit)
 {
   // clear data
+  singular_ = false;
   raw_.first.clear();
   raw_.second.clear();
   digit_.first.clear();
@@ -171,6 +174,7 @@ void metacircuit::operator()(const circuit& circuit)
         forcedIn
       );
 
+    term_index rawNum, rawDen, digitNum, digitDen, mixedNum, mixedDen;
     for(Coll::size_type i = 0; i < coll.size(); ++i) {
 
       int degree = 0;
@@ -241,47 +245,47 @@ void metacircuit::operator()(const circuit& circuit)
       mixed_rep.second.sort();
 
       if(numerator_part) {
-        append(degree, raw_.first, raw_rep);
-        append(degree, digit_.first, digit_rep);
-        append(degree, mixed_.first, mixed_rep);
+        append(degree, raw_.first, raw_rep, rawNum);
+        append(degree, digit_.first, digit_rep, digitNum);
+        append(degree, mixed_.first, mixed_rep, mixedNum);
       } else if(denominator_part) {
-        append(degree, raw_.second, raw_rep);
-        append(degree, digit_.second, digit_rep);
-        append(degree, mixed_.second, mixed_rep);
+        append(degree, raw_.second, raw_rep, rawDen);
+        append(degree, digit_.second, digit_rep, digitDen);
+        append(degree, mixed_.second, mixed_rep, mixedDen);
       }
 
     }
 
-    simplify(raw_);
-    simplify(digit_);
+    const bool rawOk = simplify(raw_);
+    const bool digitOk = simplify(digit_);
     simplify(mixed_);
+    // structurally (raw) or for these values (digit)
+    singular_ = !rawOk || !digitOk;
   }
 
 }
 
 
-void metacircuit::append(int deg, expression& e, const basic_expression& be)
+void metacircuit::append(int deg, expression& e, const basic_expression& be,
+    term_index& index)
 {
-  if(e.find(deg) == e.end()) {
-    e[deg].push_back(be);
+  const term_index::key_type key(deg, be.second);
+  term_index::iterator found = index.find(key);
+  if(found != index.end()) {
+    found->second->first += be.first;
   } else {
-    degree_expression::iterator it;
-    for(it = e[deg].begin(); it != e[deg].end(); ++it) {
-      if(it->second == be.second) {
-        it->first += be.first;
-        break;
-      }
-    }
-    if(it == e[deg].end())
-      e[deg].push_back(be);
+    degree_expression& terms = e[deg];
+    terms.push_back(be);
+    index.insert(std::make_pair(key, std::prev(terms.end())));
   }
 }
 
 
-void metacircuit::simplify(std::pair<expression, expression>& p)
+bool metacircuit::simplify(std::pair<expression, expression>& p)
 {
   compress(p.first);
   compress(p.second);
+  const bool denominatorOk = (p.second.size() != 0);
 
   if(p.first.size() == 0) {
 
@@ -379,6 +383,8 @@ void metacircuit::simplify(std::pair<expression, expression>& p)
     }
 
   }
+
+  return denominatorOk;
 }
 
 

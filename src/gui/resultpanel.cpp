@@ -198,6 +198,26 @@ void ResultPanel::render()
   html += QStringLiteral("<p style='color:%1; margin: 0;'>%2</p>")
     .arg(dimCss, QFileInfo(result_.file).fileName().toHtmlEscaped());
 
+  if(result_.singular) {
+    const QColor fg = theme::isDark() ? QColor(0xff, 0x9a, 0x8a)
+                                      : QColor(0xa0, 0x1b, 0x10);
+    html += QStringLiteral("<p style='margin: 12px 0 0 0; color:%1;'><b>%2</b></p>"
+        "<p style='margin: 6px 0 0 0;'>%3</p><ul style='margin-top: 4px;'>"
+        "<li>%4</li><li>%5</li><li>%6</li><li>%7</li></ul>")
+      .arg(fg.name(), tr("No unique solution"),
+           tr("The circuit's equations are singular, so there is no transfer "
+              "function to show. Typical causes:"),
+           tr("voltage sources (or a source and a short) in a loop"),
+           tr("current sources in series, or a current source into a node "
+              "with no other path"),
+           tr("a node or a group of parts not connected to the ground"),
+           tr("an ideal op-amp whose inputs cannot be held equal (no "
+              "negative feedback path)"));
+    html += QStringLiteral("</body></html>");
+    view_->setHtml(html);
+    return;
+  }
+
   struct Section { QString key, title, note; formula::Fraction f; };
   const Section sections[] = {
     { QStringLiteral("result"), tr("Result"),

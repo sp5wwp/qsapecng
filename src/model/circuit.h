@@ -192,6 +192,20 @@ public:
   void flush();
 
 private:
+  // the vertex of a netlist node (see node() in circuit.cpp)
+  unsigned int node(unsigned int external);
+  std::map<unsigned int, unsigned int> nodes_;
+  // the components on vertices (add_dual_component and
+  // add_quad_component map the netlist nodes first)
+  void add_dual(abstract_builder::dual_component_type c_type,
+      std::string name, double value, bool symbolic,
+      unsigned int va, unsigned int vb,
+      std::map<std::string,std::string> props);
+  void add_quad(abstract_builder::quad_component_type c_type,
+      std::string name, double value, bool symbolic,
+      unsigned int va, unsigned int vb, unsigned int vac, unsigned int vbc,
+      std::map<std::string,std::string> props);
+
   void try_add_block();
   void replace_requested(circuit::vertex_descriptor vertex);
 

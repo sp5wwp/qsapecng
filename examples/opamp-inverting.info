@@ -1,5 +1,80 @@
 circuit
 {
+    unknows
+    {
+        unknow
+        {
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 0
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name node
+                    value 0
+                }
+                prop
+                {
+                    name type
+                    value 17
+                }
+                prop
+                {
+                    name x
+                    value 0
+                }
+                prop
+                {
+                    name y
+                    value 80
+                }
+            }
+        }
+        unknow
+        {
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 0
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name node
+                    value 0
+                }
+                prop
+                {
+                    name type
+                    value 17
+                }
+                prop
+                {
+                    name x
+                    value 130
+                }
+                prop
+                {
+                    name y
+                    value 30
+                }
+            }
+        }
+    }
     components
     {
         component
@@ -11,7 +86,7 @@ circuit
             nodes
             {
                 node 0
-                node 0
+                node 1
             }
             props
             {
@@ -50,8 +125,8 @@ circuit
             symbolic 1
             nodes
             {
-                node 0
-                node 0
+                node 2
+                node 1
             }
             props
             {
@@ -90,8 +165,8 @@ circuit
             symbolic 1
             nodes
             {
-                node 0
-                node 0
+                node 3
+                node 2
             }
             props
             {
@@ -131,8 +206,8 @@ circuit
             nodes
             {
                 node 0
-                node 0
-                node 0
+                node 3
+                node 2
                 node 0
             }
             props
@@ -189,7 +264,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 2
                 }
                 prop
                 {
@@ -240,7 +315,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -291,7 +366,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -342,7 +417,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -393,7 +468,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 2
                 }
                 prop
                 {
@@ -444,7 +519,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -495,7 +570,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -546,7 +621,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -597,7 +672,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 2
                 }
                 prop
                 {
@@ -648,7 +723,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -699,7 +774,7 @@ circuit
                 prop
                 {
                     name orientation
-                    value 0
+                    value 1
                 }
                 prop
                 {
@@ -729,74 +804,9 @@ circuit
             }
         }
     }
-    unknows
-    {
-        unknow
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 17
-                }
-                prop
-                {
-                    name x
-                    value 0
-                }
-                prop
-                {
-                    name y
-                    value 80
-                }
-            }
-        }
-        unknow
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 17
-                }
-                prop
-                {
-                    name x
-                    value 130
-                }
-                prop
-                {
-                    name y
-                    value 30
-                }
-            }
-        }
-    }
     out
     {
-        node 0
+        node 3
         props
         {
             prop

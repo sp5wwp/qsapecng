@@ -2208,7 +2208,9 @@ void QSapecNGWindow::updateStatus()
                               : tr("%1 items selected").arg(selected))
         + tr(" - drag to move, R rotates, Del deletes, double-click edits");
     else if(editor->isSolved())
-      status = tr("Solved - the transfer function is in the Result panel");
+      status = editor->lastResult().singular
+        ? tr("Solved - the circuit has no unique solution (see the Result panel)")
+        : tr("Solved - the transfer function is in the Result panel");
     else if(editor->hasResult())
       status = tr("Changed since the last Resolve - press F8 to update the "
                   "result");

@@ -21,12 +21,31 @@
 
 #include <cmath>
 #include <sstream>
+#include <locale>
 
 #include <algorithm>
 
 
 namespace sapecng
 {
+
+
+namespace
+{
+
+// a number from a property (C locale; "1e-3", "0.001"); 0 when not one.
+// The coil values of a mutual inductance used to be read with strtol, as
+// integers: 0.001 H became 0 H
+double to_double(const std::string& text)
+{
+  std::istringstream in(text);
+  in.imbue(std::locale::classic());
+  double v = 0.;
+  in >> v;
+  return in.fail() ? 0. : v;
+}
+
+}
 
 
 circuit_builder::circuit_builder(circuit& circuit)
@@ -77,11 +96,29 @@ void circuit_builder::add_wire_component(
 { }
 
 
+unsigned int circuit_builder::node(unsigned int external)
+{
+  // nodes are graph vertices: numbered 1, 2, 3 ... in order of appearance,
+  // whatever the numbers in the netlist. A gap (an unused number, e.g. a
+  // net with only a loose wire) used to be an isolated vertex, and a
+  // circuit with one had no spanning tree: "singular", result 0
+  if(external == GROUND)
+    return GROUND;
+  std::map<unsigned int, unsigned int>::const_iterator i = nodes_.find(external);
+  if(i != nodes_.end())
+    return i->second;
+  const unsigned int id = (unsigned int)(nodes_.size()) + 1;
+  nodes_[external] = id;
+  return id;
+}
+
+
 void circuit_builder::add_out_component(
     unsigned int v,
     std::map<std::string, std::string> props
   )
 {
+  v = node(v);
   replace_requested(v);
   if(!circuit_.out_)
     circuit_.out_ = v;
@@ -89,6 +126,20 @@ void circuit_builder::add_out_component(
 
 
 void circuit_builder::add_dual_component(
+    abstract_builder::dual_component_type c_type,
+    std::string name,
+    double value,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    std::map<std::string, std::string> props
+  )
+{
+  add_dual(c_type, name, value, symbolic, node(va), node(vb), props);
+}
+
+
+void circuit_builder::add_dual(
     abstract_builder::dual_component_type c_type,
     std::string name,
     double value,
@@ -329,7 +380,7 @@ void circuit_builder::add_real_opamp(
   }
 
   if(!(gbw > 0.) || !(a0 > 0.)) {
-    add_quad_component(abstract_builder::VCVS, name, a0, symbolic,
+    add_quad(abstract_builder::VCVS, name, a0, symbolic,
       va, vb, vac, vbc, props);
     return;
   }
@@ -384,6 +435,23 @@ void circuit_builder::add_vcvs_edges(
 
 
 void circuit_builder::add_quad_component(
+    abstract_builder::quad_component_type c_type,
+    std::string name,
+    double value,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    unsigned int vac,
+    unsigned int vbc,
+    std::map<std::string, std::string> props
+  )
+{
+  add_quad(c_type, name, value, symbolic,
+    node(va), node(vb), node(vac), node(vbc), props);
+}
+
+
+void circuit_builder::add_quad(
     abstract_builder::quad_component_type c_type,
     std::string name,
     double value,
@@ -542,12 +610,12 @@ void circuit_builder::add_quad_component(
 
       add_edge(
           va, afix, va, afix, Z, prefix_ + props["lp:name"],
-          strtol(props["lp:value"].c_str(), 0, 10),
+          to_double(props["lp:value"]),
           1, symbolic, props
         );
       add_edge(
           vac, bfix, vac, bfix, Z, prefix_ + props["ls:name"],
-          strtol(props["ls:value"].c_str(), 0, 10),
+          to_double(props["ls:value"]),
           1, symbolic, props
         );
 

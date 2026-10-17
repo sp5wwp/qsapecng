@@ -62,6 +62,8 @@ public:
     { QMutexLocker locker(&mutex_); return meta_.digit().second; }
   inline sapecng::metacircuit::expression mixed_numerator()
     { QMutexLocker locker(&mutex_); return meta_.mixed().first; }
+  inline bool singular()
+    { QMutexLocker locker(&mutex_); return meta_.singular(); }
   inline sapecng::metacircuit::expression mixed_denominator()
     { QMutexLocker locker(&mutex_); return meta_.mixed().second; }
 

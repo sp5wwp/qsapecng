@@ -99,47 +99,18 @@ bool SchematicEditor::accept(WorkPlane& workplane)
     }
   }
 
-  std::map<std::string, double> values;
-  QList<Item*> items = scene_->activeItems();
-  while(!items.isEmpty()) {
-    Item* item = items.takeFirst();
-    
-    if(SchematicScene::itemType(item) == SchematicScene::UserDefItemType) {
-      items.append(item->data(101)
-        .value< QPointer<qsapecng::SchematicScene> >()->activeItems());
-    } else {
-      if(SchematicScene::itemProperties(item)) {
-        QtProperty* props = SchematicScene::itemProperties(item);
-        QHash<QString, QString> subs;
-        
-        if(props) {
-          subs.insert("__NAME", props->valueText());
-          foreach(QtProperty* prop, props->subProperties())
-            subs.insert(prop->propertyName(), prop->valueText());
-        }
+  // no transfer function to plot
+  if(solver_.singular())
+    return false;
 
-        if(subs.contains("Value"))
-          values[subs.value("__NAME").toStdString()]
-            = subs.value("Value").toDouble();
-        else if(subs.contains("M"))
-          values[subs.value("__NAME").toStdString()]
-            = subs.value("M").toDouble();
-
-        if(subs.contains("lp:name") && subs.contains("lp:value"))
-          values[subs.value("lp:name").toStdString()]
-            = subs.value("lp:value").toDouble();
-
-        if(subs.contains("ls:name") && subs.contains("ls:value"))
-          values[subs.value("ls:name").toStdString()]
-            = subs.value("ls:value").toDouble();
-      }
-    }
-  }
-
+  // the numeric result (every value already in): what the Result panel
+  // shows as Digit, so plots and result always agree. (The plots used to
+  // evaluate the symbolic result with values collected again from the
+  // parts, where any name not found counted as 0)
   workplane.setData(
-      values,
-      solver_.raw_numerator(),
-      solver_.raw_denominator()
+      std::map<std::string, double>(),
+      solver_.digit_numerator(),
+      solver_.digit_denominator()
     );
 
   return true;
@@ -233,12 +204,20 @@ bool SchematicEditor::saveFile(const QString& fileName)
   sapecng::abstract_builder* out =
     sapecng::builder_factory::builder(suffix.toStdString(), out_file);
 
+  // the file is also a netlist: nodes are numbered even when the circuit
+  // was never solved (they used to be saved as 0 then)
+  const bool numbered = solved_;
+  if(!numbered)
+    scene_->assignNodes();
+
   SchematicSceneParser* parser = new SchematicSceneParser(*scene_);
 
   if(out)
     parser->parse(*out);
 
   delete parser;
+  if(!numbered)
+    scene_->resetNodes();
   delete out;
 
   out_file.flush();
@@ -438,6 +417,12 @@ void SchematicEditor::showResult()
     solver_.raw_numerator(), solver_.raw_denominator(), sources);
   lastResult_.digit = formula::simplified(
     solver_.digit_numerator(), solver_.digit_denominator());
+  lastResult_.singular = solver_.singular();
+  if(lastResult_.singular)
+    QLogger::warning(QObject::tr("The circuit has no unique solution (its "
+      "determinant is zero): look for a loop of voltage sources or "
+      "inductors-only paths, current sources in series, a part or node "
+      "left floating, or an op-amp without feedback"));
   hasResult_ = true;
 
   emit solved();

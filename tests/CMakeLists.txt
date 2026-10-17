@@ -54,3 +54,24 @@ add_test(NAME real_passives
   COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/real-passives.info
     "C1 * R1 * V1 * s^2 + ( 1e+09 * C1 * V1 + 0.1 * R1 * V1 ) * s + 1e+08 * V1 / C1 * R1 * s^2 + ( 1e+09 * C1 + 0.1 * R1 + 1e+08 * C1 * R1 ) * s + 1e+08"
     "1 * s^2 + 1.1e+06 * s + 1e+11 / 1 * s^2 + 1.011e+08 * s + 1e+11")
+# the symbolic engine against an independent numeric (MNA) solver
+qsapecng_test(mna_check mna_check.cpp
+  ${PROJECT_SOURCE_DIR}/src/functor/rpoly.cpp
+  ${PROJECT_SOURCE_DIR}/src/functor/rpoly-adapter.cpp)
+# fixed seeds: 400 random circuits each (R, G, L, C, sources, controlled
+# sources; then op-amps ideal and real, transformers, coupled coils, real
+# R/L/C, current sources)
+add_test(NAME mna_fuzz_basic COMMAND mna_check fuzz 400 11)
+add_test(NAME mna_fuzz_extended COMMAND mna_check fuzz2 400 12)
+foreach(circuit
+    data/issue6-active-bandpass.info data/opamp-finite-gain.info
+    data/real-passives.info data/single-pin-source.info
+    data/rc-lowpass-2nd-order.crc
+    ../examples/opamp-inverting.info ../examples/rc-lowpass-2nd-order.info
+    ../examples/rlc-bandpass.info ../examples/sallen-key-lowpass.info)
+  get_filename_component(stem ${circuit} NAME)
+  string(REPLACE "../" "" where ${circuit})
+  string(REGEX REPLACE "/.*" "" where ${where})
+  add_test(NAME mna_file_${where}_${stem}
+    COMMAND mna_check file ${CMAKE_CURRENT_SOURCE_DIR}/${circuit})
+endforeach()
