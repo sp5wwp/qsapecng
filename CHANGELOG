@@ -315,8 +315,8 @@ QSapecNG CHANGELOG
       with labelled resistance and reactance circles; optional admittance
       circles (dashed) show where a shunt part moves the point. A click on
       the curve places a marker with Z, the reflection coefficient and the
-      VSWR. An impedance that does not change with frequency (a resistor)
-      shows as a dot
+      VSWR (the labels kept apart and inside the chart). An impedance that
+      does not change with frequency (a resistor) shows as a dot
     o Plots window: Plot Settings and Markers are tabs on the right,
       always there (the toolbar buttons for them are gone; the Plot menu
       brings either tab to the front, and the first marker brings up

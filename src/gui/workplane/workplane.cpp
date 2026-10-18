@@ -1546,6 +1546,7 @@ void WorkPlane::refreshMarkers()
   const bool refOk = hasRef && markerValues(refHz_, &refMag, &refPh);
   const int refIndex = hasRef ? markers_.indexOf(refHz_) : -1;
   const bool smith = (lastId_ == SMITH);
+  QList<QRectF> smithLabels;   // labels placed so far (canvas pixels)
   markerTable_->setColumnHidden(3, !hasRef || smith);
   markerTable_->setColumnHidden(4, !hasRef || smith);
   markerTable_->setHorizontalHeaderItem(1, new QTableWidgetItem(
@@ -1622,8 +1623,45 @@ void WorkPlane::refreshMarkers()
       label.setBorderRadius(3);
       label.setRenderFlags(Qt::AlignLeft | Qt::AlignTop);
       dot->setLabel(label);
-      dot->setLabelAlignment((g.imag() >= 0 ? Qt::AlignTop : Qt::AlignBottom)
-        | (g.real() >= 0 ? Qt::AlignLeft : Qt::AlignRight));
+      // the label towards the middle of the chart, on whichever side of
+      // the dot keeps it clear of the labels placed so far and inside
+      // the canvas
+      {
+        const QPointF at(plot_->transform(QwtPlot::xBottom, g.real()),
+                         plot_->transform(QwtPlot::yLeft, g.imag()));
+        const QSizeF size = label.textSize(plot_->canvas()->font())
+          + QSizeF(8, 8);
+        const QRectF canvas = plot_->canvas()->contentsRect();
+        const Qt::Alignment vIn = g.imag() >= 0 ? Qt::AlignBottom : Qt::AlignTop;
+        const Qt::Alignment hIn = g.real() >= 0 ? Qt::AlignLeft : Qt::AlignRight;
+        const Qt::Alignment vOut = vIn == Qt::AlignTop ? Qt::AlignBottom : Qt::AlignTop;
+        const Qt::Alignment hOut = hIn == Qt::AlignLeft ? Qt::AlignRight : Qt::AlignLeft;
+        auto rectFor = [&](Qt::Alignment a) {
+            QRectF r(QPointF(0, 0), size);
+            r.moveCenter(at);
+            if(a & Qt::AlignLeft) r.moveRight(at.x() - 6);
+            if(a & Qt::AlignRight) r.moveLeft(at.x() + 6);
+            if(a & Qt::AlignTop) r.moveBottom(at.y() - 6);
+            if(a & Qt::AlignBottom) r.moveTop(at.y() + 6);
+            return r;
+          };
+        Qt::Alignment best = vIn | hIn;
+        int bestScore = -1;
+        for(Qt::Alignment a : { vIn | hIn, vOut | hIn, vIn | hOut, vOut | hOut }) {
+          const QRectF r = rectFor(a);
+          int score = canvas.contains(r) ? 2 : 0;
+          bool clear = true;
+          for(const QRectF& o : smithLabels)
+            clear = clear && !o.intersects(r);
+          score += clear ? 4 : 0;
+          if(score > bestScore) {
+            bestScore = score;
+            best = a;
+          }
+        }
+        smithLabels.append(rectFor(best));
+        dot->setLabelAlignment(best);
+      }
       dot->setZ(30);
       dot->attach(plot_);
       markerLines_.append(dot);
