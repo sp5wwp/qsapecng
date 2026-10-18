@@ -34,6 +34,7 @@
 #include <cmath>
 #include <QTimer>
 #include <QTextDocument>
+#include <QFont>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -46,7 +47,82 @@ namespace
 {
 
 
-QString fractionHtml(const formula::Fraction& f, const QColor& rule)
+// width of a piece of the fraction as shown (large font)
+int htmlWidth(const QString& html, const QFont& font)
+{
+  QTextDocument doc;
+  doc.setDefaultFont(font);
+  doc.setDocumentMargin(0);
+  doc.setHtml(QStringLiteral("<span style='font-size: large;'>%1</span>")
+    .arg(html));
+  return int(std::ceil(doc.idealWidth()));
+}
+
+
+// The expression on one line of at most 'width' pixels: whole terms
+// (highest power of s first) while they fit, then as many products of the
+// next term's coefficient as fit, and "+ ...":
+//   C1 C2 R1 R2 s^4 + (C1 C2 R1 + C1 C2 R2 + ...) s^3 + ...
+QString elidedHtml(const formula::Expr& e, int width, const QFont& font)
+{
+  using formula::Style;
+  const QString full = formula::render(e, Style::Html);
+  if(htmlWidth(full, font) <= width)
+    return full;
+  const QString more = QStringLiteral(" + …");
+
+  auto join = [](const QString& left, const QString& right) {
+      if(left.isEmpty())
+        return right;
+      if(right.startsWith(QStringLiteral("−")))
+        return left + QStringLiteral(" − ") + right.mid(1);
+      return left + QStringLiteral(" + ") + right;
+    };
+  auto power = [](int degree) {
+      if(degree == 1)
+        return QStringLiteral(" · <i>s</i>");
+      if(degree > 1)
+        return QStringLiteral(" · <i>s</i><sup>%1</sup>").arg(degree);
+      return QString();
+    };
+
+  QString shown;
+  for(auto d = e.rbegin(); d != e.rend(); ++d) {
+    // the whole term
+    formula::Expr one;
+    one[d->first] = d->second;
+    const QString whole = join(shown, formula::render(one, Style::Html));
+    if(htmlWidth(whole + more, font) <= width) {
+      shown = whole;
+      continue;
+    }
+    // part of it: the first products of its coefficient
+    QString products;
+    for(const auto& term : d->second) {
+      formula::Expr p;
+      p[0].push_back(term);
+      const QString next = join(products, formula::render(p, Style::Html));
+      const QString candidate = join(shown, QStringLiteral("(") + next + more
+        + QStringLiteral(")") + power(d->first)) + more;
+      // at least one product when nothing is shown yet
+      if(htmlWidth(candidate, font) > width
+          && !(shown.isEmpty() && products.isEmpty()))
+        break;
+      products = next;
+    }
+    if(!products.isEmpty())
+      shown = join(shown, QStringLiteral("(") + products + more
+        + QStringLiteral(")") + power(d->first));
+    break;
+  }
+  return shown + more;
+}
+
+
+// width: 0 = everything; otherwise numerator and denominator are each cut
+// to one line (elidedHtml)
+QString fractionHtml(const formula::Fraction& f, const QColor& rule,
+  int width = 0, const QFont& font = QFont())
 {
   // [-] num / den [* factor], laid out as one table row
   const QString cell = QStringLiteral(
@@ -60,7 +136,8 @@ QString fractionHtml(const formula::Fraction& f, const QColor& rule)
     // one line: "−10 · V1"
     QString line = f.negative ? QStringLiteral("−") : QString();
     if(!plainNum)
-      line += formula::render(f.num, formula::Style::Html);
+      line += width > 0 ? elidedHtml(f.num, width, font)
+                        : formula::render(f.num, formula::Style::Html);
     if(!factor.isEmpty())
       line += (plainNum ? QString() : QStringLiteral(" · ")) + factor;
     return QStringLiteral(
@@ -77,8 +154,11 @@ QString fractionHtml(const formula::Fraction& f, const QColor& rule)
         "<tr><td align='center' style='padding: 4px 10px 2px 10px; "
         "font-size: large;'>%2</td></tr>"
         "</table></td>")
-      .arg(formula::render(f.num, formula::Style::Html),
-           formula::render(f.den, formula::Style::Html), rule.name());
+      .arg(width > 0 ? elidedHtml(f.num, width, font)
+                     : formula::render(f.num, formula::Style::Html),
+           width > 0 ? elidedHtml(f.den, width, font)
+                     : formula::render(f.den, formula::Style::Html),
+           rule.name());
   }
 
   QString tail;
@@ -209,6 +289,17 @@ void ResultPanel::linkClicked(const QUrl& url)
     return;
   }
 
+  if(url.scheme() == QLatin1String("expand")
+      || url.scheme() == QLatin1String("collapse")) {
+    const QString key = currentOutput() + QLatin1Char('/') + url.path();
+    if(url.scheme() == QLatin1String("expand"))
+      expanded_.insert(key);
+    else
+      expanded_.remove(key);
+    render();
+    return;
+  }
+
   const bool latex = url.scheme() == QLatin1String("latex");
   if(!latex && url.scheme() != QLatin1String("copy"))
     return;
@@ -315,16 +406,38 @@ void ResultPanel::render()
       out->digit }
   };
 
+  // a section's heading with its links (Expand / Collapse for a long one)
+  auto heading = [&](const Section& s, const QString& toggle) {
+      QString links = QStringLiteral(
+          "<a href='copy:%1' style='color:%2;'>%3</a>&nbsp;&nbsp;"
+          "<a href='latex:%1' style='color:%2;'>%4</a>")
+        .arg(s.key, link.name(), tr("Copy"), tr("Copy LaTeX"));
+      if(!toggle.isEmpty())
+        links += QStringLiteral("&nbsp;&nbsp;<a href='%1:%2' style='color:%3;'>%4</a>")
+          .arg(toggle, s.key, link.name(),
+               toggle == QLatin1String("expand") ? tr("Expand") : tr("Collapse"));
+      return QStringLiteral(
+          "<p style='margin: 12px 0 0 0;'><b>%1</b> "
+          "<span style='color:%2;'>&nbsp;%3&nbsp;&nbsp;</span>%4</p>")
+        .arg(s.title, dimCss, s.note, links);
+    };
+
+  auto idealWidth = [this](const QString& html) {
+      QTextDocument doc;
+      doc.setDefaultFont(view_->font());
+      doc.setDocumentMargin(0);
+      doc.setHtml(html);
+      return int(std::ceil(doc.idealWidth()));
+    };
+
   QStringList blocks;
+  QList<int> widths;           // the whole section (side by side or not)
+  QList<int> fractionWidths;   // the formula alone (cut short or not)
   for(const Section& s : sections) {
-    QString block = QStringLiteral(
-        "<p style='margin: 12px 0 0 0;'><b>%1</b> "
-        "<span style='color:%2;'>&nbsp;%3&nbsp;&nbsp;</span>"
-        "<a href='copy:%4' style='color:%5;'>%6</a>&nbsp;&nbsp;"
-        "<a href='latex:%4' style='color:%5;'>%7</a></p>")
-      .arg(s.title, dimCss, s.note, s.key, link.name(), tr("Copy"),
-           tr("Copy LaTeX"));
-    block += fractionHtml(s.f, text);
+    const QString fraction = fractionHtml(s.f, text);
+    QString block = heading(s, QString()) + fraction;
+    widths << idealWidth(block);
+    fractionWidths << idealWidth(fraction);
     blocks << block;
   }
 
@@ -332,16 +445,33 @@ void ResultPanel::render()
   // otherwise one below the other
   const int gap = 32;
   int needed = 0;
-  for(const QString& block : blocks) {
-    QTextDocument doc;
-    doc.setDefaultFont(view_->font());
-    doc.setDocumentMargin(0);
-    doc.setHtml(block);
-    needed += int(std::ceil(doc.idealWidth())) + gap;
-  }
+  for(int w : widths)
+    needed += w + gap;
   const int available = view_->viewport()->width()
     - 2 * int(view_->document()->documentMargin()) - 12;
   sideBySide_ = needed <= available;
+
+  // one below the other: a section too wide for the panel is shown on
+  // one line, cut short, with Expand (and Collapse when expanded)
+  if(!sideBySide_) {
+    const QString prefix = out->name + QLatin1Char('/');
+    for(int i = 0; i < 3; ++i) {
+      if(fractionWidths.at(i) <= available)
+        continue;
+      const Section& s = sections[i];
+      if(expanded_.contains(prefix + s.key)) {
+        blocks[i] = heading(s, QStringLiteral("collapse"))
+          + fractionHtml(s.f, text);
+      } else {
+        // room for the sign, the input factor and the cell padding
+        const int factor = htmlWidth(formula::renderFactor(s.f,
+          formula::Style::Html), view_->font());
+        const int width = qMax(120, available - factor - 80);
+        blocks[i] = heading(s, QStringLiteral("expand"))
+          + fractionHtml(s.f, text, width, view_->font());
+      }
+    }
+  }
   if(sideBySide_) {
     html += QStringLiteral("<table cellspacing='0' cellpadding='0'><tr>");
     for(const QString& block : blocks)

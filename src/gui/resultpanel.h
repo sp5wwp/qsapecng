@@ -25,6 +25,7 @@
 #include "gui/formula.h"
 
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QWidget>
 
@@ -102,6 +103,8 @@ private:
   QString currentName_;   // kept across results
   QTextBrowser* view_;
   bool sideBySide_ = false;
+  // long sections shown in full ("output/section"), kept across results
+  QSet<QString> expanded_;
   SolveResult result_;
   bool hasResult_;
   bool outOfDate_;

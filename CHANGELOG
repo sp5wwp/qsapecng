@@ -79,9 +79,11 @@ QSapecNG CHANGELOG
     o Pole-zero map: the same scale on both axes, whatever the window's
       shape
     o Plot > Antialiasing (and Configure): smooth curves on or off (kept);
-      the grid and the marker lines stay sharp either way. Curves are
-      drawn at their exact positions (Qwt rounded every point to a whole
-      pixel, so even smooth curves came out in steps)
+      the grid and the marker lines stay sharp either way, and the setting
+      reaches every curve of a plot (those of another plot kind or unit
+      kept the old one until shown). Curves are drawn at their exact
+      positions (Qwt rounded every point to a whole pixel, so even smooth
+      curves came out in steps)
     o The Markers panel is a side panel of the Plots window, like Plot
       Settings, with its own close button; it shows the markers of the
       plot in front. Right-click on a plot: Add Marker Here (at the
@@ -235,6 +237,9 @@ QSapecNG CHANGELOG
       and saved
     o Result panel: the Result, Raw and Digit sections sit side by side
       when they fit the panel's width
+    o Result panel: a result too long for the panel's width is shown on
+      one line, cut short with "+ ...", with an Expand link to show it all
+      (Collapse to go back); kept per output when solving again
     o README: Quick start instead of the old Usage and Translations, and a
       What's new in 3.0 section
     o Several outputs: every Out marker, voltmeter and ammeter is solved,

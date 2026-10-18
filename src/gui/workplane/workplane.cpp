@@ -1552,9 +1552,13 @@ void WorkPlane::applyAntialiasing()
   // the curves only: the grid and the marker lines are straight lines,
   // which antialiasing only blurs (a line between two pixel rows is
   // smeared over both)
+  // every curve of the plot, also those not shown now: each kind of plot
+  // (magnitude, phase, dB, rad/s ...) has its own, attached when chosen,
+  // and those kept the old setting
   const bool on = antialiased();
-  foreach(QwtPlotItem* item, plot_->itemList(QwtPlotItem::Rtti_PlotCurve))
-    item->setRenderHint(QwtPlotItem::RenderAntialiased, on);
+  for(int i = 0; i < curves_.size(); ++i)
+    if(curves_[i].first)
+      curves_[i].first->setRenderHint(QwtPlotItem::RenderAntialiased, on);
   plot_->replot();
 }
 
