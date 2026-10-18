@@ -1337,7 +1337,6 @@ void WorkPlane::refreshMarkers()
     lastPx[row] = px;
     line->setLabelAlignment(rows[row] | Qt::AlignRight);
     line->setZ(30);
-    line->setRenderHint(QwtPlotItem::RenderAntialiased, antialiased());
     line->attach(plot_);
     markerLines_.append(line);
   }
@@ -1532,8 +1531,11 @@ void WorkPlane::setAntialiasedDefault(bool on)
 
 void WorkPlane::applyAntialiasing()
 {
+  // the curves only: the grid and the marker lines are straight lines,
+  // which antialiasing only blurs (a line between two pixel rows is
+  // smeared over both)
   const bool on = antialiased();
-  foreach(QwtPlotItem* item, plot_->itemList())
+  foreach(QwtPlotItem* item, plot_->itemList(QwtPlotItem::Rtti_PlotCurve))
     item->setRenderHint(QwtPlotItem::RenderAntialiased, on);
   plot_->replot();
 }

@@ -78,7 +78,8 @@ QSapecNG CHANGELOG
       that the reference (bandwidth in the difference columns)
     o Pole-zero map: the same scale on both axes, whatever the window's
       shape
-    o Plot > Antialiasing (and Configure): smooth curves on or off (kept)
+    o Plot > Antialiasing (and Configure): smooth curves on or off (kept);
+      the grid and the marker lines stay sharp either way
     o Differential markers: Reference makes the selected marker the
       reference; the others show their difference from it in magnitude
       and phase (in the panel and on the plot) and in frequency
