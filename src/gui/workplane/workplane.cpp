@@ -895,6 +895,22 @@ void WorkPlane::plot(WorkPlane::F f)
         }
         setupCurve(res, SMITH);
       }
+      // an impedance that does not change with frequency (a resistor) is
+      // one point: drawn as a dot, a line of no length shows nothing
+      {
+        QwtPlotCurve* curve = curves_[SMITH].first;
+        double span = 0.;
+        if(curve->dataSize() > 0) {
+          const QPointF first = curve->sample(0);
+          for(size_t i = 1; i < curve->dataSize(); ++i)
+            span = qMax(span, QLineF(first, curve->sample(i)).length());
+        }
+        if(curve->dataSize() > 0 && span < 1e-6)
+          curve->setSymbol(new QwtSymbol(QwtSymbol::Ellipse,
+            curve->pen().color(), QPen(curve->pen().color(), 1), QSize(9, 9)));
+        else
+          curve->setSymbol(nullptr);
+      }
       curves_[SMITH].first->attach(plot_);
       curves_[SMITH].first->setVisible(true);
       attached_.push_back(curves_[SMITH].first);
