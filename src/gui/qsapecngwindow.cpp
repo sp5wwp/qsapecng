@@ -309,7 +309,11 @@ void QSapecNGWindow::wave()
   if(!editor)
     return;
 
-  PlotDialog dialog(PlotSettings::load(), true, this);
+  // asked from the Plots window: the dialog belongs to it, so the Plots
+  // window stays in front when the dialog closes
+  QWidget* owner = (plotWindow_ && plotWindow_->isVisible()
+      && plotWindow_->isActiveWindow()) ? static_cast<QWidget*>(plotWindow_) : this;
+  PlotDialog dialog(PlotSettings::load(), true, owner);
   // the output shown in the Result panel, unless the schematic changed
   // its outputs since
   dialog.setOutputs(editor->scene().outputNames(), resultPanel_->currentOutput());
@@ -705,14 +709,19 @@ void QSapecNGWindow::open()
 
 void QSapecNGWindow::openCrc()
 {
+  // File > Open Netlist: the parts are drawn in a row, wired to one bus
+  // per node; saving writes the netlist back
   QString fileName = QFileDialog::getOpenFileName(this,
-      tr("Read file"), Settings().workspace(),
-      QString("%1")
-        .arg(tr("Netlist files (*.crc)"))
+      tr("Open Netlist"), Settings().workspace(),
+      tr("Netlist files (*.crc)")
     );
 
-  QMessageBox::information(this, tr("Netlist file"),
-      tr("We're sorry. Crc file analysis is still incomplete"));
+  if(!fileName.isEmpty()) {
+    open(fileName);
+    if(findEditor(fileName))
+      QLogger::info(tr("Netlist %1: the schematic is drawn automatically; "
+        "save it as .info to keep a drawing").arg(QFileInfo(fileName).fileName()));
+  }
 }
 
 
@@ -1293,8 +1302,8 @@ void QSapecNGWindow::createActions()
   openAct_->setStatusTip(tr("Open"));
   connect(openAct_, SIGNAL(triggered()), this, SLOT(open()));
 
-  openCrcAct_ = new QAction(theme::icon("open"), tr("Open &Crc (netlist)"), this);
-  openCrcAct_->setStatusTip(tr("Open Crc"));
+  openCrcAct_ = new QAction(theme::icon("open"), tr("Open &Netlist..."), this);
+  openCrcAct_->setStatusTip(tr("Open a netlist (.crc) and draw it as a schematic"));
   connect(openCrcAct_, SIGNAL(triggered()), this, SLOT(openCrc()));
 
   saveAct_ = new QAction(theme::icon("save"), tr("&Save"), this);
@@ -1665,6 +1674,12 @@ void QSapecNGWindow::createDockWidgets()
   resultDock_ = new QDockWidget(tr("Result"), this);
   resultDock_->setAllowedAreas(Qt::AllDockWidgetAreas);
   resultPanel_ = new ResultPanel;
+  connect(resultPanel_, &ResultPanel::clearRequested, this, [this]() {
+      if(SchematicEditor* editor = activeEditor())
+        editor->clearResult();
+      resultPanel_->showPlaceholder();
+      updateStatus();
+    });
   resultDock_->setWidget(resultPanel_);
 
   // object names identify the docks in the saved layout
@@ -1752,8 +1767,6 @@ void QSapecNGWindow::createMenus()
   toolMenu_->addAction(groundSessionAct_);
   toolMenu_->addAction(portSessionAct_);
   toolMenu_->addAction(outSessionAct_);
-  toolMenu_->addAction(voltmeterSessionAct_);
-  toolMenu_->addAction(ammeterSessionAct_);
   toolMenu_->addSeparator();
   toolMenu_->addAction(toggleGridAct_);
 
@@ -1877,8 +1890,6 @@ void QSapecNGWindow::createMenus()
   placeMenu->addAction(groundSessionAct_);
   placeMenu->addAction(outSessionAct_);
   placeMenu->addAction(portSessionAct_);
-  placeMenu->addAction(voltmeterSessionAct_);
-  placeMenu->addAction(ammeterSessionAct_);
   placeMenu->addAction(labelSessionAct_);
 
   sceneMenu_->addSeparator();
@@ -1924,8 +1935,6 @@ void QSapecNGWindow::createToolBars()
   toolToolBar_->addAction(groundSessionAct_);
   toolToolBar_->addAction(portSessionAct_);
   toolToolBar_->addAction(outSessionAct_);
-  toolToolBar_->addAction(voltmeterSessionAct_);
-  toolToolBar_->addAction(ammeterSessionAct_);
   toolToolBar_->addSeparator();
   toolToolBar_->addAction(toggleGridAct_);
 }

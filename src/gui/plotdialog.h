@@ -27,6 +27,7 @@
 #include <QWidget>
 
 
+class QButtonGroup;
 class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
@@ -66,7 +67,7 @@ private slots:
   void update();
 
 private:
-  QComboBox* kind_;
+  QButtonGroup* kind_;   // one square button per kind of plot
   QLabel* outputLabel_;
   QComboBox* output_;
   QCheckBox* autoRange_;

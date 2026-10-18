@@ -987,9 +987,10 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
       nodes.push_back(QPointF(5 * GridStep, 0));
       nodes.push_back(QPointF(5 * GridStep, 5 * GridStep));
       Component* k = new Component(mutualInductancePath(), nodes);
-      // in the free strips between the coils and their pins
-      k->addCaption(QPointF(0.5 * GridStep, 2.5 * GridStep), QStringLiteral("Lp"));
-      k->addCaption(QPointF(4.5 * GridStep, 2.5 * GridStep), QStringLiteral("Ls"));
+      // outside the pins, clear of the windings (the same distance on
+      // both sides keeps the symbol's centre, and so rotation, on grid)
+      k->addCaption(QPointF(-0.9 * GridStep, 2.5 * GridStep), QStringLiteral("Lp"));
+      k->addCaption(QPointF(5.9 * GridStep, 2.5 * GridStep), QStringLiteral("Ls"));
       item = k;
       break;
     }
@@ -1891,6 +1892,7 @@ void SchematicScene::clearSupportedItem(QGraphicsItem* gItem)
 
 void SchematicScene::setWireSessionRequest(bool connectedWire)
 {
+  oneOffWire_ = false;   // W: wires until the tool is left
   resetStatus();
 
   wireSessionRequested_ = true;
@@ -3141,6 +3143,7 @@ void SchematicScene::resetStatus()
 
   endWireChainMacro();
   wireSessionRequested_ = false;
+  oneOffWire_ = false;
   delete preWireItem_;
   delete postWireItem_;
   preWireItem_ = 0;
@@ -3393,9 +3396,10 @@ void SchematicScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
       || drag_.active;
     if(!moved) {
       QGraphicsScene::mouseReleaseEvent(event);
-      // as W and a first click there
+      // as W and a first click there; this one wire only
       clearSelection();
       setWireSessionRequest(false);
+      oneOffWire_ = true;
       fromPoint_ = pinPoint_;
       bendDecided_ = false;
       hasValidFromPoint_ = true;
@@ -3961,6 +3965,15 @@ QList<Wire*> SchematicScene::wireRun(Wire* start) const
 
 void SchematicScene::finishWireChain()
 {
+  // a wire started from a pin: back to the pointer once it is done (or
+  // dropped with Esc), after the mouse event that ended it
+  if(oneOffWire_) {
+    oneOffWire_ = false;
+    QTimer::singleShot(0, this, [this]() {
+        if(hasPendingWire() && !hasValidFromPoint_)
+          resetStatus();
+      });
+  }
   endWireChainMacro();
   hasValidFromPoint_ = false;
   bendDecided_ = false;

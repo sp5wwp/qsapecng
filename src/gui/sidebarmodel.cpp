@@ -239,6 +239,25 @@ void SideBarModel::setupSideBar()
   mutualInductanceItemData[Qt::ToolTipRole] = tr("Mutual Inductance Item");
   mutualInductanceItemData[Qt::UserRole] = SchematicScene::MutualInductanceItemType;
   componentList_.append(mutualInductanceItemData);
+
+  // the meters: outputs read across or through a branch
+  QMap<int, QVariant> voltmeterItemData;
+  voltmeterItemData[Qt::DisplayRole] = tr("Voltmeter");
+  voltmeterItemData[Qt::DecorationRole] =
+    theme::symbolPixmap("voltmeter", QSize(32, 32));
+  voltmeterItemData[Qt::ToolTipRole] =
+    tr("Voltmeter: an output, the voltage between its pins");
+  voltmeterItemData[Qt::UserRole] = SchematicScene::VoltmeterItemType;
+  componentList_.append(voltmeterItemData);
+
+  QMap<int, QVariant> ammeterItemData;
+  ammeterItemData[Qt::DisplayRole] = tr("Ammeter");
+  ammeterItemData[Qt::DecorationRole] =
+    theme::symbolPixmap("ammeter", QSize(32, 32));
+  ammeterItemData[Qt::ToolTipRole] =
+    tr("Ammeter: an output, the current through it");
+  ammeterItemData[Qt::UserRole] = SchematicScene::AmmeterItemType;
+  componentList_.append(ammeterItemData);
 }
 
 
@@ -259,7 +278,9 @@ void SideBarModel::refreshSymbols()
     { SchematicScene::NullorItemType, "nullor" },
     { SchematicScene::MultiTransformerItemType, "transformer3" },
     { SchematicScene::TransformerItemType, "transformer" },
-    { SchematicScene::MutualInductanceItemType, "mutualinductance" }
+    { SchematicScene::MutualInductanceItemType, "mutualinductance" },
+    { SchematicScene::VoltmeterItemType, "voltmeter" },
+    { SchematicScene::AmmeterItemType, "ammeter" }
   };
 
   for(int row = 0; row < componentList_.size(); ++row) {

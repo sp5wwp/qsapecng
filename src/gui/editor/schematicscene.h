@@ -323,6 +323,8 @@ private:
   // a click on a pin or a wire end (press and release without moving)
   // starts a wire there
   bool pinPressed_ = false;
+  // a wire started by clicking a pin: the tool ends with it
+  bool oneOffWire_ = false;
   QPointF pinPoint_, pinPressScreen_;
   bool connectionAt(const QPointF& point, QPointF* exact) const;
   QList<QGraphicsItem*> floating_;

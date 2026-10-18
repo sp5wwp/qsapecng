@@ -38,6 +38,9 @@
 #endif
 
 #include <memory>
+#include <cmath>
+#include <algorithm>
+#include <QHash>
 
 
 namespace qsapecng
@@ -1146,6 +1149,279 @@ void SchematicSceneBuilder::setup_properties(
               QString::fromStdString(props["ls:value"]).toDouble())
           );
   }
+}
+
+
+void NetlistSceneBuilder::add_dual_component(
+    sapecng::abstract_builder::dual_component_type c_type,
+    std::string name,
+    double value,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    std::map<std::string,std::string> props
+  )
+{
+  Part part = { false, int(c_type), name, value, symbolic, { va, vb }, props };
+  parts_.push_back(part);
+}
+
+
+void NetlistSceneBuilder::add_quad_component(
+    sapecng::abstract_builder::quad_component_type c_type,
+    std::string name,
+    double value,
+    bool symbolic,
+    unsigned int va,
+    unsigned int vb,
+    unsigned int vac,
+    unsigned int vbc,
+    std::map<std::string,std::string> props
+  )
+{
+  // an op-amp element with its fourth node off the ground has four free
+  // pins: a nullor
+  if(c_type == sapecng::abstract_builder::AO && va != 0)
+    props["type"] = QString::number(
+      SchematicScene::NullorItemType).toStdString();
+  Part part = { true, int(c_type), name, value, symbolic,
+    { va, vb, vac, vbc }, props };
+  parts_.push_back(part);
+}
+
+
+void NetlistSceneBuilder::flush()
+{
+  const qreal g = SchematicScene::GridStep;
+  auto down = [g](qreal v) { return std::floor(v / g) * g; };
+  auto up = [g](qreal v) { return std::ceil(v / g) * g; };
+
+  SchematicSceneBuilder builder(*scene_);
+
+  // lane: the x of its vertical wire (the pin's own x: straight up or down)
+  struct Pin { unsigned int node; QPointF at; qreal lane; };
+  QList<Pin> pins;
+  QList<QRectF> bodies;
+  qreal cursor = 0;
+
+  for(const Part& part : parts_) {
+    std::map<std::string,std::string> props = part.props;
+    props["x"] = "0";
+    props["y"] = "0";
+    const int before = builder.items().size();
+    if(part.quad)
+      builder.add_quad_component(
+        sapecng::abstract_builder::quad_component_type(part.type),
+        part.name, part.value, part.symbolic, part.nodes[0], part.nodes[1],
+        part.nodes[2], part.nodes[3], props);
+    else
+      builder.add_dual_component(
+        sapecng::abstract_builder::dual_component_type(part.type),
+        part.name, part.value, part.symbolic, part.nodes[0], part.nodes[1],
+        props);
+    if(builder.items().size() == before)
+      continue;
+    Component* component = dynamic_cast<Component*>(builder.items().last());
+    if(!component)
+      continue;
+
+    // the node of each pin, in the order the schematic gives them
+    const QList<QPointF> local = component->pinPoints();
+    const std::vector<unsigned int>& n = part.nodes;
+    QList<unsigned int> nodeOf;
+    if(!part.quad)
+      nodeOf = { n[1], n[0] };
+    else
+      switch(part.type)
+      {
+      case sapecng::abstract_builder::VCCS:
+      case sapecng::abstract_builder::VCVS:
+      case sapecng::abstract_builder::CCCS:
+      case sapecng::abstract_builder::CCVS:
+        nodeOf = { n[1], n[0], n[3], n[2] };
+        break;
+      default:   // AO, n, K: from the last node back
+        nodeOf = { n[3], n[2], n[1], n[0] };
+        break;
+      }
+    if(nodeOf.size() > local.size())
+      nodeOf = nodeOf.mid(0, local.size());
+
+    // two pins: upright, the ground (if any) at the bottom
+    if(!part.quad && local.size() == 2) {
+      if(qAbs(component->mapToScene(local.at(0)).y()
+          - component->mapToScene(local.at(1)).y()) < 0.5)
+        component->rotate();
+      const bool firstOnTop = component->mapToScene(local.at(0)).y()
+        < component->mapToScene(local.at(1)).y();
+      const unsigned int topNode = nodeOf.at(firstOnTop ? 0 : 1);
+      const unsigned int bottomNode = nodeOf.at(firstOnTop ? 1 : 0);
+      if(topNode == 0 && bottomNode != 0) {
+        component->rotate();
+        component->rotate();
+      }
+    }
+
+    // where the part is, and which pins go out on either side
+    auto layout = [&](QRectF* rect, QList<Pin>* out) {
+        // the pins' extent: the body is in it (the label is left out)
+        QList<QPointF> at;
+        for(const QPointF& p : local)
+          at.append(component->mapToScene(p));
+        qreal x0 = at.first().x(), x1 = x0, y0 = at.first().y(), y1 = y0;
+        for(const QPointF& p : at) {
+          x0 = qMin(x0, p.x());
+          x1 = qMax(x1, p.x());
+          y0 = qMin(y0, p.y());
+          y1 = qMax(y1, p.y());
+        }
+        *rect = QRectF(QPointF(x0, y0), QPointF(x1, y1));
+        if(rect->width() < g)
+          rect->adjust(-g, 0, g, 0);
+        out->clear();
+        // a lone pin on top going up, or at the bottom going to the
+        // ground, takes the straight way
+        auto alone = [&](int i, qreal y) {
+            for(int j = 0; j < at.size(); ++j)
+              if(j != i && qAbs(at.at(j).y() - y) < 0.5)
+                return false;
+            return qAbs(at.at(i).y() - y) < 0.5;
+          };
+        QList<int> left, right;
+        for(int i = 0; i < nodeOf.size(); ++i) {
+          if((nodeOf.at(i) != 0 && alone(i, rect->top()))
+              || (nodeOf.at(i) == 0 && alone(i, rect->bottom()))) {
+            out->append({ nodeOf.at(i), at.at(i), at.at(i).x() });
+            continue;
+          }
+          const qreal dx = at.at(i).x() - rect->center().x();
+          // a pin in the middle: the side with fewer (the left first:
+          // the name and value are on the right)
+          if(dx < -0.5 || (qAbs(dx) <= 0.5 && left.size() <= right.size()))
+            left.append(i);
+          else
+            right.append(i);
+        }
+        // the top pin gets the lane nearest the part: the stubs below it
+        // pass under its lane
+        auto byY = [&](int a, int b) { return at.at(a).y() < at.at(b).y(); };
+        std::sort(left.begin(), left.end(), byY);
+        std::sort(right.begin(), right.end(), byY);
+        for(int k = 0; k < left.size(); ++k)
+          out->append({ nodeOf.at(left.at(k)), at.at(left.at(k)),
+            down(rect->left() - 1) - k * g });
+        for(int k = 0; k < right.size(); ++k)
+          out->append({ nodeOf.at(right.at(k)), at.at(right.at(k)),
+            up(rect->right() + 1) + k * g });
+      };
+
+    // the room it takes, its name and value included
+    auto room = [&]() {
+        return component->mapRectToScene(
+          component->boundingRect() | component->childrenBoundingRect());
+      };
+    QRectF rect;
+    QList<Pin> own;
+    layout(&rect, &own);
+    qreal leftmost = qMin(rect.left(), room().left());
+    for(const Pin& p : own)
+      leftmost = qMin(leftmost, p.lane);
+    component->setPos(component->pos()
+      + QPointF(up(cursor - leftmost), 0));
+    layout(&rect, &own);
+
+    qreal rightmost = qMax(rect.right(), room().right());
+    for(const Pin& p : own)
+      rightmost = qMax(rightmost, p.lane);
+    cursor = up(rightmost) + 3 * g;
+    pins << own;
+    bodies << rect;
+  }
+
+  if(bodies.isEmpty()) {
+    builder.flush();
+    return;
+  }
+
+  qreal top = bodies.first().top(), bottom = bodies.first().bottom();
+  for(const QRectF& r : bodies) {
+    top = qMin(top, r.top());
+    bottom = qMax(bottom, r.bottom());
+  }
+
+  // one bus per node, node 1 at the top
+  QList<unsigned int> nets;
+  for(const Pin& p : pins)
+    if(p.node != 0 && !nets.contains(p.node))
+      nets.append(p.node);
+  std::sort(nets.begin(), nets.end());
+  QHash<unsigned int, qreal> busY;
+  for(int i = 0; i < nets.size(); ++i)
+    busY.insert(nets.at(i), down(top) - 3 * g * (nets.size() - i));
+  const qreal groundY = up(bottom) + 2 * g;
+
+  auto wire = [&](QPointF a, QPointF b) {
+      if(QLineF(a, b).length() < 0.5)
+        return;
+      const QPointF from(qMin(a.x(), b.x()), qMin(a.y(), b.y()));
+      std::map<std::string,std::string> props;
+      props["x"] = QString::number(from.x()).toStdString();
+      props["y"] = QString::number(from.y()).toStdString();
+      props["to_x"] = QString::number(qAbs(b.x() - a.x())).toStdString();
+      props["to_y"] = QString::number(qAbs(b.y() - a.y())).toStdString();
+      props["conn"] = "0";
+      builder.add_wire_component(props);
+    };
+
+  QHash<unsigned int, QList<qreal> > taps;
+  for(const Pin& p : pins) {
+    const QPointF corner(p.lane, p.at.y());
+    wire(p.at, corner);
+    if(p.node == 0) {
+      wire(corner, QPointF(p.lane, groundY));
+      taps[0].append(p.lane);
+    } else {
+      wire(corner, QPointF(p.lane, busY.value(p.node)));
+      taps[p.node].append(p.lane);
+    }
+  }
+
+  // the buses, cut at every tap (a tap is a wire end), and the ground
+  for(auto i = taps.begin(); i != taps.end(); ++i) {
+    QList<qreal>& xs = i.value();
+    std::sort(xs.begin(), xs.end());
+    const qreal y = i.key() == 0 ? groundY : busY.value(i.key());
+    for(int k = 0; k + 1 < xs.size(); ++k)
+      wire(QPointF(xs.at(k), y), QPointF(xs.at(k + 1), y));
+  }
+  if(taps.contains(0)) {
+    std::map<std::string,std::string> props;
+    props["type"] = QString::number(SchematicScene::GroundItemType).toStdString();
+    props["x"] = QString::number(taps.value(0).first()).toStdString();
+    props["y"] = QString::number(groundY).toStdString();
+    builder.add_unknow_component(props);
+    // its pin on the bus
+    if(Component* ground = dynamic_cast<Component*>(builder.items().last()))
+      if(!ground->pinPoints().isEmpty())
+        ground->setPos(ground->pos() + QPointF(taps.value(0).first(), groundY)
+          - ground->mapToScene(ground->pinPoints().first()));
+  }
+
+  // the outputs, past everything on the right
+  for(unsigned int v : outs_) {
+    if(v == 0 || !taps.contains(v))
+      continue;
+    const qreal y = busY.value(v);
+    const QPointF end(cursor, y);
+    wire(QPointF(taps.value(v).last(), y), end);
+    std::map<std::string,std::string> props;
+    builder.add_out_component(v, props);
+    if(Component* out = dynamic_cast<Component*>(builder.items().last()))
+      if(!out->pinPoints().isEmpty())
+        out->setPos(out->pos() + end - out->mapToScene(out->pinPoints().first()));
+  }
+
+  builder.flush();
 }
 
 

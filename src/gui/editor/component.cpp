@@ -108,6 +108,11 @@ QRectF Component::boundingRect() const
   rect.setWidth(rect.width() + 2 * offset);
   rect.setHeight(rect.height() + 2 * offset);
 
+  // captions may sit beside the symbol (Lp, Ls of a mutual inductance);
+  // a square box covers them in any rotation
+  for(const auto& c : captions_)
+    rect = rect.united(QRectF(c.first - QPointF(12, 12), QSizeF(24, 24)));
+
   return rect;
 }
 

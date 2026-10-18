@@ -308,13 +308,17 @@ bool SchematicEditor::loadFile(const QString& fileName)
     QCursor cur = cursor();
     setCursor(Qt::WaitCursor);
 
-    SchematicSceneBuilder* out = new SchematicSceneBuilder(*scene_);
-
     QFileInfo fileInfo(file);
+    // a netlist has no drawing: one is made up
+    const bool netlist = fileInfo.suffix().toLower() == "crc";
+    sapecng::abstract_builder* out = netlist
+      ? static_cast<sapecng::abstract_builder*>(new NetlistSceneBuilder(*scene_))
+      : static_cast<sapecng::abstract_builder*>(new SchematicSceneBuilder(*scene_));
+
     std::ifstream in_file(QFile::encodeName(fileName));
     sapecng::abstract_parser* parser =
       sapecng::parser_factory::parser(
-        fileInfo.suffix().toStdString(), in_file);
+        fileInfo.suffix().toLower().toStdString(), in_file);
 
     if(parser) {
       scene_->undoRedoStack()->beginMacro(QObject::tr("Load file"));

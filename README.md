@@ -104,6 +104,8 @@ Several bugs gave wrong answers rather than crashes:
 * Nullor (nullator and norator), three winding transformer (ideal, or with
   inductance and coupling), single-pin voltage source.
 * File > Export SPICE Netlist for ngspice, LTspice and similar simulators.
+* File > Open Netlist reads SapecNG .crc netlists and draws them as a
+  schematic.
 
 Files from 2.x open in 3.0. Older versions can open 3.0 files, but they
 leave out or simplify the new parts: a nullor opens as an op-amp, a

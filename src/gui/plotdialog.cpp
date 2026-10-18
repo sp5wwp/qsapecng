@@ -19,6 +19,9 @@
 
 #include "gui/plotdialog.h"
 #include "gui/units.h"
+#include "gui/theme.h"
+#include <QToolButton>
+#include <QButtonGroup>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -40,11 +43,34 @@ namespace qsapecng
 PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   : QWidget(parent)
 {
-  kind_ = new QComboBox;
-  kind_->addItem(tr("Frequency response (magnitude)"), WorkPlane::MagnitudeKind);
-  kind_->addItem(tr("Phase response"), WorkPlane::PhaseKind);
-  kind_->addItem(tr("Bode plot (magnitude and phase)"), WorkPlane::BodeKind);
-  kind_->addItem(tr("Poles and zeros"), WorkPlane::PoleZeroKind);
+  // the kind of plot: square buttons side by side, one checked
+  kind_ = new QButtonGroup(this);
+  QHBoxLayout* kinds = new QHBoxLayout;
+  kinds->setSpacing(4);
+  struct Kind { int id; QString icon, text, tip; };
+  const Kind kindList[] = {
+    { WorkPlane::MagnitudeKind, QStringLiteral("plot-magnitude"), tr("Magnitude"),
+      tr("Frequency response: the magnitude") },
+    { WorkPlane::PhaseKind, QStringLiteral("plot-phase"), tr("Phase"),
+      tr("Frequency response: the phase") },
+    { WorkPlane::BodeKind, QStringLiteral("plot-bode"), tr("Bode"),
+      tr("Bode plot: magnitude and phase together") },
+    { WorkPlane::PoleZeroKind, QStringLiteral("plot-polezero"), tr("Poles/Zeros"),
+      tr("Poles and zeros in the s-plane") } };
+  for(const Kind& k : kindList) {
+    QToolButton* b = new QToolButton;
+    b->setIcon(theme::icon(k.icon));
+    b->setIconSize(QSize(28, 28));
+    b->setText(k.text);
+    b->setToolTip(k.tip);
+    b->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    b->setCheckable(true);
+    b->setAutoRaise(false);
+    b->setFixedSize(76, 62);
+    kind_->addButton(b, k.id);
+    kinds->addWidget(b);
+  }
+  kinds->addStretch();
 
   // frequency sweep
   autoRange_ = new QCheckBox(tr("&Automatic range"));
@@ -92,7 +118,7 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   outputLabel_->setBuddy(output_);
 
   QFormLayout* top = new QFormLayout;
-  top->addRow(tr("P&lot:"), kind_);
+  top->addRow(kinds);
   top->addRow(outputLabel_, output_);
   outputLabel_->hide();
   output_->hide();
@@ -117,7 +143,7 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
     };
   for(QCheckBox* c : { autoRange_, angular_, xLog_, db_, yLog_, degrees_ })
     connect(c, &QCheckBox::toggled, this, edited);
-  connect(kind_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
+  connect(kind_, &QButtonGroup::idClicked, this, edited);
   connect(output_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
   connect(start_, &QLineEdit::editingFinished, this, edited);
   connect(stop_, &QLineEdit::editingFinished, this, edited);
@@ -133,7 +159,10 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
 void PlotSettingsWidget::setSettings(const PlotSettings& s)
 {
   filling_ = true;
-  kind_->setCurrentIndex(qMax(0, kind_->findData(s.kind)));
+  if(QAbstractButton* b = kind_->button(s.kind))
+    b->setChecked(true);
+  else
+    kind_->button(WorkPlane::BodeKind)->setChecked(true);
   output_->setCurrentIndex(qMax(0, output_->findText(s.output)));
   autoRange_->setChecked(s.autoRange);
   start_->setText(units::formatForEdit(QString::number(s.fStart, 'g', 8)));
@@ -185,7 +214,7 @@ bool PlotSettingsWidget::isValid() const
 PlotSettings PlotSettingsWidget::settings() const
 {
   PlotSettings s;
-  s.kind = kind_->currentData().toInt();
+  s.kind = kind_->checkedId() >= 0 ? kind_->checkedId() : int(WorkPlane::BodeKind);
   s.output = output_->currentText();
   s.autoRange = autoRange_->isChecked();
   units::parse(start_->text(), "Hz", &s.fStart);

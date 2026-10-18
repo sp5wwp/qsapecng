@@ -50,9 +50,9 @@ public:
   crc_lexer()
   {
     this->self.add_pattern
-        ("SID", "[RGCLVI]\\d+")
-        ("CID", "[HEFY]\\d+")
-        ("AID", "[A]\\d+")
+        ("SID", "[RGCLVI][A-Za-z0-9_]*")
+        ("CID", "[HEFYn][A-Za-z0-9_]*")
+        ("AID", "[A][A-Za-z0-9_]*")
         ("DGT", "\\d+")
         ("DBL", "[-+]?(\\d*\\.)?\\d+([eE][-+]?\\d+)?")
       ;
@@ -555,10 +555,10 @@ void crc_builder::add_quad_component(
       ls_nodes.push_back(vbc);
 
       add_item(
-        props["lp:name"], strtol(props["lp:value"].c_str(), 0, 10),
+        props["lp:name"], strtod(props["lp:value"].c_str(), 0),
         symbolic, lp_nodes);
       add_item(
-        props["ls:name"], strtol(props["ls:value"].c_str(), 0, 10),
+        props["ls:name"], strtod(props["ls:value"].c_str(), 0),
         symbolic, ls_nodes);
 
       stream_ << name << " " << props["lp:name"] << " " << props["ls:name"];

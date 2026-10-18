@@ -32,6 +32,8 @@
 #include <QList>
 #include <QPair>
 #include <QTextEdit>
+#include <QContextMenuEvent>
+#include <QMenu>
 
 
 typedef sapecng::LogPolicy SapecNGLogger;
@@ -170,7 +172,25 @@ public slots:
     write(msg, color);
   }
 
+  void clearEntries()
+  {
+    entries_.clear();
+    clear();
+  }
+
 protected:
+  // the usual menu (copy, select all) and Clear
+  void contextMenuEvent(QContextMenuEvent* event) override
+  {
+    QMenu* menu = createStandardContextMenu();
+    menu->addSeparator();
+    QAction* clearAct = menu->addAction(tr("C&lear"));
+    clearAct->setEnabled(!entries_.isEmpty());
+    connect(clearAct, &QAction::triggered, this, &LogViewer::clearEntries);
+    menu->exec(event->globalPos());
+    delete menu;
+  }
+
   void changeEvent(QEvent* event) override
   {
     QTextEdit::changeEvent(event);

@@ -922,15 +922,26 @@ void WorkPlane::applyYRange(int axis, const QString& key)
     // step above and below: a curve never runs along the frame
     double lo = 0., hi = 0.;
     bool any = false;
+    // the samples themselves, finite ones only: at a resonance the
+    // magnitude can be infinite, and one such point made the curve's
+    // bounding rectangle useless (the peak was cut off)
     for(QwtPlotItem* item : plot_->itemList(QwtPlotItem::Rtti_PlotCurve)) {
       if(!item->isVisible() || item->yAxis() != axis)
         continue;
-      const QRectF b = static_cast<QwtPlotCurve*>(item)->boundingRect();
-      if(!b.isValid() || !std::isfinite(b.top()) || !std::isfinite(b.bottom()))
-        continue;
-      lo = any ? qMin(lo, b.top()) : b.top();
-      hi = any ? qMax(hi, b.bottom()) : b.bottom();
-      any = true;
+      const QwtPlotCurve* curve = static_cast<QwtPlotCurve*>(item);
+      for(size_t i = 0; i < curve->dataSize(); ++i) {
+        const double y = curve->sample(i).y();
+        if(!std::isfinite(y))
+          continue;
+        lo = any ? qMin(lo, y) : y;
+        hi = any ? qMax(hi, y) : y;
+        any = true;
+      }
+    }
+    if(any && hi == lo) {
+      // a flat curve: a little room around it
+      lo -= 1.;
+      hi += 1.;
     }
     QwtScaleEngine* engine = plot_->axisScaleEngine(axis);
     const bool log = engine && dynamic_cast<QwtLogScaleEngine*>(engine);

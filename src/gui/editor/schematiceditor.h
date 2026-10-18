@@ -62,6 +62,9 @@ public:
   // last result of Resolve; it may be out of date (see isSolved())
   inline bool hasResult() const { return hasResult_; }
   inline const SolveResult& lastResult() const { return lastResult_; }
+  // forget the result shown (Result panel > Clear); the next Resolve
+  // brings a new one
+  void clearResult() { hasResult_ = false; lastResult_ = SolveResult(); }
 
   // the result for one output (by name; the first when empty or gone)
   // into a plot

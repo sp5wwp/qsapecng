@@ -295,6 +295,20 @@ QSapecNG CHANGELOG
       Raw result. Older versions skip the part
     o Solver tests: a transformer with three windings in the random
       circuits, checked against its own inductance-matrix model
+    o File > Open Netlist reads a .crc netlist and draws it: the parts in
+      a row, one bus per node, ground symbols and Out markers; saving
+      writes the netlist back. Part names may be longer than a letter and
+      digits (Rload), and ideal transformers (n) are read
+    o The voltmeter and the ammeter are in the Components list (no longer
+      on the toolbar)
+    o Plots: the kind of plot is picked with four buttons (magnitude,
+      phase, Bode, poles and zeros); New Plot from the Plots window keeps
+      that window in front; the automatic vertical range fits the curves
+      (a resonance peak is no longer cut off)
+    o Messages and Result have Clear in their right-click menu
+    o A wire started by clicking a pin or a junction ends the wire tool
+      when it is finished
+    o Mutual inductance: the Lp and Ls tags sit further from the windings
 
  * 2.1.1
     o Porting to Qwt6

@@ -30,6 +30,7 @@
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QTabBar>
+#include <QMenu>
 #include <QTextBrowser>
 #include <cmath>
 #include <QTimer>
@@ -181,6 +182,19 @@ ResultPanel::ResultPanel(QWidget* parent)
   view_ = new QTextBrowser;
   view_->setOpenLinks(false);
   view_->setFrameShape(QFrame::NoFrame);
+  // the usual menu (copy, select all) and Clear
+  view_->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(view_, &QWidget::customContextMenuRequested, this,
+    [this](const QPoint& pos) {
+      QMenu* menu = view_->createStandardContextMenu(pos);
+      menu->addSeparator();
+      QAction* clearAct = menu->addAction(tr("C&lear"));
+      clearAct->setEnabled(hasResult_);
+      connect(clearAct, &QAction::triggered, this,
+        &ResultPanel::clearRequested);
+      menu->exec(view_->viewport()->mapToGlobal(pos));
+      delete menu;
+    });
   connect(view_, &QTextBrowser::anchorClicked,
     this, &ResultPanel::linkClicked);
 

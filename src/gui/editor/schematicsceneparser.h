@@ -93,6 +93,96 @@ private:
 
 
 
+
+// Draws a netlist (a .crc file: parts and the nodes they join, no
+// drawing) as a schematic. Every part sits in one row, each with its own
+// lanes: a pin goes sideways to its lane, the lane up to the bus of its
+// node (one bus per node, above the row) or down to a ground symbol. Out
+// markers sit at the right end of their bus. The drawing is a start, to be
+// tidied by hand; the circuit is the netlist's.
+class NetlistSceneBuilder: public sapecng::abstract_builder
+{
+
+public:
+  NetlistSceneBuilder(SchematicScene& scene): scene_(&scene) { }
+
+  void add_circuit_properties(std::map<std::string,std::string> map) { }
+  void add_circuit_property(std::string name, std::string value) { }
+
+  void add_wire_component(
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    ) { }
+
+  void add_out_component(
+      unsigned int v,
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    ) { outs_.push_back(v); }
+
+  void add_dual_component(
+      sapecng::abstract_builder::dual_component_type c_type,
+      std::string name,
+      double value,
+      bool symbolic,
+      unsigned int va,
+      unsigned int vb,
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    );
+
+  void add_quad_component(
+      sapecng::abstract_builder::quad_component_type c_type,
+      std::string name,
+      double value,
+      bool symbolic,
+      unsigned int va,
+      unsigned int vb,
+      unsigned int vac,
+      unsigned int vbc,
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    );
+
+  void add_unknow_component(
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    ) { }
+
+  void begin_userdef_component(
+      std::string name,
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    ) { }
+
+  void end_userdef_component(
+      std::string name,
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    ) { }
+
+  // lays the parts out and puts them in the scene
+  void flush();
+
+private:
+  struct Part {
+    bool quad;
+    int type;
+    std::string name;
+    double value;
+    bool symbolic;
+    std::vector<unsigned int> nodes;   // va, vb (, vac, vbc)
+    std::map<std::string,std::string> props;
+  };
+
+  SchematicScene* scene_;
+  std::vector<Part> parts_;
+  std::vector<unsigned int> outs_;
+
+};
+
+
+
 class SchematicSceneBuilder: public sapecng::abstract_builder
 {
 

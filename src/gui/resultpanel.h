@@ -86,6 +86,8 @@ public:
 signals:
   // a Plot link was clicked (WorkPlane::Kind)
   void plotRequested(int function);
+  // right-click > Clear
+  void clearRequested();
 
 protected:
   void changeEvent(QEvent* event) override;
