@@ -79,7 +79,13 @@ QSapecNG CHANGELOG
     o Pole-zero map: the same scale on both axes, whatever the window's
       shape
     o Plot > Antialiasing (and Configure): smooth curves on or off (kept);
-      the grid and the marker lines stay sharp either way
+      the grid and the marker lines stay sharp either way. Curves are
+      drawn at their exact positions (Qwt rounded every point to a whole
+      pixel, so even smooth curves came out in steps)
+    o The Markers panel is a side panel of the Plots window, like Plot
+      Settings, with its own close button; it shows the markers of the
+      plot in front. Right-click on a plot: Add Marker at that frequency.
+      The side panels no longer float off as windows of their own
     o Differential markers: Reference makes the selected marker the
       reference; the others show their difference from it in magnitude
       and phase (in the panel and on the plot) and in frequency

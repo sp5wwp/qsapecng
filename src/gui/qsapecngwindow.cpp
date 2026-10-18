@@ -339,11 +339,10 @@ WorkPlane* QSapecNGWindow::createPlot(SchematicEditor* editor,
   plane->applySettings(settings);
 
   createPlotWindow();
+  // the first marker of the plot shown opens the Markers panel
   connect(plane, &WorkPlane::markersPanelChanged, this, [this, plane](bool on) {
-      if(plane != currentPlot_)
-        return;
-      QSignalBlocker block(markersPanelAct_);
-      markersPanelAct_->setChecked(on);
+      if(plane == currentPlot_ && on && markersDock_)
+        markersDock_->show();
     });
   PlotEntry entry{ plane, editor };
   plots_.append(entry);
@@ -393,6 +392,7 @@ void QSapecNGWindow::createPlotWindow()
     });
   connect(plotTabs_, &QTabWidget::currentChanged, this, [this]() {
       currentPlot_ = qobject_cast<WorkPlane*>(plotTabs_->currentWidget());
+      showMarkersOf(currentPlot_);
       if(currentPlot_ && plotSettingsForm_) {
         plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
         plotSettingsForm_->setSettings(currentPlot_->settings());
@@ -433,8 +433,25 @@ void QSapecNGWindow::createPlotWindow()
   plotSettingsDock_->setObjectName(QStringLiteral("plotSettingsDock"));
   plotSettingsDock_->setWidget(holder);
   plotSettingsDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  // no floating: a floated panel only jumped a little, as its own window
+  plotSettingsDock_->setFeatures(QDockWidget::DockWidgetClosable
+    | QDockWidget::DockWidgetMovable);
   plotWindow_->addDockWidget(Qt::RightDockWidgetArea, plotSettingsDock_);
   plotSettingsDock_->hide();
+
+  // the markers of the plot shown (each plot has its own list)
+  markersDock_ = new QDockWidget(tr("Markers"), plotWindow_);
+  markersDock_->setObjectName(QStringLiteral("markersDock"));
+  markersDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  markersDock_->setFeatures(QDockWidget::DockWidgetClosable
+    | QDockWidget::DockWidgetMovable);
+  plotWindow_->addDockWidget(Qt::RightDockWidgetArea, markersDock_);
+  plotWindow_->splitDockWidget(markersDock_, plotSettingsDock_, Qt::Horizontal);
+  markersDock_->hide();
+  connect(markersDock_, &QDockWidget::visibilityChanged, this, [this]() {
+      QSignalBlocker block(markersPanelAct_);
+      markersPanelAct_->setChecked(markersDock_->isVisible());
+    });
   connect(plotSettingsDock_, &QDockWidget::visibilityChanged, this, [this]() {
       QSignalBlocker block(plotSettingsAct_);
       plotSettingsAct_->setChecked(plotSettingsDock_->isVisible());
@@ -474,6 +491,26 @@ void QSapecNGWindow::showPlotWindow()
     plotWindow_->show();
   plotWindow_->raise();
   plotWindow_->activateWindow();
+}
+
+
+void QSapecNGWindow::showMarkersOf(WorkPlane* plane)
+{
+  // the dock shows one plot's panel at a time; the others wait, hidden
+  // and without a parent (each plot deletes its own)
+  if(!markersDock_)
+    return;
+  QWidget* panel = plane ? plane->markersPanel() : nullptr;
+  QWidget* old = markersDock_->widget();
+  if(old == panel)
+    return;
+  if(old) {
+    old->hide();
+    old->setParent(nullptr);
+  }
+  markersDock_->setWidget(panel);
+  if(panel)
+    panel->show();
 }
 
 
@@ -1156,10 +1193,6 @@ void QSapecNGWindow::updateMenus()
   markersPanelAct_->setEnabled(hasPlot);
   if(showPlotsAct_)
     showPlotsAct_->setEnabled(plotTabs_ && plotTabs_->count() > 0);
-  if(currentPlot_) {
-    QSignalBlocker block(markersPanelAct_);
-    markersPanelAct_->setChecked(currentPlot_->markersPanelVisible());
-  }
   printPlotAct_->setEnabled(hasPlot);
   replotAct_->setEnabled(hasPlot);
 }
@@ -1547,8 +1580,10 @@ void QSapecNGWindow::createActions()
   markersPanelAct_->setChecked(false);
   markersPanelAct_->setShortcut(Qt::CTRL | Qt::Key_M);
   markersPanelAct_->setStatusTip(tr("Show or hide the list of markers beside the plot"));
-  connect(markersPanelAct_, &QAction::toggled, this,
-    [this](bool on) { if(currentPlot_) currentPlot_->setMarkersPanelVisible(on); });
+  connect(markersPanelAct_, &QAction::toggled, this, [this](bool on) {
+      createPlotWindow();
+      markersDock_->setVisible(on);
+    });
 
   antialiasAct_ = new QAction(tr("&Antialiasing"), this);
   antialiasAct_->setCheckable(true);

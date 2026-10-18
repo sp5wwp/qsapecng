@@ -67,6 +67,7 @@
 #include <qwt_plot_panner.h>
 #include <qwt_scale_engine.h>
 #include <qwt_scale_div.h>
+#include <qwt_painter.h>
 #include <qwt_curve_fitter.h>
 #include <qwt_weeding_curve_fitter.h>
 #include <qwt_text.h>
@@ -341,8 +342,26 @@ WorkPlane::WorkPlane(QWidget* parent)
 }
 
 
+namespace {
+
+// Qwt rounds the points of a curve to whole pixels on screen, so even an
+// antialiased curve came out in steps; off, they keep their fractional
+// positions (items drawn without antialiasing are rounded by QPainter
+// anyway: grid, axes, marker lines look the same)
+const bool noRounding = []() {
+    QwtPainter::setRoundingAlignment(false);
+    return true;
+  }();
+
+}
+
+
 WorkPlane::~WorkPlane()
 {
+  // the Markers panel may be in the plot window's dock: it goes with the
+  // plot (its buttons act on this plot)
+  delete markerPanel_;
+
   // delete clickPointMachine_;
 
   for(int i = 0; i < curves_.size(); ++i) {
@@ -1236,9 +1255,8 @@ void WorkPlane::refreshMarkers()
   }
   markerLines_.clear();
 
-  const bool frequencyPlot = lastId_ != NOOP
-    && lastId_ != ZEROS && lastId_ != POLES;
-  markerPanel_->setVisible(frequencyPlot && markersPanelWanted_);
+  // markers belong to frequency plots (not to the pole-zero map)
+  markerPanel_->setEnabled(hasFrequencyAxis());
 
   fillingTable_ = true;
   markerTable_->setRowCount(markers_.size());
@@ -1302,7 +1320,7 @@ void WorkPlane::refreshMarkers()
         it->setFont(bold);
     }
 
-    if(!frequencyPlot)
+    if(!hasFrequencyAxis())
       continue;
 
     // dashed vertical line with the values at the top
@@ -1546,10 +1564,8 @@ void WorkPlane::addMarker(double hz)
   if(!(hz > 0) || !std::isfinite(hz))
     return;
   // the panel (closed at first) opens with the first marker
-  if(markers_.isEmpty() && !markersPanelWanted_) {
-    markersPanelWanted_ = true;
+  if(markers_.isEmpty())
     emit markersPanelChanged(true);
-  }
   markers_.append(hz);
   std::sort(markers_.begin(), markers_.end());
   refreshMarkers();
@@ -1614,11 +1630,9 @@ void WorkPlane::plotClicked(const QPointF& pos)
 }
 
 
-void WorkPlane::setMarkersPanelVisible(bool visible)
+bool WorkPlane::hasFrequencyAxis() const
 {
-  markersPanelWanted_ = visible;
-  emit markersPanelChanged(visible);
-  refreshMarkers();
+  return lastId_ != NOOP && lastId_ != ZEROS && lastId_ != POLES;
 }
 
 
@@ -1946,26 +1960,38 @@ void WorkPlane::createMainLayout()
 
   QVBoxLayout* panelLayout = new QVBoxLayout;
   panelLayout->setContentsMargins(4, 4, 4, 4);
-  panelLayout->addWidget(new QLabel(tr("<b>Markers</b>")));
   panelLayout->addWidget(markerTable_, 1);
   panelLayout->addLayout(buttons);
   panelLayout->addLayout(search);
   panelLayout->addLayout(move);
   panelLayout->addWidget(markerNote_);
+  // shown by the plot window in its Markers dock (QSapecNGWindow)
   markerPanel_ = new QWidget;
   markerPanel_->setLayout(panelLayout);
   markerPanel_->setMinimumWidth(260);
   markerPanel_->setMaximumWidth(560);
-
-  QSplitter* splitter = new QSplitter(Qt::Horizontal);
-  splitter->addWidget(plot_);
-  splitter->addWidget(markerPanel_);
-  splitter->setStretchFactor(0, 1);
-  splitter->setStretchFactor(1, 0);
-  splitter->setCollapsible(0, false);
+  markerPanel_->hide();
 
   centralLayout_ = new QVBoxLayout;
-  centralLayout_->addWidget(splitter);
+  centralLayout_->addWidget(plot_);
+
+  // right-click on the plot: a marker at that frequency
+  plot_->extraActions = [this](const QPoint& canvasPos) {
+      QList<QAction*> actions;
+      if(!hasFrequencyAxis() || !plot_->canvas()->rect().contains(canvasPos))
+        return actions;
+      const double x = plot_->invTransform(QwtPlot::xBottom, canvasPos.x());
+      const double twoPi = 8. * std::atan(1.);
+      const double hz = QString::number(angular_ ? x / twoPi : x, 'g', 3)
+        .toDouble();
+      if(!(hz > 0))
+        return actions;
+      QAction* add = new QAction(tr("Add &Marker at %1")
+        .arg(units::format(QString::number(hz, 'g', 3), QStringLiteral("Hz"))), nullptr);
+      connect(add, &QAction::triggered, this, [this, hz]() { addMarker(hz); });
+      actions << add;
+      return actions;
+    };
 
   mainLayout_ = new QHBoxLayout;
   mainLayout_->setContentsMargins(0, 0, 0, 0);

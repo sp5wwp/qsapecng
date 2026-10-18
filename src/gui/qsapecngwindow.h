@@ -236,6 +236,7 @@ private:
   QMainWindow* plotWindow_ = nullptr;
   QTabWidget* plotTabs_ = nullptr;
   QDockWidget* plotSettingsDock_ = nullptr;
+  QDockWidget* markersDock_ = nullptr;
   PlotSettingsWidget* plotSettingsForm_ = nullptr;
   QAction* showPlotsAct_ = nullptr;
   void createPlotWindow();
@@ -245,6 +246,8 @@ private:
   void refreshPlots(SchematicEditor* editor);
   // names of the outputs a plot can show (its schematic's last result)
   QStringList plotOutputs(WorkPlane* plane) const;
+  // the Markers dock shows this plot's markers
+  void showMarkersOf(WorkPlane* plane);
 
 
   QMenu* fileMenu_;

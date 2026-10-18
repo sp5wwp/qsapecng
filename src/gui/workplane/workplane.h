@@ -24,6 +24,8 @@
 #include "model/metacircuit.h"
 
 #include <QWidget>
+#include <QPointer>
+#include <functional>
 #include <QMenu>
 #include <QContextMenuEvent>
 #include <QPrinter>
@@ -67,9 +69,29 @@ public:
 
   inline void setContextMenu(QMenu* menu) { contextMenu_ = menu; }
   inline QMenu* contextMenu() const { return contextMenu_; }
+  // actions shown above the context menu's own, for a click at a point of
+  // the canvas (e.g. Add Marker there); the menu deletes them
+  std::function<QList<QAction*>(const QPoint& canvasPos)> extraActions;
 
   void contextMenuEvent(QContextMenuEvent* event)
-    { if(contextMenu_) contextMenu_->exec(event->globalPos()); }
+  {
+    QList<QAction*> extra;
+    if(extraActions)
+      extra = extraActions(canvas()->mapFromGlobal(event->globalPos()));
+    if(extra.isEmpty()) {
+      if(contextMenu_)
+        contextMenu_->exec(event->globalPos());
+      return;
+    }
+    QMenu menu;
+    menu.addActions(extra);
+    if(contextMenu_) {
+      menu.addSeparator();
+      menu.addActions(contextMenu_->actions());
+    }
+    menu.exec(event->globalPos());
+    qDeleteAll(extra);
+  }
 
 private:
   QMenu* contextMenu_;
@@ -251,8 +273,10 @@ public:
   void markerMinus3dB();
   // markers (frequencies, Hz) and their panel
   void addMarker(double hz);
-  void setMarkersPanelVisible(bool visible);
-  bool markersPanelVisible() const { return markersPanelWanted_; }
+  // the Markers panel of this plot (table, buttons): shown by the plot
+  // window in a dock of its own; usable for frequency plots only
+  QWidget* markersPanel() const { return markerPanel_; }
+  bool hasFrequencyAxis() const;
   void print(QPrinter& printer);
 
 private:
@@ -315,11 +339,10 @@ protected:
   // markers: vertical lines with magnitude and phase, listed in a panel
   QList<double> markers_;                 // Hz
   QList<QwtPlotMarker*> markerLines_;
-  QWidget* markerPanel_ = nullptr;
+  QPointer<QWidget> markerPanel_;   // lives in the plot window's dock
   QTableWidget* markerTable_ = nullptr;
   QLineEdit* stepEdit_ = nullptr;
   bool fillingTable_ = false;
-  bool markersPanelWanted_ = false;   // opens with the first marker
   QLabel* markerNote_ = nullptr;      // what a marker search found (or not)
   double refHz_ = 0.;                     // reference marker (0: none)
   void setMarker(int row, double hz);
