@@ -407,6 +407,54 @@ void SchematicSceneParser::parse_item(
 
       break;
     }
+  case SchematicScene::MultiTransformerItemType:
+    {
+      Component* component = static_cast<Component*>(item);
+      QVector<int> nodes = component->nodes();
+      storeLabel(props, component);
+
+      const bool ideal = !subproperties.contains("Ideal")
+        || QVariant(subproperties.value("Ideal")).toBool();
+      const double lp = subproperties.value("Lp").toDouble();
+      double k = subproperties.value("k").toDouble();
+      if(!(k > 0.) || k > 1.)
+        k = 1.;
+      // the inductance is kept while the part is ideal
+      props["ideal"] = ideal ? "1" : "0";
+      props["lp"] = QString::number(lp, 'g', 15).toStdString();
+
+      std::vector< std::pair<unsigned int, unsigned int> > windings;
+      for(int i = 0; i + 1 < nodes.size(); i += 2)
+        windings.push_back(std::make_pair(unsigned(nodes.at(i)),
+                                          unsigned(nodes.at(i + 1))));
+      std::vector<double> ratios;
+      ratios.push_back(1.);
+      ratios.push_back(subproperties.value("n2").toDouble());
+      ratios.push_back(subproperties.value("n3").toDouble());
+
+      builder.add_transformer(
+        subproperties.value("__NAME").toStdString(), windings, ratios,
+        ideal ? 0. : lp, k, QVariant(subproperties.value("Symbolic")).toBool(),
+        props);
+
+      break;
+    }
+  case SchematicScene::NullorItemType:
+    {
+      // the solver's ideal op-amp element (a nullor) on four free pins:
+      // norator (output) and nullator (input)
+      Component* component = static_cast<Component*>(item);
+      QVector<int> nodes = component->nodes();
+      storeLabel(props, component);
+
+      builder.add_quad_component(
+        sapecng::abstract_builder::AO,
+        subproperties.value("__NAME").toStdString(), 1., false,
+        nodes.at(3), nodes.at(2), nodes.at(1), nodes.at(0), props
+      );
+
+      break;
+    }
   case SchematicScene::TransformerItemType:
     {
       Component* component = static_cast<Component*>(item);
@@ -562,6 +610,59 @@ void SchematicSceneBuilder::add_out_component(
 }
 
 
+void SchematicSceneBuilder::add_transformer(
+    std::string name,
+    std::vector< std::pair<unsigned int, unsigned int> > windings,
+    std::vector<double> ratios,
+    double lp,
+    double k,
+    bool symbolic,
+    std::map<std::string, std::string> props
+  )
+{
+  // the schematic has the three-winding part only
+  if(discard(props) || windings.size() != 3 || ratios.size() != 3)
+    return;
+
+  Component* component = static_cast<Component*>(
+    SchematicScene::itemByType(SchematicScene::MultiTransformerItemType));
+  if(!component)
+    return;
+
+  if(!props.count("ideal"))
+    props["ideal"] = lp > 0. ? "0" : "1";
+  scene_->addSupportedItem(component, false);
+  grid_coordinate(component, props);
+  setup_properties(component, name, lp, symbolic, props);
+
+  // turns ratios, inductance (also kept for an ideal part) and coupling
+  if(QtProperty* properties = SchematicScene::itemProperties(component)) {
+    auto number = [](double x) { return QString::number(x, 'g', 15); };
+    double inductance = lp;
+    if(props.count("lp"))
+      inductance = QString::fromStdString(props["lp"]).toDouble();
+    const QHash<QString, QString> values = {
+      { QStringLiteral("n2"), number(ratios[1]) },
+      { QStringLiteral("n3"), number(ratios[2]) },
+      { QStringLiteral("k"), number(k) } };
+    foreach(QtProperty* p, properties->subProperties()) {
+      QtStringPropertyManager* spm =
+        qobject_cast<QtStringPropertyManager*>(p->propertyManager());
+      if(!spm)
+        continue;
+      if(values.contains(p->propertyName()))
+        spm->setValue(p, values.value(p->propertyName()));
+      else if(p->propertyName() == QLatin1String("Lp") && inductance > 0.)
+        spm->setValue(p, number(inductance));
+    }
+  }
+
+  mirror_and_rotate(component, props);
+  adjust_label(component, props);
+  items_.push_back(component);
+}
+
+
 void SchematicSceneBuilder::add_dual_component(
     sapecng::abstract_builder::dual_component_type c_type,
     std::string name,
@@ -696,8 +797,12 @@ void SchematicSceneBuilder::add_quad_component(
       }
     case sapecng::abstract_builder::AO:
       {
-        component = static_cast<Component*>(
-          SchematicScene::itemByType(SchematicScene::OpAmplItemType));
+        // a nullor is an op-amp element with its own "type"
+        const bool nullor = QString::fromStdString(props["type"]).toInt()
+          == SchematicScene::NullorItemType;
+        component = static_cast<Component*>(SchematicScene::itemByType(
+          nullor ? SchematicScene::NullorItemType
+                 : SchematicScene::OpAmplItemType));
         break;
       }
     case sapecng::abstract_builder::n:

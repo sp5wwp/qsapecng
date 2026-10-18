@@ -18,6 +18,8 @@
 
 
 #include "parser/ir_circuit.h"
+#include <locale>
+#include <sstream>
 
 #ifndef Q_MOC_RUN
 #include <boost/lexical_cast.hpp>
@@ -252,6 +254,35 @@ void ir_parser::parse_rec(
               nodes.at(2), nodes.at(3),
               imap
             );
+          break;
+        case 'T':
+          {
+            // a transformer: the windings' nodes in pairs, the turns
+            // ratios ("ratio2", "ratio3" ...) and k as properties
+            std::vector< std::pair<unsigned int, unsigned int> > windings;
+            std::vector<double> ratios;
+            for(std::size_t i = 0; i + 1 < nodes.size(); i += 2) {
+              windings.push_back(std::make_pair(nodes.at(i), nodes.at(i + 1)));
+              double ratio = 1.;
+              if(i > 0) {
+                std::istringstream in(imap["ratio" + std::to_string(i / 2 + 1)]);
+                in.imbue(std::locale::classic());
+                if(!(in >> ratio))
+                  ratio = 1.;
+              }
+              ratios.push_back(ratio);
+            }
+            double k = 1.;
+            {
+              std::istringstream in(imap["k"]);
+              in.imbue(std::locale::classic());
+              if(!(in >> k))
+                k = 1.;
+            }
+            if(windings.size() >= 2)
+              builder.add_transformer(name, windings, ratios, value, k,
+                symbolic, imap);
+          }
           break;
         }
       }
@@ -597,6 +628,35 @@ void ir_builder::end_userdef_component(
 {
   head_ = stack_.top();
   stack_.pop();
+}
+
+
+void ir_builder::add_transformer(
+    std::string name,
+    std::vector< std::pair<unsigned int, unsigned int> > windings,
+    std::vector<double> ratios,
+    double lp,
+    double k,
+    bool symbolic,
+    std::map<std::string, std::string> props
+  )
+{
+  std::vector<unsigned int> nodes;
+  for(const auto& w : windings) {
+    nodes.push_back(w.first);
+    nodes.push_back(w.second);
+  }
+  auto text = [](double x) {
+      std::ostringstream s;
+      s.imbue(std::locale::classic());
+      s.precision(15);
+      s << x;
+      return s.str();
+    };
+  for(std::size_t i = 1; i < ratios.size(); ++i)
+    props["ratio" + std::to_string(i + 1)] = text(ratios[i]);
+  props["k"] = text(k);
+  add_item('T', name, lp, symbolic, nodes, props);
 }
 
 

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <complex>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -29,6 +30,7 @@
 #include "model/metacircuit.h"
 #include "parser/crc_circuit.h"
 #include "parser/ir_circuit.h"
+#include "parser/spice_circuit.h"
 #include "functor/functor.hpp"
 
 namespace sapecng {
@@ -54,7 +56,14 @@ struct Element
   bool symbolic = false;
   unsigned int n[4] = { 0, 0, 0, 0 };
   props_t props;
+  // a transformer (add_transformer): windings, turns ratios, lp and k
+  // (value: lp, props "k"); the pins are in windings, not in n
+  bool transformer = false;
+  std::vector< std::pair<unsigned int, unsigned int> > windings;
+  std::vector<double> ratios;
 };
+
+double prop(const props_t& p, const char* key);
 
 struct Netlist
 {
@@ -80,7 +89,10 @@ struct Netlist
   void replay(abstract_builder& b) const
   {
     for(const Element& e : elements) {
-      if(e.quad)
+      if(e.transformer)
+        b.add_transformer(e.name, e.windings, e.ratios, e.value,
+          prop(e.props, "k"), e.symbolic, e.props);
+      else if(e.quad)
         b.add_quad_component(
           static_cast<abstract_builder::quad_component_type>(e.type),
           e.name, e.value, e.symbolic, e.n[0], e.n[1], e.n[2], e.n[3], e.props);
@@ -103,6 +115,16 @@ struct Netlist
     static const char* quad[] = { "VCCS", "VCVS", "CCCS", "CCVS", "AO", "n", "K" };
     std::ostringstream s;
     for(const Element& e : elements) {
+      if(e.transformer) {
+        s << "  T " << e.name << "  lp=" << e.value << "  windings";
+        for(std::size_t i = 0; i < e.windings.size(); ++i)
+          s << " (" << e.windings[i].first << "," << e.windings[i].second
+            << " n=" << e.ratios[i] << ")";
+        for(const auto& p : e.props)
+          s << "  " << p.first << "=" << p.second;
+        s << "\n";
+        continue;
+      }
       s << "  " << (e.quad ? quad[e.type] : dual[e.type]) << " " << e.name
         << " = " << e.value << "  nodes";
       for(int i = 0; i < (e.quad ? 4 : 2); ++i)
@@ -152,6 +174,22 @@ public:
     e.n[0] = va; e.n[1] = vb; e.n[2] = vac; e.n[3] = vbc; e.props = props;
     net.elements.push_back(e);
   }
+  void add_transformer(std::string name,
+      std::vector< std::pair<unsigned int, unsigned int> > windings,
+      std::vector<double> ratios, double lp, double k, bool symbolic,
+      props_t props) override
+  {
+    Element e;
+    e.transformer = true;
+    e.name = name; e.value = lp; e.symbolic = symbolic;
+    e.windings = windings; e.ratios = ratios;
+    e.props = props;
+    std::ostringstream ks;
+    ks.precision(17);
+    ks << k;
+    e.props["k"] = ks.str();
+    net.elements.push_back(e);
+  }
   void add_unknow_component(props_t) override { }
   void begin_userdef_component(std::string, props_t) override { }
   void end_userdef_component(std::string, props_t) override { }
@@ -199,9 +237,14 @@ public:
         if(n && !ids.count(n)) { const int k = int(ids.size()) + 1; ids[n] = k; }
       };
     use(net.out);
-    for(const Element& e : net.elements)
+    for(const Element& e : net.elements) {
+      if(e.transformer) {
+        for(const auto& w : e.windings) { use(w.first); use(w.second); }
+        continue;
+      }
       for(int i = 0; i < (e.quad ? 4 : 2); ++i)
         use(e.n[i]);
+    }
     ids_ = ids;
     nodes_ = unsigned(ids.size());
   }
@@ -216,6 +259,7 @@ public:
     // count branch currents
     int extra = 0;
     for(const Element& e : net_.elements) {
+      if(e.transformer) { extra += int(e.windings.size()); continue; }
       if(!e.quad && (e.type == abstract_builder::V || e.type == abstract_builder::AM))
         ++extra;
       if(e.quad) {
@@ -250,6 +294,36 @@ public:
 
     int k = int(nodes_);
     for(const Element& e : net_.elements) {
+      if(e.transformer) {
+        // its own model, not the engine's decomposition: winding currents
+        // I_i into the dotted ends; coupled: V_i = s sum_j M_ij I_j with
+        // L_i = lp n_i^2, M_ij = k lp n_i n_j; ideal: V_i = n_i V_1 and
+        // sum_i n_i I_i = 0
+        const int N = int(e.windings.size());
+        const long double lp = e.value, kc = prop(e.props, "k");
+        for(int i = 0; i < N; ++i)
+          addBranch(e.windings[i].first, e.windings[i].second, k + i, 1.);
+        if(lp > 0) {
+          for(int i = 0; i < N; ++i) {
+            addVoltage(k + i, e.windings[i].first, e.windings[i].second, 1.);
+            for(int j = 0; j < N; ++j) {
+              const long double m = (i == j ? 1.L : kc) * lp
+                * e.ratios[i] * e.ratios[j];
+              A[k + i][k + j] -= s * m;
+            }
+          }
+        } else {
+          for(int i = 1; i < N; ++i) {
+            addVoltage(k + i - 1, e.windings[i].first, e.windings[i].second, 1.);
+            addVoltage(k + i - 1, e.windings[0].first, e.windings[0].second,
+              -e.ratios[i]);
+          }
+          for(int i = 0; i < N; ++i)
+            A[k + N - 1][k + i] += e.ratios[i];
+        }
+        k += N;
+        continue;
+      }
       const unsigned int a = e.n[0], b = e.n[1], c = e.n[2], d = e.n[3];
       const double v = e.value;
       if(!e.quad) {
@@ -442,11 +516,12 @@ struct EngineResult
   std::string text;
 };
 
-EngineResult solveEngine(const Netlist& net)
+EngineResult solveEngine(const Netlist& net, int output = -1)
 {
   EngineResult r;
   sapecng::circuit circ;
-  sapecng::circuit_builder builder(circ, net.engineOutput());
+  sapecng::circuit_builder builder(circ,
+    output < 0 ? net.engineOutput() : unsigned(output));
   net.replay(builder);
   sapecng::metacircuit meta;
   meta(circ);
@@ -629,6 +704,29 @@ Netlist randomCircuit(Gen& g, bool active, bool extended = false)
       net.elements.push_back(e);
     }
   }
+  // now and then a transformer with three windings: ideal, perfectly
+  // coupled or with leakage
+  if(extended && g.uni(0, 7) == 0) {
+    Element t;
+    t.transformer = true;
+    t.name = "T1";
+    t.symbolic = g.uni(0, 1);
+    // ideal (half), perfectly coupled (a third), leaky (a sixth: three more
+    // inductors make the circuit slow to solve symbolically)
+    const int roll = g.uni(0, 5);
+    const int kind = roll < 3 ? 0 : roll < 5 ? 1 : 2;
+    t.value = kind == 0 ? 0. : g.logu(1e-5, 1e-1);
+    t.props["k"] = kind == 2 ? std::to_string(g.uni(50, 99) / 100.) : "1";
+    bool ok = true;
+    for(int i = 0; i < 3; ++i) {
+      const unsigned a = unsigned(g.uni(0, nodes)), b = unsigned(g.uni(0, nodes));
+      if(a == b) ok = false;
+      t.windings.push_back(std::make_pair(a, b));
+      t.ratios.push_back(i == 0 ? 1. : g.logu(0.2, 5.));
+    }
+    if(ok)
+      net.elements.push_back(t);
+  }
   // now and then a current source too
   if(extended && g.uni(0, 3) == 0) {
     Element i;
@@ -810,6 +908,48 @@ Signs calibrate()
   return sg;
 }
 
+// ---------------------------------------------------------------- SPICE
+
+// The circuit through spice_builder and ngspice at frequency f: every
+// output's value, in the order of the outputs. Empty when ngspice failed.
+std::vector<cplx> runSpice(const Netlist& net, double f, std::string* text,
+  double idealGain = 1e8)
+{
+  std::ostringstream cmd;
+  cmd.precision(12);
+  cmd << "set numdgt=12\nac lin 1 " << f << " " << f;
+  std::ostringstream deck;
+  sapecng::spice_builder builder(deck);
+  builder.set_title("mna_check");
+  builder.set_control(cmd.str());
+  builder.set_ideal_gain(idealGain);
+  net.replay(builder);
+  *text = deck.str();
+
+  const std::string cir = "mna_check_spice.cir", log = "mna_check_spice.log";
+  { std::ofstream out(cir); out << *text; }
+  std::remove(log.c_str());
+  const std::string run = "ngspice -b " + cir + " > " + log + " 2>&1";
+  std::vector<cplx> values;
+  if(std::system(run.c_str()) != 0)
+    return values;
+  std::ifstream in(log);
+  std::string line;
+  while(std::getline(in, line)) {
+    // "v(4) = 4.999998212179e-01,-5.00000000000e-01"
+    const std::size_t eq = line.find(" = ");
+    if(eq == std::string::npos || line.find('(') > eq)
+      continue;
+    std::istringstream num(line.substr(eq + 3));
+    num.imbue(std::locale::classic());
+    double re = 0., im = 0.;
+    char comma = 0;
+    if(num >> re >> comma >> im && comma == ',')
+      values.push_back(cplx(re, im));
+  }
+  return values;
+}
+
 }  // namespace
 
 
@@ -922,6 +1062,97 @@ int main(int argc, char** argv)
 
   const Signs sg = calibrate();
 
+  if(mode == "spice") {
+    // the SPICE export, checked by ngspice on random circuits: mna_check
+    // spice <count> <seed>; skipped without ngspice
+    if(std::system("ngspice -v > /dev/null 2>&1") != 0) {
+      std::cout << "ngspice not found: SPICE export not checked\n";
+      return 0;
+    }
+    const int count = argc > 2 ? std::atoi(argv[2]) : 100;
+    Gen g(argc > 3 ? unsigned(std::atoi(argv[3])) : 1u);
+    int match = 0, mismatch = 0, skipped = 0, failed = 0;
+    for(int i = 0; i < count; ++i) {
+      const Netlist net = randomCircuit(g, i % 2 == 1, true);
+      const EngineResult er = solveEngine(net);
+      if(er.singular) { ++skipped; continue; }
+      bool ok = true, ran = true, beyond = false;
+      bool idealOpAmp = false;
+      for(const Element& e : net.elements)
+        idealOpAmp = idealOpAmp || (e.quad && e.type == abstract_builder::AO
+          && !real(e));
+      std::string detail, deck;
+      // every output: the Out markers and the meters (their signs)
+      unsigned int outputs = 0;
+      for(const Element& e : net.elements)
+        if(!e.quad && (e.type == abstract_builder::VM || e.type == abstract_builder::AM))
+          ++outputs;
+      outputs += net.outs.empty() ? (net.out ? 1 : 0) : unsigned(net.outs.size());
+      // the engine once per output (the frequencies only evaluate it)
+      std::vector<EngineResult> engine;
+      for(unsigned int k = 0; k < outputs; ++k)
+        engine.push_back(solveEngine(net, int(k)));
+      for(double f : { 159.2, 12345. }) {
+        const std::vector<cplx> out = runSpice(net, f, &deck);
+        if(out.size() != outputs) { ran = false; break; }
+        // with an ideal op-amp: the same at a tenth of the gain; where the
+        // two differ the circuit is limited by the gain (small loop gain),
+        // not a matter of the export
+        std::vector<cplx> lower;
+        if(idealOpAmp) {
+          std::string unused;
+          lower = runSpice(net, f, &unused, 1e7);
+          if(lower.size() != outputs) { ran = false; break; }
+        }
+        for(unsigned int k = 0; k < outputs; ++k) {
+          const EngineResult& ek = engine[k];
+          if(ek.singular)
+            continue;
+          cplx he;
+          if(!evalEngine(ek, f, &he)) { ran = false; break; }
+          // relative; an absolute floor where the engine's value is (near)
+          // zero: an ideal op-amp is a gain of 1e8 in SPICE, good to about
+          // 1e-8 of the signal, and no finite gain follows a result that
+          // is itself huge
+          if(idealOpAmp && (std::abs(he) > 1e4
+              || std::abs(lower[k] - out[k]) > 1e-6 * std::max(std::abs(out[k]), 1e-3)))
+          { beyond = true; break; }
+          const double err = std::abs(out[k] - he) / std::max(std::abs(he), 1e-3);
+          if(!(err < 1e-4)) {
+            std::ostringstream s;
+            s << "f = " << f << ": engine " << he << ", ngspice " << out[k]
+              << " (output " << k << " of " << out.size() << ")";
+            detail = s.str();
+            ok = false;
+            break;
+          }
+        }
+        if(!ok || !ran || beyond)
+          break;
+      }
+      if(beyond) {
+        ++skipped;
+      } else if(!ran) {
+        ++failed;
+        if(failed <= 3)
+          std::cout << "case " << i << ": ngspice gave no result\n"
+                    << net.describe() << deck << "\n";
+      } else if(ok) {
+        ++match;
+      } else {
+        ++mismatch;
+        if(mismatch <= 5)
+          std::cout << "case " << i << ": " << detail << "\n"
+                    << net.describe() << deck << "\n";
+      }
+    }
+    std::cout << count << " circuits: " << match << " match ngspice, "
+              << mismatch << " mismatch, " << failed << " without ngspice "
+              << "result, " << skipped << " skipped (singular, or beyond a "
+              << "finite op-amp gain)\n";
+    return mismatch ? 1 : 0;
+  }
+
   if(mode == "file" && argc > 2) {
     std::ifstream in(argv[2]);
     const std::string file(argv[2]);
@@ -984,11 +1215,25 @@ int main(int argc, char** argv)
   const unsigned seed = argc > 3 ? unsigned(std::atoi(argv[3])) : 1u;
   Gen g(seed);
   int match = 0, mismatch = 0, singular = 0, zero = 0, falseSing = 0, bothSing = 0;
+  int transformerMatch = 0;
   for(int i = 0; i < count; ++i) {
     const Netlist net = randomCircuit(g, i % 2 == 1, extended);
     std::string detail;
+    const auto started = std::chrono::steady_clock::now();
+    struct Timer {
+      std::chrono::steady_clock::time_point t; int i; const Netlist& n;
+      ~Timer() {
+        const double s = std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - t).count();
+        if(std::getenv("SLOW") && s > std::atof(std::getenv("SLOW")))
+          std::cout << "slow case " << i << ": " << s << " s\n" << n.describe();
+      }
+    } timer{ started, i, net };
+    bool hasTransformer = false;
+    for(const Element& e : net.elements)
+      hasTransformer = hasTransformer || e.transformer;
     switch(compare(net, sg, &detail)) {
-    case Match: ++match; break;
+    case Match: ++match; if(hasTransformer) ++transformerMatch; break;
     case Singular:
       ++singular;
       if(std::getenv("SHOW_SINGULAR") && singular <= 3) {
@@ -1020,5 +1265,8 @@ int main(int argc, char** argv)
             << singular << " singular for MNA only (engine finite), "
             << bothSing << " singular for both, " << falseSing
             << " wrongly singular\n";
+  if(extended)
+    std::cout << "  (" << transformerMatch << " of the matches have a "
+              << "three-winding transformer)\n";
   return (mismatch || zero || falseSing) ? 1 : 0;
 }

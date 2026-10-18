@@ -129,6 +129,7 @@ private slots:
   void printPlot();
   void editPlotSettings();
   void exportSchematic();
+  void exportSpice();
 
   void props();
 
@@ -279,6 +280,7 @@ private:
   QAction* saveAsAct_;
   QAction* printAct_;
   QAction* exportAct_;
+  QAction* exportSpiceAct_;
   QAction* quitAct_;
   QAction* binAct_;
   QAction* undoAct_;

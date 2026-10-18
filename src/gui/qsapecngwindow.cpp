@@ -758,6 +758,42 @@ QRectF schematicArea(SchematicScene& scene)
 }
 
 
+void QSapecNGWindow::exportSpice()
+{
+  SchematicEditor* editor = activeEditor();
+  if(!editor)
+    return;
+
+  QFileInfo current(editor->currentFile());
+  QString suggested = current.completeBaseName().isEmpty()
+    ? tr("circuit") : current.completeBaseName();
+  suggested = QFileInfo(Settings().workspace(), suggested + ".cir")
+    .absoluteFilePath();
+
+  QString fileName = QFileDialog::getSaveFileName(this,
+    tr("Export SPICE netlist"), suggested,
+    tr("SPICE netlist (*.cir *.sp *.net *.spi)"));
+  if(fileName.isEmpty())
+    return;
+  if(QFileInfo(fileName).suffix().isEmpty())
+    fileName += ".cir";
+
+  // the sweep of the plots when it is set by hand, else 1 Hz to 1 MHz
+  const PlotSettings plot = PlotSettings::load();
+  QString analysis;
+  if(!plot.autoRange && plot.fStart > 0 && plot.fStop > plot.fStart)
+    analysis = QStringLiteral(".ac dec %1 %2 %3").arg(plot.pointsPerDecade)
+      .arg(plot.fStart, 0, 'g', 6).arg(plot.fStop, 0, 'g', 6);
+
+  if(editor->exportSpice(fileName, analysis))
+    statusBar()->showMessage(tr("SPICE netlist written: %1")
+      .arg(QDir::toNativeSeparators(fileName)), 5000);
+  else
+    QMessageBox::warning(this, tr("Export SPICE netlist"),
+      tr("Unable to write file %1.").arg(fileName));
+}
+
+
 void QSapecNGWindow::exportSchematic()
 {
   SchematicEditor* editor = activeEditor();
@@ -1080,6 +1116,7 @@ void QSapecNGWindow::updateMenus()
   saveAsAct_->setEnabled(hasEditor);
   printAct_->setEnabled(hasEditor);
   exportAct_->setEnabled(hasEditor);
+  exportSpiceAct_->setEnabled(hasEditor);
 
   pasteAct_->setEnabled(hasEditor);
   if(!hasEditor)
@@ -1217,6 +1254,12 @@ void QSapecNGWindow::createActions()
     saveAsAct_->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_S);
   saveAsAct_->setStatusTip(tr("Save As..."));
   connect(saveAsAct_, SIGNAL(triggered()), this, SLOT(saveAs()));
+
+  exportSpiceAct_ = new QAction(tr("Export SPICE &Netlist..."), this);
+  exportSpiceAct_->setStatusTip(tr("Write the circuit as a SPICE netlist "
+    "(ngspice, LTspice ...) with an AC analysis of every output"));
+  connect(exportSpiceAct_, &QAction::triggered,
+    this, &QSapecNGWindow::exportSpice);
 
   exportAct_ = new QAction(tr("&Export Schematic..."), this);
   exportAct_->setShortcut(tr("Ctrl+E"));
@@ -1597,6 +1640,7 @@ void QSapecNGWindow::createMenus()
   fileMenu_->addAction(saveAsAct_);
   fileMenu_->addSeparator();
   fileMenu_->addAction(exportAct_);
+  fileMenu_->addAction(exportSpiceAct_);
   fileMenu_->addAction(printAct_);
   fileMenu_->addSeparator();
   fileMenu_->addAction(quitAct_);

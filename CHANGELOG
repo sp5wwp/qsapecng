@@ -254,6 +254,27 @@ QSapecNG CHANGELOG
     o Save As has Ctrl+Shift+S on desktops without a standard key for it
     o Bring to front / Send to back removed: the stacking order of items
       changes nothing in a schematic
+    o File > Export SPICE Netlist: the circuit as a .cir file for ngspice,
+      LTspice and the like, with an AC sweep (the plots' range when set by
+      hand) and a .print line per output. Conductances become resistors,
+      an ideal op-amp a VCVS with a gain of 1e8, a real one its gain and
+      pole, the ideal transformer a VCVS and a CCCS, the mutual inductance
+      two coils and a K line, parasitics their own parts. A test checks
+      the export with ngspice on random circuits when ngspice is installed
+    o Nullor: a nullator (one circle: no voltage, no current) and a
+      norator (two circles: any voltage and current) as one part with four
+      free pins - the ideal op-amp without its ground, for pathological-
+      element models. Saved as an ideal op-amp of its own type: older
+      versions open it as an op-amp
+    o Three-Winding Transformer: a primary and two secondaries on one core
+      (dots mark where each winding starts), ideal (turns ratios N2/N1 and
+      N3/N1) or with the primary inductance and a coupling k between every
+      two windings; the secondaries in series make a centre-tapped one.
+      Solved exactly as leakage inductances (1 - k) L, a magnetizing
+      inductance k Lp and ideal transformers, which appear by name in the
+      Raw result. Older versions skip the part
+    o Solver tests: a transformer with three windings in the random
+      circuits, checked against its own inductance-matrix model
 
  * 2.1.1
     o Porting to Qwt6

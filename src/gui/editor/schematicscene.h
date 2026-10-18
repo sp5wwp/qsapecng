@@ -108,6 +108,8 @@ public:
 
     // new types go last: the numbers are saved in files
     SingleVoltageSourceItemType,
+    NullorItemType,
+    MultiTransformerItemType,
   };
 
   static QPainterPath nilPath();
@@ -117,6 +119,8 @@ public:
   static QRectF outPivotRect();
   static QPainterPath outPath(const QString& text = QString());
   static QPainterPath singleVoltageSourcePath();
+  static QPainterPath nullorPath();
+  static QPainterPath multiTransformerPath();
   static QPainterPath voltmeterPath();
   static QPainterPath ammeterPath();
 

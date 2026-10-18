@@ -74,6 +74,9 @@ public slots:
   bool saveAs();
   bool saveFile(const QString& fileName);
   bool loadFile(const QString& fileName);
+  // the circuit as a SPICE netlist; analysis: the .ac line (empty: a
+  // default sweep)
+  bool exportSpice(const QString& fileName, const QString& analysis = QString());
   void solve();
 
 signals:

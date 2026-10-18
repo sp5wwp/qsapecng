@@ -169,6 +169,38 @@ ComponentDialog::ComponentDialog(
     }
     connect(ideal_, &QCheckBox::toggled,
       this, &ComponentDialog::updateOpAmpFields);
+  } else if(type == SchematicScene::MultiTransformerItemType) {
+    // turns ratios; ideal, or the primary inductance and the coupling
+    if(QLineEdit* n2 = addTextField(sub.value("n2"),
+        tr("Turns ratio N2 / N1:"), true, QString(), form))
+      n2->setToolTip(tr("Turns of the upper secondary over those of the "
+                        "primary"));
+    if(QLineEdit* n3 = addTextField(sub.value("n3"),
+        tr("Turns ratio N3 / N1:"), true, QString(), form))
+      n3->setToolTip(tr("Turns of the lower secondary over those of the "
+                        "primary"));
+    QtBoolPropertyManager* bpm =
+      qobject_cast<QtBoolPropertyManager*>(sub.value("Ideal")->propertyManager());
+    idealProperty_ = sub.value("Ideal");
+    ideal_ = new QCheckBox(tr("Ideal (turns ratios only)"));
+    ideal_->setChecked(bpm && bpm->value(idealProperty_));
+    form->addRow(QString(), ideal_);
+    if(QLineEdit* lp = addTextField(sub.value("Lp"),
+        tr("Primary inductance:"), true, QStringLiteral("H"), form))
+    {
+      lp->setToolTip(tr("Inductance of the primary; a secondary has it "
+                        "times its turns ratio squared"));
+      realOpAmpFields_ << lp;
+    }
+    if(QLineEdit* k = addTextField(sub.value("k"), tr("Coupling k:"), true,
+        QString(), form))
+    {
+      k->setToolTip(tr("Coupling between every two windings, above 0 and "
+                       "up to 1 (1: no leakage)"));
+      realOpAmpFields_ << k;
+    }
+    connect(ideal_, &QCheckBox::toggled,
+      this, &ComponentDialog::updateOpAmpFields);
   } else if(sub.contains(valueKey)) {
     valueEdit = addTextField(sub.value(valueKey), meaning.label + ":", true,
       meaning.unit, form);

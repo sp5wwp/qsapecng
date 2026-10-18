@@ -158,6 +158,18 @@ public:
         std::map<std::string,std::string>()
     );
 
+  // the three-winding transformer, kept whole
+  void add_transformer(
+      std::string name,
+      std::vector< std::pair<unsigned int, unsigned int> > windings,
+      std::vector<double> ratios,
+      double lp,
+      double k,
+      bool symbolic,
+      std::map<std::string,std::string> props =
+        std::map<std::string,std::string>()
+    );
+
   void flush();
 
   inline QList<QGraphicsItem*> items() const { return items_; }

@@ -187,6 +187,89 @@ QPainterPath SchematicScene::singleVoltageSourcePath()
 }
 
 
+QPainterPath SchematicScene::nullorPath()
+{
+  // nullator (one circle) on the left, norator (two touching circles of
+  // the same size) on the right, each between two pins, four steps apart
+  QPainterPath path;
+  const qreal step = GridStep;
+
+  path.moveTo(step, 0);
+  path.lineTo(step, 1.6 * step);
+  path.addEllipse(QPointF(step, 2 * step), 0.4 * step, 0.4 * step);
+  path.moveTo(step, 2.4 * step);
+  path.lineTo(step, 4 * step);
+
+  path.moveTo(5 * step, 0);
+  path.lineTo(5 * step, 1.2 * step);
+  path.addEllipse(QPointF(5 * step, 1.6 * step), 0.4 * step, 0.4 * step);
+  path.addEllipse(QPointF(5 * step, 2.4 * step), 0.4 * step, 0.4 * step);
+  path.moveTo(5 * step, 2.8 * step);
+  path.lineTo(5 * step, 4 * step);
+
+  // invisible marks: a 6 x 4 step box, so rotation keeps the pins on grid
+  path.addRect(0, 0, 1E-99, 1E-99);
+  path.addRect(6 * step, 4 * step, 1E-99, 1E-99);
+
+  return path;
+}
+
+
+QPainterPath SchematicScene::multiTransformerPath()
+{
+  // a primary (left, four turns) and two secondaries (right, three turns
+  // each) on one core; a dot marks the start of every winding
+  QPainterPath path;
+  const qreal s = GridStep;
+
+  // primary: pins (0, 2) and (0, 7), the coil bulging right at x = 1
+  path.moveTo(0, 2 * s);
+  path.lineTo(s, 2 * s);
+  path.moveTo(s, 7 * s);
+  path.lineTo(s, 6.5 * s);
+  for(int i = 0; i < 4; ++i)
+    path.arcTo(QRectF(QPointF(0, (5.5 - i) * s), QPointF(2 * s, (6.5 - i) * s)),
+      -90, 180);
+  path.lineTo(s, 2 * s);
+  path.moveTo(s, 7 * s);
+  path.lineTo(0, 7 * s);
+
+  // secondaries: pins (5, 0) - (5, 4) and (5, 5) - (5, 9), bulging left
+  for(int w = 0; w < 2; ++w) {
+    const qreal top = 5 * w * s;
+    path.moveTo(5 * s, top);
+    path.lineTo(4 * s, top);
+    path.moveTo(4 * s, top + 4 * s);
+    path.lineTo(4 * s, top + 3.5 * s);
+    for(int i = 0; i < 3; ++i)
+      path.arcTo(QRectF(QPointF(3 * s, top + (2.5 - i) * s),
+                        QPointF(5 * s, top + (3.5 - i) * s)), -90, -180);
+    path.lineTo(4 * s, top);
+    path.moveTo(4 * s, top + 4 * s);
+    path.lineTo(5 * s, top + 4 * s);
+  }
+
+  // the core
+  path.moveTo(2 * s + s / 3, 0.5 * s);
+  path.lineTo(2 * s + s / 3, 8.5 * s);
+  path.moveTo(3 * s - s / 3, 0.5 * s);
+  path.lineTo(3 * s - s / 3, 8.5 * s);
+
+  // the dots: where each winding starts (symbols are only stroked: two
+  // rings make a solid dot)
+  for(const QPointF& dot : { QPointF(0.45 * s, 2.7 * s),
+      QPointF(4.55 * s, 0.7 * s), QPointF(4.55 * s, 5.7 * s) })
+    for(qreal r : { 0.15 * s, 0.06 * s })
+      path.addEllipse(dot, r, r);
+
+  // invisible marks: the 5 x 9 step box, so rotation keeps pins on grid
+  path.addRect(0, 0, 1E-99, 1E-99);
+  path.addRect(5 * s, 9 * s, 1E-99, 1E-99);
+
+  return path;
+}
+
+
 QRectF SchematicScene::outPivotRect()
 {
   // the box of the old round Out marker: rotation turns around it, so
@@ -802,6 +885,31 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
       item = new Component(inductorPath(), nodes);
       break;
     }
+  case MultiTransformerItemType:
+    {
+      // the start (dotted) and end of each winding: primary, secondary 1,
+      // secondary 2
+      QList<QPointF> nodes;
+      nodes.push_back(QPointF(0, 2 * GridStep));
+      nodes.push_back(QPointF(0, 7 * GridStep));
+      nodes.push_back(QPointF(5 * GridStep, 0));
+      nodes.push_back(QPointF(5 * GridStep, 4 * GridStep));
+      nodes.push_back(QPointF(5 * GridStep, 5 * GridStep));
+      nodes.push_back(QPointF(5 * GridStep, 9 * GridStep));
+      item = new Component(multiTransformerPath(), nodes);
+      break;
+    }
+  case NullorItemType:
+    {
+      // nullator pins (top, bottom), then norator pins (top, bottom)
+      QList<QPointF> nodes;
+      nodes.push_back(QPointF(GridStep, 0));
+      nodes.push_back(QPointF(GridStep, 4 * GridStep));
+      nodes.push_back(QPointF(5 * GridStep, 0));
+      nodes.push_back(QPointF(5 * GridStep, 4 * GridStep));
+      item = new Component(nullorPath(), nodes);
+      break;
+    }
   case OpAmplItemType:
     {
       QList<QPointF> nodes;
@@ -982,6 +1090,10 @@ QString SchematicScene::itemNameByType(SchematicScene::SupportedItemType type)
     return QString(QObject::tr("CCCS"));
   case OpAmplItemType:
     return QString(QObject::tr("Operational Amplifier"));
+  case NullorItemType:
+    return QString(QObject::tr("Nullor"));
+  case MultiTransformerItemType:
+    return QString(QObject::tr("Three-Winding Transformer"));
   case UserDefItemType:
     return QString(QObject::tr("User Defined"));
   case LabelItemType:
@@ -1025,6 +1137,10 @@ QChar SchematicScene::itemIdByType(SchematicScene::SupportedItemType type)
     return QChar('F');
   case OpAmplItemType:
     return QChar('A');
+  case NullorItemType:
+    return QChar('N');
+  case MultiTransformerItemType:
+    return QChar('T');
   case UserDefItemType:
     return QChar('X');
   default:
@@ -1366,6 +1482,8 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
       case VCCSItemType:
       case VCVSItemType:
       case OpAmplItemType:
+      case NullorItemType:
+      case MultiTransformerItemType:
       case CurrentSourceItemType:
       case VoltageSourceItemType:
       case SingleVoltageSourceItemType:
@@ -1401,7 +1519,28 @@ void SchematicScene::addSupportedItem(QGraphicsItem* gItem, bool init)
                   label->refreshText();
               });
 
-            if(type != OpAmplItemType) {
+            if(type == NullorItemType) {
+              // a name and nothing else: no value to set
+            } else if(type == MultiTransformerItemType) {
+              // turns ratios; ideal, or the primary inductance and the
+              // coupling of the windings
+              QtProperty* pI = boolManager_->addProperty(tr("Ideal"));
+              boolManager_->setValue(pI, true);
+              QtProperty* pS = boolManager_->addProperty(tr("Symbolic"));
+              boolManager_->setValue(pS, false);
+              QtProperty* n2 = stringManager_->addProperty(QStringLiteral("n2"));
+              stringManager_->setValue(n2, "1");
+              QtProperty* n3 = stringManager_->addProperty(QStringLiteral("n3"));
+              stringManager_->setValue(n3, "1");
+              QtProperty* lp = stringManager_->addProperty(QStringLiteral("Lp"));
+              stringManager_->setValue(lp, "0.001");
+              QtProperty* k = stringManager_->addProperty(QStringLiteral("k"));
+              stringManager_->setValue(k, "1");
+              for(QtProperty* p : { n2, n3, lp, k })
+                stringManager_->setRegExp(p, Settings().notation());
+              for(QtProperty* p : { pI, pS, n2, n3, lp, k })
+                name->addSubProperty(p);
+            } else if(type != OpAmplItemType) {
               QtProperty* pS = boolManager_->addProperty(tr("Symbolic"));
               boolManager_->setValue(pS, true);
 
@@ -1598,6 +1737,8 @@ void SchematicScene::removeSupportedItem(QGraphicsItem* gItem)
       case TransformerItemType:
       case MutualInductanceItemType:
       case OpAmplItemType:
+      case NullorItemType:
+      case MultiTransformerItemType:
         {
           if(standardList_.contains(item)) {
             if(itemProperties(item)) {
@@ -1699,6 +1840,8 @@ void SchematicScene::clearSupportedItem(QGraphicsItem* gItem)
       case TransformerItemType:
       case MutualInductanceItemType:
       case OpAmplItemType:
+      case NullorItemType:
+      case MultiTransformerItemType:
         {
           if(standardList_.contains(item)) {
             QtProperty* props = itemProperties(item);
@@ -3552,6 +3695,14 @@ void SchematicScene::setupProperties()
   typeRootMap_[VCVSItemType] =
     groupManager_->addProperty(itemNameByType(VCVSItemType));
 //   properties_->addSubProperty(typeRootMap_[VCVSItemType]);
+
+  itemCntMap_[MultiTransformerItemType] = 0;
+  typeRootMap_[MultiTransformerItemType] =
+    groupManager_->addProperty(itemNameByType(MultiTransformerItemType));
+
+  itemCntMap_[NullorItemType] = 0;
+  typeRootMap_[NullorItemType] =
+    groupManager_->addProperty(itemNameByType(NullorItemType));
 
   itemCntMap_[SingleVoltageSourceItemType] = 0;
   typeRootMap_[SingleVoltageSourceItemType] =

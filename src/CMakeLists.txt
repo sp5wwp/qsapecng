@@ -26,6 +26,7 @@ set(qsapecng_SRCS
   model/metacircuit.cpp
   parser/ir_circuit.cpp
   parser/crc_circuit.cpp
+  parser/spice_circuit.cpp
   functor/rpoly-adapter.cpp
   functor/rpoly.cpp
   gui/qsapecng.cpp

@@ -39,6 +39,8 @@
 #include <QDialogButtonBox>
 #include <QFocusEvent>
 
+#include "parser/spice_circuit.h"
+
 #include <fstream>
 #include <sstream>
 #include <map>
@@ -253,6 +255,34 @@ bool SchematicEditor::saveFile(const QString& fileName)
   setCursor(cur);
 
   return true;
+}
+
+
+bool SchematicEditor::exportSpice(const QString& fileName,
+  const QString& analysis)
+{
+  std::ofstream out_file(QFile::encodeName(fileName));
+  if(!out_file)
+    return false;
+
+  sapecng::spice_builder builder(out_file);
+  builder.set_title(QFileInfo(curFile_).fileName().toStdString());
+  if(!analysis.isEmpty())
+    builder.set_analysis(analysis.toStdString());
+
+  // numbered nets, parts not connected to the circuit left out (as when
+  // solving: SPICE would stop on them)
+  const bool numbered = solved_;
+  if(!numbered)
+    scene_->assignNodes();
+  SchematicSceneParser parser(*scene_);
+  parser.setSkipFloating(true);
+  parser.parse(builder);
+  if(!numbered)
+    scene_->resetNodes();
+
+  out_file.flush();
+  return bool(out_file);
 }
 
 

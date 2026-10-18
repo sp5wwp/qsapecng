@@ -5,6 +5,7 @@ set(ENGINE_SRCS
   ${PROJECT_SOURCE_DIR}/src/model/circuit.cpp
   ${PROJECT_SOURCE_DIR}/src/model/metacircuit.cpp
   ${PROJECT_SOURCE_DIR}/src/parser/crc_circuit.cpp
+  ${PROJECT_SOURCE_DIR}/src/parser/spice_circuit.cpp
   ${PROJECT_SOURCE_DIR}/src/parser/ir_circuit.cpp
   ${PROJECT_SOURCE_DIR}/src/logger/logger.cpp
 )
@@ -63,6 +64,8 @@ qsapecng_test(mna_check mna_check.cpp
 # R/L/C, current sources)
 add_test(NAME mna_fuzz_basic COMMAND mna_check fuzz 400 11)
 add_test(NAME mna_fuzz_extended COMMAND mna_check fuzz2 400 12)
+# the SPICE export against ngspice (passes with a note when ngspice is missing)
+add_test(NAME spice_export COMMAND mna_check spice 120 7)
 foreach(circuit
     data/issue6-active-bandpass.info data/opamp-finite-gain.info
     data/real-passives.info data/single-pin-source.info

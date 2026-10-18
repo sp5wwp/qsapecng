@@ -204,6 +204,15 @@ void SideBarModel::setupSideBar()
   opAmplItemData[Qt::UserRole] = SchematicScene::OpAmplItemType;
   componentList_.append(opAmplItemData);
 
+  QMap<int, QVariant> nullorItemData;
+  nullorItemData[Qt::DisplayRole] = tr("Nullor");
+  nullorItemData[Qt::DecorationRole] = theme::symbolPixmap("nullor", QSize(32, 32));
+  nullorItemData[Qt::ToolTipRole] = tr("Nullor: a nullator (no voltage, no "
+    "current) paired with a norator (any voltage and current) - an ideal "
+    "op-amp with all four pins free");
+  nullorItemData[Qt::UserRole] = SchematicScene::NullorItemType;
+  componentList_.append(nullorItemData);
+
   QMap<int, QVariant> transformerItemData;
   transformerItemData[Qt::DisplayRole] = tr("Ideal Transformer");
   transformerItemData[Qt::DecorationRole] =
@@ -211,6 +220,17 @@ void SideBarModel::setupSideBar()
   transformerItemData[Qt::ToolTipRole] = tr("Ideal Transformer Item");
   transformerItemData[Qt::UserRole] = SchematicScene::TransformerItemType;
   componentList_.append(transformerItemData);
+
+  QMap<int, QVariant> multiTransformerItemData;
+  multiTransformerItemData[Qt::DisplayRole] = tr("Three-Winding Transformer");
+  multiTransformerItemData[Qt::DecorationRole] =
+    theme::symbolPixmap("transformer3", QSize(32, 32));
+  multiTransformerItemData[Qt::ToolTipRole] = tr("A primary and two "
+    "secondaries on one core: ideal (turns ratios), or with the primary "
+    "inductance and a coupling. Wire the secondaries in series for a "
+    "centre tap");
+  multiTransformerItemData[Qt::UserRole] = SchematicScene::MultiTransformerItemType;
+  componentList_.append(multiTransformerItemData);
 
   QMap<int, QVariant> mutualInductanceItemData;
   mutualInductanceItemData[Qt::DisplayRole] = tr("Mutual Inductance");
@@ -236,6 +256,8 @@ void SideBarModel::refreshSymbols()
     { SchematicScene::VCCSItemType, "vccs" },
     { SchematicScene::CCCSItemType, "cccs" },
     { SchematicScene::OpAmplItemType, "opampl" },
+    { SchematicScene::NullorItemType, "nullor" },
+    { SchematicScene::MultiTransformerItemType, "transformer3" },
     { SchematicScene::TransformerItemType, "transformer" },
     { SchematicScene::MutualInductanceItemType, "mutualinductance" }
   };
