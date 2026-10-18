@@ -278,7 +278,7 @@ void fxshfr(int l2,int *nz)
 {
     double svu,svv,ui,vi,s;
     double betas,betav,oss,ovv,ss,vv,ts,tv;
-    double ots,otv,tvv,tss;
+    double ots = 1.0,otv = 1.0,tvv,tss;
   int type, i,j,iflag,vpass,spass,vtry,stry;
 
   *nz = 0;
@@ -327,7 +327,8 @@ void fxshfr(int l2,int *nz)
  */
     vtry = 0;
     stry = 0;
-    if (spass && (!vpass) || tss < tvv) goto _40;
+    /* as in TOMS 493: the linear (s) iteration only when s passed */
+    if (spass && (!vpass || tss < tvv)) goto _40;
 _20:        
     quadit(&ui,&vi,nz);
         if (*nz > 0) return;
@@ -390,7 +391,7 @@ _70:
 void quadit(double *uu,double *vv,int *nz)
 {
     double ui,vi;
-    double mp,omp,ee,relstp,t,zm;
+    double mp,omp = 0.0,ee,relstp = 0.0,t,zm;
   int type,i,j,tried;
 
   *nz = 0;
@@ -469,8 +470,8 @@ _50:
  */
 void realit(double *sss, int *nz, int *iflag)
 {
-    double pv,kv,t,s;
-    double ms,mp,omp,ee;
+    double pv,kv,t = 0.0,s;
+    double ms,mp,omp = 0.0,ee;
     int i,j;
 
     *nz = 0;

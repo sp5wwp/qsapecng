@@ -52,6 +52,8 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QScreen>
+#include <cmath>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -104,6 +106,14 @@
 
 namespace qsapecng
 {
+
+
+namespace
+{
+// the saved layout of the Plots window: older layouts (the panels side by
+// side or one above the other) are not restored
+const int PlotWindowLayoutVersion = 1;
+}
 
 
 QSapecNGWindow::QSapecNGWindow()
@@ -185,7 +195,7 @@ void QSapecNGWindow::closeEvent(QCloseEvent* event)
       QSettings().setValue(QStringLiteral("PlotWindow/geometry"),
         plotWindow_->saveGeometry());
       QSettings().setValue(QStringLiteral("PlotWindow/state"),
-        plotWindow_->saveState());
+        plotWindow_->saveState(PlotWindowLayoutVersion));
       plotWindow_->close();
       delete plotWindow_;
       plotWindow_ = nullptr;
@@ -348,7 +358,7 @@ WorkPlane* QSapecNGWindow::createPlot(SchematicEditor* editor,
   // the first marker of the plot shown opens the Markers panel
   connect(plane, &WorkPlane::markersPanelChanged, this, [this, plane](bool on) {
       if(plane == currentPlot_ && on && markersDock_)
-        markersDock_->show();
+        markersDock_->raise();
     });
   PlotEntry entry{ plane, editor };
   plots_.append(entry);
@@ -393,16 +403,19 @@ void QSapecNGWindow::createPlotWindow()
       QWidget* page = plotTabs_->widget(index);
       plotTabs_->removeTab(index);
       delete page;
-      if(plotTabs_->count() == 0)
-        plotWindow_->hide();
+      // the window stays, also with no plot left (New Plot is there)
     });
   connect(plotTabs_, &QTabWidget::currentChanged, this, [this]() {
       currentPlot_ = qobject_cast<WorkPlane*>(plotTabs_->currentWidget());
       showMarkersOf(currentPlot_);
+      // nothing to set with no plot left
+      if(plotSettingsForm_)
+        plotSettingsForm_->setEnabled(currentPlot_ != nullptr);
       if(currentPlot_ && plotSettingsForm_) {
         plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
         fitPlotSettingsWidth();
         plotSettingsForm_->setSettings(currentPlot_->settings());
+        fitPlotWindowHeight();
       }
       updateMenus();
     });
@@ -414,12 +427,10 @@ void QSapecNGWindow::createPlotWindow()
   bar->setMovable(false);
   bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   bar->addAction(waveAct_);
-  bar->addAction(plotSettingsAct_);
   bar->addSeparator();
   bar->addAction(resetViewAct_);
   bar->addAction(vrangeAct_);
   bar->addSeparator();
-  bar->addAction(markersPanelAct_);
   bar->addAction(clearMarkersAct_);
   bar->addSeparator();
   bar->addAction(printPlotAct_);
@@ -443,30 +454,32 @@ void QSapecNGWindow::createPlotWindow()
   plotSettingsDock_->setObjectName(QStringLiteral("plotSettingsDock"));
   plotSettingsDock_->setWidget(holder);
   plotSettingsDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-  // no floating: a floated panel only jumped a little, as its own window
-  plotSettingsDock_->setFeatures(QDockWidget::DockWidgetClosable
-    | QDockWidget::DockWidgetMovable);
+  // always there (no closing, no floating: a floated panel only jumped a
+  // little, as its own window); it can go to the left side
+  plotSettingsDock_->setFeatures(QDockWidget::DockWidgetMovable);
   plotWindow_->addDockWidget(Qt::RightDockWidgetArea, plotSettingsDock_);
-  plotSettingsDock_->hide();
 
   // the markers of the plot shown (each plot has its own list)
   markersDock_ = new QDockWidget(tr("Markers"), plotWindow_);
   markersDock_->setObjectName(QStringLiteral("markersDock"));
   markersDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-  markersDock_->setFeatures(QDockWidget::DockWidgetClosable
-    | QDockWidget::DockWidgetMovable);
+  markersDock_->setFeatures(QDockWidget::DockWidgetMovable);
   plotWindow_->addDockWidget(Qt::RightDockWidgetArea, markersDock_);
-  plotWindow_->splitDockWidget(markersDock_, plotSettingsDock_, Qt::Horizontal);
-  markersDock_->hide();
+  // the two panels share the right side as tabs (Plot Settings, Markers)
+  plotWindow_->tabifyDockWidget(plotSettingsDock_, markersDock_);
+  plotWindow_->setTabPosition(Qt::RightDockWidgetArea, QTabWidget::North);
+  plotWindow_->setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::North);
+  // the tabs name the panels: no title bars above them
+  plotSettingsDock_->setTitleBarWidget(new QWidget(plotSettingsDock_));
+  markersDock_->setTitleBarWidget(new QWidget(markersDock_));
+  plotSettingsDock_->raise();
   fitPlotSettingsWidth();
-  connect(markersDock_, &QDockWidget::visibilityChanged, this, [this]() {
-      QSignalBlocker block(markersPanelAct_);
-      markersPanelAct_->setChecked(markersDock_->isVisible());
-    });
-  connect(plotSettingsDock_, &QDockWidget::visibilityChanged, this, [this]() {
-      QSignalBlocker block(plotSettingsAct_);
-      plotSettingsAct_->setChecked(plotSettingsDock_->isVisible());
-    });
+  // its tab brought to the front
+  connect(plotSettingsDock_, &QDockWidget::visibilityChanged,
+    this, &QSapecNGWindow::fitPlotWindowHeight);
+  // the form changes height with the kind of plot (the Smith chart group)
+  connect(plotSettingsForm_, &PlotSettingsWidget::changed,
+    this, &QSapecNGWindow::fitPlotWindowHeight);
   connect(plotSettingsForm_, &PlotSettingsWidget::changed, this, [this]() {
       if(!currentPlot_ || !plotSettingsForm_->isValid())
         return;
@@ -483,7 +496,8 @@ void QSapecNGWindow::createPlotWindow()
 
   QSettings settings;
   plotWindow_->restoreState(
-    settings.value(QStringLiteral("PlotWindow/state")).toByteArray());
+    settings.value(QStringLiteral("PlotWindow/state")).toByteArray(),
+    PlotWindowLayoutVersion);
   if(!plotWindow_->restoreGeometry(
       settings.value(QStringLiteral("PlotWindow/geometry")).toByteArray()))
   {
@@ -502,6 +516,7 @@ void QSapecNGWindow::showPlotWindow()
     plotWindow_->show();
   plotWindow_->raise();
   plotWindow_->activateWindow();
+  fitPlotWindowHeight();
 }
 
 
@@ -516,6 +531,54 @@ void QSapecNGWindow::fitPlotSettingsWidth()
     + plotSettingsScroll_->verticalScrollBar()->sizeHint().width()
     + 2 * plotSettingsScroll_->frameWidth();
   plotSettingsScroll_->setMinimumWidth(width);
+}
+
+
+void QSapecNGWindow::fitPlotWindowHeight()
+{
+  // after the layout has settled: tall enough for the Plot Settings tab
+  // (no scroll bar), no taller; then wide enough for a plot of sensible
+  // proportions; all within the screen
+  QTimer::singleShot(0, this, [this]() {
+      if(!plotWindow_ || !plotWindow_->isVisible() || plotWindow_->isMaximized()
+          || plotWindow_->isFullScreen() || !plotSettingsScroll_
+          || !plotSettingsForm_ || !plotTabs_)
+        return;
+      const QRect frame = plotWindow_->frameGeometry();
+      const QRect inner = plotWindow_->geometry();
+      const QScreen* screen = plotWindow_->screen();
+      const QRect avail = screen ? screen->availableGeometry() : frame;
+      const int chromeW = frame.width() - inner.width();
+      const int chromeH = frame.height() - inner.height();
+
+      // the settings form, measured even when the Markers tab is in front
+      int grow = 0;
+      if(plotSettingsScroll_->viewport()->height() > 0) {
+        const int missing = plotSettingsForm_->sizeHint().height()
+          - plotSettingsScroll_->viewport()->height();
+        grow = qBound(0, missing, avail.height() - frame.height());
+      }
+
+      // the plot area at least 1.4 times as wide as it is high
+      const double minAspect = 1.4;
+      const int plotH = plotTabs_->height() + grow;
+      const int wantW = int(std::ceil(minAspect * plotH));
+      const int widen = qBound(0, wantW - plotTabs_->width(),
+        avail.width() - frame.width());
+
+      if(grow <= 0 && widen <= 0)
+        return;
+      const QSize size(inner.width() + widen, inner.height() + grow);
+      plotWindow_->resize(size);
+      // still on the screen: moved left / up when it reaches past the edge
+      QPoint pos = frame.topLeft();
+      pos.setX(qBound(avail.left(), pos.x(),
+        avail.right() + 1 - (size.width() + chromeW)));
+      pos.setY(qBound(avail.top(), pos.y(),
+        avail.bottom() + 1 - (size.height() + chromeH)));
+      if(pos != frame.topLeft())
+        plotWindow_->move(pos);
+    });
 }
 
 
@@ -546,8 +609,9 @@ void QSapecNGWindow::updatePlotTitle(WorkPlane* plane)
       continue;
     static const char* kinds[] = {
       QT_TR_NOOP("Frequency response"), QT_TR_NOOP("Phase response"),
-      QT_TR_NOOP("Poles and zeros"), QT_TR_NOOP("Bode plot") };
-    const int k = qBound(0, plane->kind(), 3);
+      QT_TR_NOOP("Poles and zeros"), QT_TR_NOOP("Bode plot"),
+      QT_TR_NOOP("Smith chart") };
+    const int k = qBound(0, plane->kind(), 4);
     QString title = tr(kinds[k]);
     if(e.editor && e.editor->resultOutputs().size() > 1)
       title += QStringLiteral(" - ") + (plane->output().isEmpty()
@@ -593,7 +657,6 @@ void QSapecNGWindow::editPlotSettings()
     fitPlotSettingsWidth();
     plotSettingsForm_->setSettings(currentPlot_->settings());
   }
-  plotSettingsDock_->show();
   plotSettingsDock_->raise();
   showPlotWindow();
 }
@@ -1223,7 +1286,7 @@ void QSapecNGWindow::updateMenus()
   clearMarkersAct_->setEnabled(hasPlot);
   markersPanelAct_->setEnabled(hasPlot);
   if(showPlotsAct_)
-    showPlotsAct_->setEnabled(plotTabs_ && plotTabs_->count() > 0);
+    showPlotsAct_->setEnabled(plotWindow_ != nullptr);
   printPlotAct_->setEnabled(hasPlot);
   replotAct_->setEnabled(hasPlot);
 }
@@ -1577,15 +1640,11 @@ void QSapecNGWindow::createActions()
   // plots (each in its own dock); the unit and range choices are in the
   // plot dialog
   plotSettingsAct_ = new QAction(tr("Plot &Settings"), this);
-  plotSettingsAct_->setCheckable(true);
-  plotSettingsAct_->setStatusTip(tr("A panel beside the plots: what the "
-    "current plot shows, its frequency range and units (applied at once)"));
-  connect(plotSettingsAct_, &QAction::toggled, this, [this](bool on) {
-      if(on)
-        editPlotSettings();
-      else if(plotSettingsDock_)
-        plotSettingsDock_->hide();
-    });
+  plotSettingsAct_->setStatusTip(tr("The Plot Settings tab beside the plots: "
+    "what the current plot shows, its frequency range and units (applied "
+    "at once)"));
+  connect(plotSettingsAct_, &QAction::triggered,
+    this, &QSapecNGWindow::editPlotSettings);
 
   vrangeAct_ = new QAction(tr("&Vertical Range..."), this);
   vrangeAct_->setStatusTip(tr("Fixed or automatic range of the vertical axis"));
@@ -1606,14 +1665,14 @@ void QSapecNGWindow::createActions()
   connect(clearMarkersAct_, &QAction::triggered, this,
     [this]() { if(currentPlot_) currentPlot_->clearMarkers(); });
 
-  markersPanelAct_ = new QAction(tr("&Markers Panel"), this);
-  markersPanelAct_->setCheckable(true);
-  markersPanelAct_->setChecked(false);
+  markersPanelAct_ = new QAction(tr("&Markers"), this);
   markersPanelAct_->setShortcut(Qt::CTRL | Qt::Key_M);
-  markersPanelAct_->setStatusTip(tr("Show or hide the list of markers beside the plot"));
-  connect(markersPanelAct_, &QAction::toggled, this, [this](bool on) {
+  markersPanelAct_->setStatusTip(tr("The Markers tab beside the plots: the "
+    "list of markers"));
+  connect(markersPanelAct_, &QAction::triggered, this, [this]() {
       createPlotWindow();
-      markersDock_->setVisible(on);
+      markersDock_->raise();   // its tab in front
+      showPlotWindow();
     });
 
   antialiasAct_ = new QAction(tr("&Antialiasing"), this);
@@ -1787,7 +1846,7 @@ void QSapecNGWindow::createMenus()
   showPlotsAct_->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_P);
   showPlotsAct_->setStatusTip(tr("Bring the window with the plots to the front"));
   connect(showPlotsAct_, &QAction::triggered, this,
-    [this]() { if(plotTabs_ && plotTabs_->count()) showPlotWindow(); });
+    [this]() { if(plotWindow_) showPlotWindow(); });
   showMenu_ = windowMenu_->addMenu(tr("&Show"));
   updateWindowMenu();
   connect(windowMenu_, SIGNAL(aboutToShow()), this, SLOT(updateWindowMenu()));
@@ -1822,22 +1881,24 @@ void QSapecNGWindow::createMenus()
   // only with a voltmeter or an ammeter selected
   connect(sceneMenu_, &QMenu::aboutToShow, this, [this, reverseMeters]() {
       bool meter = false;
-      if(SchematicEditor* editor = activeEditor())
+      if(SchematicEditor* editor = activeEditor()) {
         foreach(QGraphicsItem* item, editor->scene().selectedItems()) {
           const SchematicScene::SupportedItemType type =
             SchematicScene::itemType(item);
           meter = meter || type == SchematicScene::VoltmeterItemType
             || type == SchematicScene::AmmeterItemType;
         }
+      }
       reverseMeters->setVisible(meter);
 
       // Properties only for parts that have parameters or a name to edit
       // (outputs), not for ground or wires; the Edit menu keeps it
       bool params = false;
-      if(SchematicEditor* editor = activeEditor())
+      if(SchematicEditor* editor = activeEditor()) {
         foreach(QGraphicsItem* item, editor->scene().selectedItems())
           params = params || SchematicScene::itemProperties(item)
             || SchematicScene::isOutput(item);
+      }
       propsAct_->setVisible(params || !propsAct_->isEnabled());
     });
   connect(sceneMenu_, &QMenu::aboutToHide, this, [this]() {
@@ -1854,16 +1915,17 @@ void QSapecNGWindow::createMenus()
   // only with a part (or its label) selected
   connect(sceneMenu_, &QMenu::aboutToShow, this, [this, resetLabels]() {
       bool part = false;
-      if(SchematicEditor* editor = activeEditor())
+      if(SchematicEditor* editor = activeEditor()) {
         foreach(QGraphicsItem* item, editor->scene().selectedItems())
           part = part || dynamic_cast<Component*>(item)
             || (item->parentItem() && dynamic_cast<Component*>(item->parentItem()));
+      }
       resetLabels->setVisible(part);
     });
   resetLabels->setStatusTip(tr("Put the labels of the selected parts back "
                                "beside them"));
   connect(resetLabels, &QAction::triggered, this, [this]() {
-      if(SchematicEditor* editor = activeEditor())
+      if(SchematicEditor* editor = activeEditor()) {
         foreach(QGraphicsItem* item, editor->scene().selectedItems()) {
           Component* c = dynamic_cast<Component*>(item);
           if(!c && item->parentItem())     // the label itself selected
@@ -1871,6 +1933,7 @@ void QSapecNGWindow::createMenus()
           if(c)
             c->resetLabelPosition();
         }
+      }
     });
   sceneMenu_->addSeparator();
 

@@ -37,6 +37,7 @@
 #include <qwt_plot.h>
 #include <qwt_plot_curve.h>
 
+#include <complex>
 #include <string>
 #include <map>
 
@@ -52,6 +53,7 @@ class QwtPlotGrid;
 class QwtPickerMachine;
 class QwtPlotPicker;
 class QwtPlotMarker;
+class QwtPlotItem;
 class QwtSymbol;
 
 
@@ -187,6 +189,10 @@ struct PlotSettings
   double fStart = 1.;           // Hz
   double fStop = 1e5;           // Hz
   int pointsPerDecade = 100;
+  // Smith chart: the reference impedance, and the admittance circles
+  // (where a shunt part moves the point) over the impedance ones
+  double z0 = 50.;              // ohm
+  bool smithAdmittance = false;
   // which output of the circuit (Out1, VM1 ...; empty: the first). Not
   // kept as a default for the next plot
   QString output;
@@ -204,7 +210,7 @@ class WorkPlane: public QWidget
 
 public:
   enum Kind { MagnitudeKind = 0, PhaseKind = 1, PoleZeroKind = 2,
-              BodeKind = 3 };
+              BodeKind = 3, SmithKind = 4 };
 
   enum F
   {
@@ -218,6 +224,7 @@ public:
     LOSS_RAD,
     ZEROS,
     POLES,
+    SMITH,      // the reflection coefficient of the output taken as Z
     NOOP
   };
 
@@ -314,6 +321,15 @@ private:
   bool magnitudeDb_ = true;
   bool phaseDegrees_ = true;
   bool angular_ = false;   // frequency axis in rad/s instead of Hz
+  double z0_ = 50.;        // Smith chart reference impedance (ohm)
+  bool admittance_ = false;   // Smith chart: admittance circles too
+  QVector<double> smithHz_;   // the frequency of each Smith curve sample
+  QwtPlotItem* smithGrid_ = nullptr;
+  // the plots with both axes in the same units (no frequency axis)
+  static bool isMap(F f) { return f == ZEROS || f == POLES || f == SMITH; }
+  // Z(j 2 pi hz) from the transfer function (the output over a 1 A source)
+  bool impedanceAt(double hz, std::complex<double>* z) const;
+  int nearestSmithSample(const QPointF& canvasPos) const;
 
   F currentF() const;
   void relabel(F f);

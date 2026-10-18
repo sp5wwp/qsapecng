@@ -268,9 +268,10 @@ QVariant Wire::itemChange(GraphicsItemChange change, const QVariant& value)
   if(change == ItemPositionHasChanged
         || change == ItemTransformHasChanged
         || change == ItemSceneHasChanged
-      )
+      ) {
     foreach(GraphicsNode* node, nodes_)
       node->updateItemSet();
+  }
 
   return Item::itemChange(change, value);
 }

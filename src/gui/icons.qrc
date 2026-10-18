@@ -23,6 +23,7 @@
   <file alias="plot-magnitude.svg">icons/plot-magnitude.svg</file>
   <file alias="plot-phase.svg">icons/plot-phase.svg</file>
   <file alias="plot-polezero.svg">icons/plot-polezero.svg</file>
+  <file alias="plot-smith.svg">icons/plot-smith.svg</file>
   <file alias="print.svg">icons/print.svg</file>
   <file alias="redo.svg">icons/redo.svg</file>
   <file alias="resolve.svg">icons/resolve.svg</file>

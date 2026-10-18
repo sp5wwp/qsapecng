@@ -136,9 +136,13 @@ QString fractionHtml(const formula::Fraction& f, const QColor& rule,
   if(formula::isOne(f.den)) {
     // one line: "−10 · V1"
     QString line = f.negative ? QStringLiteral("−") : QString();
-    if(!plainNum)
-      line += width > 0 ? elidedHtml(f.num, width, font)
-                        : formula::render(f.num, formula::Style::Html);
+    if(!plainNum) {
+      const QString n = width > 0 ? elidedHtml(f.num, width, font)
+                                  : formula::render(f.num, formula::Style::Html);
+      // a sum times the input, or negated: (L1 · s + R1) · I1
+      line += (formula::isSum(f.num) && (!factor.isEmpty() || f.negative))
+        ? QStringLiteral("(%1)").arg(n) : n;
+    }
     if(!factor.isEmpty())
       line += (plainNum ? QString() : QStringLiteral(" · ")) + factor;
     return QStringLiteral(

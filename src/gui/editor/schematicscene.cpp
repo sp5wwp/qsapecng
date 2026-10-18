@@ -1301,9 +1301,10 @@ void SchematicScene::setActiveItem(SchematicScene::SupportedItemType item)
 {
   resetStatus();
   activeItem_ = item;
-  if(hasActiveItem())
+  if(hasActiveItem()) {
     foreach(QGraphicsView* view, views())
       view->setCursor(Qt::CrossCursor);
+  }
   emit placementChanged();
 }
 
@@ -2458,9 +2459,10 @@ void SchematicScene::splitAtJunctions(QList<Wire*> fresh)
       parts << standardList_ << groundList_ << portList_ << userDefList_;
       parts << outputList_;
       foreach(Item* item, parts)
-        if(const Component* c = dynamic_cast<const Component*>(item))
+        if(const Component* c = dynamic_cast<const Component*>(item)) {
           foreach(const QPointF& pin, c->pinPoints())
             points << c->mapToScene(pin);
+        }
       foreach(const QPointF& p, points)
         if(inside(n, p)) {
           const QList<Wire*> halves = split(n, p);
@@ -3136,6 +3138,7 @@ void SchematicScene::resetStatus()
 
   foreach(QGraphicsView* view, views())
     view->unsetCursor();
+  hoverAim_ = false;
 
   userDefSessionRequested_ = false;
   userDefMD5_ = QByteArray();
@@ -3465,6 +3468,21 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
     }
     event->accept();
     return;
+  }
+
+  // over a pin or a wire end, nothing held: the aiming cursor of the wire
+  // tool, since a click there starts a wire
+  QPointF exact;
+  const bool aim = event->buttons() == Qt::NoButton && !drag_.active
+    && connectionAt(event->scenePos(), &exact);
+  if(aim != hoverAim_) {
+    hoverAim_ = aim;
+    foreach(QGraphicsView* view, views()) {
+      if(aim)
+        view->setCursor(Qt::CrossCursor);
+      else
+        view->unsetCursor();
+    }
   }
 
   QGraphicsScene::mouseMoveEvent(event);

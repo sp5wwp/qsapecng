@@ -62,6 +62,9 @@ Fraction simplified(const Expr& num, const Expr& den,
 // true when the expression is the constant 1
 bool isOne(const Expr& e);
 
+// true when the expression has two or more terms
+bool isSum(const Expr& e);
+
 enum class Style { Text, Html, Latex };
 
 // "-10 * V1", "C1 * C2 * s^2 + (C1 * R1 + C2 * R2) * s + 1" (Text);

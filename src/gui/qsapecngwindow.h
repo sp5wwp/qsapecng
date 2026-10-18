@@ -252,6 +252,9 @@ private:
   void showMarkersOf(WorkPlane* plane);
   // keeps the Plot Settings panel as wide as its form
   void fitPlotSettingsWidth();
+  // the Plots window made taller (within the screen) when the Plot
+  // Settings panel would need a vertical scroll bar
+  void fitPlotWindowHeight();
 
 
   QMenu* fileMenu_;

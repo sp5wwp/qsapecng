@@ -348,9 +348,10 @@ QVariant Component::itemChange(GraphicsItemChange change, const QVariant& value)
   if(change == ItemPositionHasChanged
         || change == ItemTransformHasChanged
         || change == ItemSceneHasChanged
-      )
+      ) {
     foreach(GraphicsNode* node, nodeList_)
       node->updateItemSet();
+  }
 
   if(change == ItemTransformHasChanged)
     updateLabelPosition();   // rotated or mirrored

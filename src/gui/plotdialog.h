@@ -28,6 +28,7 @@
 
 
 class QButtonGroup;
+class QGroupBox;
 class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
@@ -79,6 +80,10 @@ private:
   QCheckBox* db_;
   QCheckBox* yLog_;
   QCheckBox* degrees_;
+  QGroupBox* axesBox_;
+  QGroupBox* smithBox_;     // shown for the Smith chart
+  QLineEdit* z0_;
+  QCheckBox* admittance_;
   QTimer* settle_;
   bool filling_ = false;
 

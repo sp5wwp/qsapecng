@@ -309,6 +309,29 @@ QSapecNG CHANGELOG
     o A wire started by clicking a pin or a junction ends the wire tool
       when it is finished
     o Mutual inductance: the Lp and Ls tags sit further from the windings
+    o Smith chart, a fifth kind of plot: the output read as an impedance
+      (a 1 A current source driving the port, the Out marker on it) is
+      drawn as its reflection coefficient against Z0 (50 ohm by default),
+      with labelled resistance and reactance circles; optional admittance
+      circles (dashed) show where a shunt part moves the point. A click on
+      the curve places a marker with Z, the reflection coefficient and the
+      VSWR
+    o Plots window: Plot Settings and Markers are tabs on the right,
+      always there (the toolbar buttons for them are gone; the Plot menu
+      brings either tab to the front, and the first marker brings up
+      Markers); the window is made tall enough for the settings (no
+      scroll bar) and wide enough for a well-proportioned plot, within the
+      screen; closing the last plot leaves the window open
+    o New Plot dialog: fits its contents when the kind of plot changes
+    o The pointer turns into the aiming cross over a pin or a wire end,
+      where a click starts a wire
+    o Light theme on a dark desktop: the light palette is complete (it
+      took Fusion's, which follows the system's dark scheme since Qt 6.5);
+      with Qt 6.8 or newer, window frames and native dialogs follow the
+      chosen theme too
+    o Results: a sum times the input is shown in parentheses,
+      (L1 s + R1) I1, as is a negated sum (it lost them when the
+      denominator was 1)
 
  * 2.1.1
     o Porting to Qwt6

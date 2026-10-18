@@ -324,6 +324,15 @@ QString render(const Expr& expr, Style style)
 }
 
 
+bool isSum(const Expr& e)
+{
+  int terms = 0;
+  for(const auto& g : withoutZeros(e))
+    terms += int(g.second.size());
+  return terms > 1;
+}
+
+
 QString renderFactor(const Fraction& f, Style style)
 {
   QStringList parts;
@@ -343,7 +352,10 @@ QString clipboardText(const Fraction& f, Style style)
   if(style == Style::Latex) {
     QString body;
     if(isOne(f.den))
-      body = plainNum ? QString() : n;
+      // a sum times the input, or negated, in parentheses
+      body = plainNum ? QString()
+        : (isSum(f.num) && (!factor.isEmpty() || f.negative))
+          ? QStringLiteral("\\left(%1\\right)").arg(n) : n;
     else
       body = QStringLiteral("\\frac{%1}{%2}").arg(n, render(f.den, style));
     if(!factor.isEmpty())

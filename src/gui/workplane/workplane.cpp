@@ -59,6 +59,10 @@
 #include <QEvent>
 #include <QApplication>
 #include <QTimer>
+#include <complex>
+#include <qwt_plot_item.h>
+#include <QPainterPath>
+#include <QPainter>
 #include <qwt_plot_grid.h>
 #include <qwt_plot_canvas.h>
 #include <qwt_plot_picker.h>
@@ -318,6 +322,138 @@ void applyPlotStyle(
 }
 
 
+// The Smith chart's grid: the unit circle, circles of constant resistance
+// and arcs of constant reactance (normalized to Z0), labelled; optionally
+// the admittance chart over it (the same circles mirrored: constant
+// conductance and susceptance), in a colour of its own. A series part moves
+// the point along an impedance circle, a shunt part along an admittance one
+class SmithGrid: public QwtPlotItem
+{
+
+public:
+  SmithGrid() { setZ(5); setItemAttribute(QwtPlotItem::AutoScale, false); }
+
+  void setAdmittance(bool on) { admittance_ = on; }
+
+  int rtti() const override { return QwtPlotItem::Rtti_PlotUserItem + 7; }
+
+  void draw(QPainter* painter, const QwtScaleMap& xMap,
+    const QwtScaleMap& yMap, const QRectF&) const override
+  {
+    const QPalette pal = QApplication::palette();
+    QColor line = pal.color(QPalette::Text);
+    line.setAlpha(70);
+    QColor outline = pal.color(QPalette::Text);
+    outline.setAlpha(150);
+    QColor text = pal.color(QPalette::Text);
+    text.setAlpha(170);
+    const QColor admit(0x2e, 0xa0, 0x5a, 140);
+    QColor admitText = admit;
+    admitText.setAlpha(220);
+
+    auto px = [&](double x, double y) {
+        return QPointF(xMap.transform(x), yMap.transform(y));
+      };
+    auto circle = [&](double cx, double cy, double r) {
+        return QRectF(px(cx - r, cy + r), px(cx + r, cy - r)).normalized();
+      };
+
+    const double values[] = { 0.2, 0.5, 1., 2., 5. };
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    QPainterPath unit;
+    unit.addEllipse(circle(0., 0., 1.));
+    painter->setClipPath(unit, Qt::IntersectClip);
+    painter->setBrush(Qt::NoBrush);
+
+    // the admittance chart under the impedance one
+    for(int pass = admittance_ ? 0 : 1; pass < 2; ++pass) {
+      const double s = pass == 0 ? -1. : 1.;   // mirrored for admittance
+      QPen pen(pass == 0 ? admit : line, 1.);
+      pen.setCosmetic(true);
+      if(pass == 0)
+        pen.setStyle(Qt::DashLine);
+      painter->setPen(pen);
+      for(double v : values) {
+        // constant resistance (conductance)
+        painter->drawEllipse(circle(s * v / (1. + v), 0., 1. / (1. + v)));
+        // constant reactance (susceptance), both signs
+        painter->drawEllipse(circle(s, 1. / v, 1. / v));
+        painter->drawEllipse(circle(s, -1. / v, 1. / v));
+      }
+    }
+    QPen axis(line, 1.);
+    axis.setCosmetic(true);
+    painter->setPen(axis);
+    painter->drawLine(px(-1., 0.), px(1., 0.));
+    painter->restore();
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    QPen rim(outline, 1.5);
+    rim.setCosmetic(true);
+    painter->setPen(rim);
+    painter->setBrush(Qt::NoBrush);
+    painter->drawEllipse(circle(0., 0., 1.));
+
+    // labels: resistance on the axis, reactance around the rim
+    QFont font = painter->font();
+    font.setPointSizeF(font.pointSizeF() * 0.8);
+    painter->setFont(font);
+    const QFontMetricsF fm(font);
+    auto label = [&](const QPointF& at, const QString& s, const QColor& color,
+        int align) {
+        const QSizeF size = fm.size(0, s);
+        QPointF topLeft = at;
+        if(align & Qt::AlignHCenter)
+          topLeft.rx() -= size.width() / 2;
+        else if(align & Qt::AlignRight)
+          topLeft.rx() -= size.width() + 2;
+        else
+          topLeft.rx() += 2;
+        if(align & Qt::AlignVCenter)
+          topLeft.ry() -= size.height() / 2;
+        else if(align & Qt::AlignTop)
+          topLeft.ry() += 1;
+        else
+          topLeft.ry() -= size.height() + 1;
+        painter->setPen(color);
+        painter->drawText(QRectF(topLeft, size), Qt::AlignCenter, s);
+      };
+    auto number = [](double v) { return QString::number(v, 'g', 3); };
+
+    label(px(-1., 0.), QStringLiteral("0"), text, Qt::AlignRight | Qt::AlignVCenter);
+    label(px(1., 0.), QStringLiteral("∞"), text, Qt::AlignLeft | Qt::AlignVCenter);
+    for(double v : values) {
+      const double g = (v - 1.) / (v + 1.);
+      label(px(g, 0.), number(v), text, Qt::AlignLeft | Qt::AlignBottom);
+      // where z = +-jv meets the rim, a little outside it
+      const double d = v * v + 1.;
+      const double gx = (v * v - 1.) / d, gy = 2. * v / d;
+      for(int sign : { 1, -1 }) {
+        const QPointF at = px(gx * 1.07, sign * gy * 1.07);
+        label(at, (sign > 0 ? QStringLiteral("+j") : QStringLiteral("−j"))
+          + number(v), text, Qt::AlignHCenter | Qt::AlignVCenter);
+      }
+      if(admittance_) {
+        label(px(-g, 0.), number(v), admitText, Qt::AlignRight | Qt::AlignTop);
+        for(int sign : { 1, -1 }) {
+          const QPointF at = px(-gx * 0.9, sign * gy * 0.9);
+          label(at, (sign > 0 ? QStringLiteral("−j") : QStringLiteral("+j"))
+            + number(v), admitText, Qt::AlignHCenter | Qt::AlignVCenter);
+        }
+      }
+    }
+    painter->restore();
+  }
+
+private:
+  bool admittance_ = false;
+
+};
+
+
 }
 
 
@@ -375,6 +511,8 @@ WorkPlane::~WorkPlane()
 
   grid_->detach();
   delete grid_;
+  smithGrid_->detach();
+  delete smithGrid_;
 }
 
 
@@ -468,7 +606,7 @@ void WorkPlane::applyAxisScales(bool forceLinear)
 void WorkPlane::xAxisLogScale(bool log)
 {
   xLog_ = log;
-  applyAxisScales(lastId_ == ZEROS || lastId_ == POLES);
+  applyAxisScales(isMap(lastId_));
   plot_->updateAxes();
   plot_->replot();
 }
@@ -477,7 +615,7 @@ void WorkPlane::xAxisLogScale(bool log)
 void WorkPlane::yAxisLogScale(bool log)
 {
   yLog_ = log;
-  applyAxisScales(lastId_ == ZEROS || lastId_ == POLES);
+  applyAxisScales(isMap(lastId_));
   plot_->updateAxes();
   plot_->replot();
 }
@@ -511,8 +649,20 @@ void WorkPlane::plot(WorkPlane::F f)
     plot_->setAxisTitle(QwtPlot::yRight, QwtText());
     plot_->setAxisAutoScale(QwtPlot::xBottom);
     plot_->setAxisAutoScale(QwtPlot::yLeft);
+    // the Smith chart has its own grid and no axes
+    const bool smith = (f == SMITH);
+    plot_->enableAxis(QwtPlot::xBottom, !smith);
+    plot_->enableAxis(QwtPlot::yLeft, !smith);
+    grid_->setVisible(!smith);
+    if(smith) {
+      static_cast<SmithGrid*>(smithGrid_)->setAdmittance(admittance_);
+      smithGrid_->attach(plot_);
+    } else
+      smithGrid_->detach();
+    tracker_->setRubberBand(smith || f == ZEROS || f == POLES
+      ? QwtPicker::NoRubberBand : QwtPicker::VLineRubberBand);
   }
-  applyAxisScales(f == ZEROS || f == POLES);
+  applyAxisScales(isMap(f));
 
   switch(f)
   {
@@ -719,6 +869,37 @@ void WorkPlane::plot(WorkPlane::F f)
 
       break;
     }
+  case SMITH:
+    {
+      // the output read as an impedance: Z = H (the output over a 1 A
+      // source), Gamma = (Z - Z0) / (Z + Z0)
+      if(!curves_[SMITH].second) {
+        QLogger::info(QObject::tr("Calculate the reflection coefficient."));
+        std::map<std::string, double> values = actValues();
+        const std::pair<double, double> range(fStart_, fStop_);
+        const auto m = sapecng::magnitude(range, pointsPerDecade_, true)(
+          num_, den_, values);
+        const auto ph = sapecng::phase(range, pointsPerDecade_, true)(
+          num_, den_, values);
+        std::pair< std::vector<double>, std::vector<double> > res;
+        smithHz_.clear();
+        const size_t n = qMin(m.second.size(), ph.second.size());
+        for(size_t i = 0; i < n; ++i) {
+          const std::complex<double> z = std::polar(m.second[i], ph.second[i]);
+          const std::complex<double> g = (z - z0_) / (z + z0_);
+          if(!std::isfinite(g.real()) || !std::isfinite(g.imag()))
+            continue;
+          res.first.push_back(g.real());
+          res.second.push_back(g.imag());
+          smithHz_.append(m.first[i]);
+        }
+        setupCurve(res, SMITH);
+      }
+      curves_[SMITH].first->attach(plot_);
+      curves_[SMITH].first->setVisible(true);
+      attached_.push_back(curves_[SMITH].first);
+      break;
+    }
   default:
     break;
   }
@@ -727,7 +908,7 @@ void WorkPlane::plot(WorkPlane::F f)
   if(!keepAttached_) {
     if(f == PHASE || f == PHASE_RAD)
       applyYRange(QwtPlot::yLeft, phaseKey());
-    else if(f != ZEROS && f != POLES)
+    else if(!isMap(f))
       applyYRange(QwtPlot::yLeft, magnitudeKey());
   }
 
@@ -749,6 +930,8 @@ WorkPlane::F WorkPlane::currentF() const
     return angular_ ? PHASE_RAD : PHASE;
   case PoleZeroKind:
     return ZEROS;
+  case SmithKind:
+    return SMITH;
   default:
     if(magnitudeDb_)
       return angular_ ? GAIN_RAD : GAIN;
@@ -817,6 +1000,20 @@ void WorkPlane::relabel(F f)
     }
     plot_->setAxisTitle(QwtPlot::xBottom, tr("Real part (rad/s)"));
     plot_->setAxisTitle(QwtPlot::yLeft, tr("Imaginary part (rad/s)"));
+    return;
+  case SMITH:
+    {
+      // keep the title's font and colour: only the text (rich: Z0 with a
+      // subscript) changes
+      QwtText title = plot_->title();
+      title.setText(tr("Smith chart, Z<sub>0</sub> = %1")
+        .arg(units::format(QString::number(z0_, 'g', 6), QStringLiteral("Ω"))),
+        QwtText::RichText);
+      plot_->setTitle(title);
+      plot_->setAxisScale(QwtPlot::xBottom, -1.15, 1.15);
+      plot_->setAxisScale(QwtPlot::yLeft, -1.15, 1.15);
+      QTimer::singleShot(0, this, [this]() { equalizeAxes(); });
+    }
     return;
   default:
     return;
@@ -1069,7 +1266,7 @@ void WorkPlane::equalizeAxes()
 {
   // pole-zero map: equal units per pixel on both axes, the larger of the
   // two, around the present centre
-  if(lastId_ != ZEROS && lastId_ != POLES)
+  if(!isMap(lastId_))
     return;
   const QWidget* canvas = plot_->canvas();
   const double w = canvas->width(), h = canvas->height();
@@ -1091,7 +1288,7 @@ void WorkPlane::equalizeAxes()
 bool WorkPlane::eventFilter(QObject* watched, QEvent* event)
 {
   if(watched == plot_->canvas() && event->type() == QEvent::Resize
-      && (lastId_ == ZEROS || lastId_ == POLES))
+      && isMap(lastId_))
     QTimer::singleShot(0, this, [this]() { equalizeAxes(); });
 
   if(watched == plot_->canvas() && event->type() == QEvent::Wheel) {
@@ -1151,7 +1348,10 @@ PlotSettings PlotSettings::load()
   p.pointsPerDecade =
     q.value("Workplane/pointsPerDecade", p.pointsPerDecade).toInt();
   if(!(p.fStart > 0 && p.fStop > p.fStart)) { p.fStart = 1.; p.fStop = 1e5; }
-  if(p.kind < 0 || p.kind > 3) p.kind = 3;
+  p.z0 = q.value("Plot/smithZ0", p.z0).toDouble();
+  if(!(p.z0 > 0.) || !std::isfinite(p.z0)) p.z0 = 50.;
+  p.smithAdmittance = q.value("Plot/smithAdmittance", p.smithAdmittance).toBool();
+  if(p.kind < 0 || p.kind > 4) p.kind = 3;
   return p;
 }
 
@@ -1169,6 +1369,8 @@ void PlotSettings::save() const
   q.setValue("Workplane/fStart", fStart);
   q.setValue("Workplane/fStop", fStop);
   q.setValue("Workplane/pointsPerDecade", pointsPerDecade);
+  q.setValue("Plot/smithZ0", z0);
+  q.setValue("Plot/smithAdmittance", smithAdmittance);
 }
 
 
@@ -1185,6 +1387,8 @@ PlotSettings WorkPlane::settings() const
   p.fStart = fStart_;
   p.fStop = fStop_;
   p.pointsPerDecade = pointsPerDecade_;
+  p.z0 = z0_;
+  p.smithAdmittance = admittance_;
   p.output = output_;
   return p;
 }
@@ -1208,6 +1412,11 @@ void WorkPlane::applySettings(const PlotSettings& p)
   fStart_ = p.fStart;
   fStop_ = p.fStop;
   pointsPerDecade_ = p.pointsPerDecade;
+  if(p.z0 > 0. && p.z0 != z0_) {
+    z0_ = p.z0;
+    curves_[SMITH].second = false;
+  }
+  admittance_ = p.smithAdmittance;
 
   if(autoRange_ && !num_.empty())
     autoFrequencyRange();
@@ -1235,6 +1444,42 @@ bool WorkPlane::markerValues(double hz, double* magnitude, double* phase) const
   *phase = phaseDegrees_ ? p.second.front() * 180. / (4. * std::atan(1.))
                          : p.second.front();
   return true;
+}
+
+
+bool WorkPlane::impedanceAt(double hz, std::complex<double>* z) const
+{
+  if(num_.empty() || !(hz > 0))
+    return false;
+  const std::pair<double, double> at(hz, hz * 1.000001);
+  const auto m = sapecng::magnitude(at, 1., true)(num_, den_, values_);
+  const auto p = sapecng::phase(at, 1., true)(num_, den_, values_);
+  if(m.second.empty() || p.second.empty())
+    return false;
+  *z = std::polar(m.second.front(), p.second.front());
+  return std::isfinite(z->real()) && std::isfinite(z->imag());
+}
+
+
+int WorkPlane::nearestSmithSample(const QPointF& canvasPos) const
+{
+  const QwtSeriesData<QPointF>* d = curves_[SMITH].first->data();
+  if(!d)
+    return -1;
+  const QwtScaleMap xm = plot_->canvasMap(QwtPlot::xBottom);
+  const QwtScaleMap ym = plot_->canvasMap(QwtPlot::yLeft);
+  int best = -1;
+  double bestD = 1e18;
+  for(size_t i = 0; i < d->size() && int(i) < smithHz_.size(); ++i) {
+    const QPointF s = d->sample(i);
+    const double dx = xm.transform(s.x()) - canvasPos.x();
+    const double dy = ym.transform(s.y()) - canvasPos.y();
+    if(dx * dx + dy * dy < bestD) {
+      bestD = dx * dx + dy * dy;
+      best = int(i);
+    }
+  }
+  return best;
 }
 
 
@@ -1284,8 +1529,13 @@ void WorkPlane::refreshMarkers()
   double refMag = 0., refPh = 0.;
   const bool refOk = hasRef && markerValues(refHz_, &refMag, &refPh);
   const int refIndex = hasRef ? markers_.indexOf(refHz_) : -1;
-  markerTable_->setColumnHidden(3, !hasRef);
-  markerTable_->setColumnHidden(4, !hasRef);
+  const bool smith = (lastId_ == SMITH);
+  markerTable_->setColumnHidden(3, !hasRef || smith);
+  markerTable_->setColumnHidden(4, !hasRef || smith);
+  markerTable_->setHorizontalHeaderItem(1, new QTableWidgetItem(
+    smith ? tr("Z") : tr("Magnitude")));
+  markerTable_->setHorizontalHeaderItem(2, new QTableWidgetItem(
+    smith ? QStringLiteral("Γ") : tr("Phase")));
 
   for(int i = 0; i < markers_.size(); ++i) {
     const double hz = markers_.at(i);
@@ -1322,6 +1572,47 @@ void WorkPlane::refreshMarkers()
     dp->setFlags(dp->flags() & ~Qt::ItemIsEditable);
     markerTable_->setItem(i, 3, dm);
     markerTable_->setItem(i, 4, dp);
+
+    if(smith) {
+      // a dot on the curve: the impedance, Gamma and the VSWR
+      std::complex<double> z;
+      if(!impedanceAt(hz, &z))
+        continue;
+      const std::complex<double> g = (z - z0_) / (z + z0_);
+      const double mg = std::abs(g);
+      const QString zText = units::format(QString::number(z.real(), 'g', 4), "")
+        + (z.imag() < 0 ? QStringLiteral(" − j") : QStringLiteral(" + j"))
+        + units::format(QString::number(std::fabs(z.imag()), 'g', 4), "")
+        + QStringLiteral(" Ω");
+      const QString gText = QStringLiteral("%1 ∠ %2°").arg(mg, 0, 'f', 3)
+        .arg(std::arg(g) * 180. / (4. * std::atan(1.)), 0, 'f', 1);
+      m->setText(zText);
+      p->setText(gText);
+      QString text = QStringLiteral("M%1  %2\nZ = %3\nΓ = %4").arg(i + 1)
+        .arg(units::format(QString::number(hz, 'g', 6), "Hz")).arg(zText)
+        .arg(gText);
+      if(mg < 1.)
+        text += QStringLiteral("\nVSWR %1").arg((1. + mg) / (1. - mg), 0, 'f', 2);
+      QwtPlotMarker* dot = new QwtPlotMarker;
+      dot->setValue(g.real(), g.imag());
+      QColor c = QApplication::palette().color(QPalette::Text);
+      dot->setSymbol(new QwtSymbol(QwtSymbol::Ellipse,
+        QApplication::palette().color(QPalette::Base), QPen(c, 2), QSize(9, 9)));
+      QwtText label(text);
+      label.setColor(c);
+      QColor bg = QApplication::palette().color(QPalette::Base);
+      bg.setAlpha(220);
+      label.setBackgroundBrush(bg);
+      label.setBorderRadius(3);
+      label.setRenderFlags(Qt::AlignLeft | Qt::AlignTop);
+      dot->setLabel(label);
+      dot->setLabelAlignment((g.imag() >= 0 ? Qt::AlignTop : Qt::AlignBottom)
+        | (g.real() >= 0 ? Qt::AlignLeft : Qt::AlignRight));
+      dot->setZ(30);
+      dot->attach(plot_);
+      markerLines_.append(dot);
+      continue;
+    }
     if(showDelta)
       f->setToolTip(QStringLiteral("Δf = ") + dF);
     if(isRef) {
@@ -1578,7 +1869,7 @@ void WorkPlane::addMarker(double hz)
 {
   if(!(hz > 0) || !std::isfinite(hz))
     return;
-  // the panel (closed at first) opens with the first marker
+  // the Markers tab comes to the front with the first marker
   if(markers_.isEmpty())
     emit markersPanelChanged(true);
   markers_.append(hz);
@@ -1626,6 +1917,27 @@ void WorkPlane::plotClicked(const QPointF& pos)
 {
   if(lastId_ == NOOP || lastId_ == ZEROS || lastId_ == POLES)
     return;
+  if(lastId_ == SMITH) {
+    // the nearest point of the curve; a click on a marker removes it
+    const QPointF canvasPos(plot_->transform(QwtPlot::xBottom, pos.x()),
+                            plot_->transform(QwtPlot::yLeft, pos.y()));
+    for(int i = 0; i < markers_.size(); ++i) {
+      std::complex<double> z;
+      if(!impedanceAt(markers_.at(i), &z))
+        continue;
+      const std::complex<double> g = (z - z0_) / (z + z0_);
+      if(QLineF(canvasPos, QPointF(plot_->transform(QwtPlot::xBottom, g.real()),
+          plot_->transform(QwtPlot::yLeft, g.imag()))).length() < 7.) {
+        removeMarker(i);
+        refreshMarkers();
+        return;
+      }
+    }
+    const int i = nearestSmithSample(canvasPos);
+    if(i >= 0)
+      addMarker(QString::number(smithHz_.at(i), 'g', 3).toDouble());
+    return;
+  }
   const double twoPi = 8. * std::atan(1.);
   const double hz = angular_ ? pos.x() / twoPi : pos.x();
 
@@ -1899,6 +2211,11 @@ void WorkPlane::createMainLayout()
   QPushButton* add = new QPushButton(tr("Add"));
   add->setToolTip(tr("A marker in the middle of the visible range"));
   connect(add, &QPushButton::clicked, this, [this]() {
+      if(lastId_ == SMITH) {
+        // the middle of the sweep
+        addMarker(QString::number(std::sqrt(fStart_ * fStop_), 'g', 3).toDouble());
+        return;
+      }
       const QwtScaleMap map = plot_->canvasMap(QwtPlot::xBottom);
       double x = map.invTransform((map.p1() + map.p2()) / 2);
       addMarker(angular_ ? x / (8. * std::atan(1.)) : x);
@@ -1995,6 +2312,16 @@ void WorkPlane::createMainLayout()
       QList<QAction*> actions;
       if(!hasFrequencyAxis() || !plot_->canvas()->rect().contains(canvasPos))
         return actions;
+      if(lastId_ == SMITH) {
+        const int i = nearestSmithSample(canvasPos);
+        if(i < 0)
+          return actions;
+        const double hz = QString::number(smithHz_.at(i), 'g', 3).toDouble();
+        QAction* add = new QAction(tr("Add &Marker Here"), nullptr);
+        connect(add, &QAction::triggered, this, [this, hz]() { addMarker(hz); });
+        actions << add;
+        return actions;
+      }
       const double x = plot_->invTransform(QwtPlot::xBottom, canvasPos.x());
       const double twoPi = 8. * std::atan(1.);
       const double hz = QString::number(angular_ ? x / twoPi : x, 'g', 3)
@@ -2185,6 +2512,10 @@ void WorkPlane::setupCurves()
   curves_[POLES].first->setSymbol(symbol);
   curves_[POLES].first->setCurveAttribute(
     functor_traits<sapecng::poles>::attribute);
+
+  curves_[SMITH].first = new QwtPlotCurve;
+  curves_[SMITH].first->setStyle(QwtPlotCurve::Lines);
+  smithGrid_ = new SmithGrid;
 
   for(int i = 0; i < curves_.size(); ++i) {
     // plain polyline through the samples: the sweep is dense enough

@@ -33,6 +33,8 @@
 #include <QSettings>
 #include <QStyle>
 #include <QStyleFactory>
+#include <QStyleHints>
+#include <QGuiApplication>
 #include <QSvgRenderer>
 #include <QtGlobal>
 
@@ -195,10 +197,41 @@ QPalette darkPalette()
 
 QPalette lightPalette()
 {
-  std::unique_ptr<QStyle> fusion(QStyleFactory::create(QStringLiteral("Fusion")));
-  QPalette pal = fusion ? fusion->standardPalette() : QPalette();
-  pal.setColor(QPalette::Highlight, QColor(0x25, 0x63, 0xeb));
-  pal.setColor(QPalette::Link, QColor(0x25, 0x63, 0xeb));
+  // every colour given: Fusion's own palette (Qt 6.5 and newer) follows the
+  // system's colour scheme, so on a dark desktop it was dark as well
+  const QColor window(0xef, 0xef, 0xef);
+  const QColor base(Qt::white);
+  const QColor text(Qt::black);
+  const QColor button(0xef, 0xef, 0xef);
+  const QColor accent(0x25, 0x63, 0xeb);
+
+  QPalette pal;
+  pal.setColor(QPalette::Window, window);
+  pal.setColor(QPalette::WindowText, text);
+  pal.setColor(QPalette::Base, base);
+  pal.setColor(QPalette::AlternateBase, QColor(0xf7, 0xf7, 0xf7));
+  pal.setColor(QPalette::ToolTipBase, QColor(0xff, 0xff, 0xdc));
+  pal.setColor(QPalette::ToolTipText, text);
+  pal.setColor(QPalette::PlaceholderText, QColor(0x80, 0x80, 0x80));
+  pal.setColor(QPalette::Text, text);
+  pal.setColor(QPalette::Button, button);
+  pal.setColor(QPalette::ButtonText, text);
+  pal.setColor(QPalette::BrightText, Qt::white);
+  pal.setColor(QPalette::Light, Qt::white);
+  pal.setColor(QPalette::Midlight, QColor(0xca, 0xca, 0xca));
+  pal.setColor(QPalette::Mid, QColor(0xb8, 0xb8, 0xb8));
+  pal.setColor(QPalette::Dark, QColor(0x9f, 0x9f, 0x9f));
+  pal.setColor(QPalette::Shadow, QColor(0x76, 0x76, 0x76));
+  pal.setColor(QPalette::Highlight, accent);
+  pal.setColor(QPalette::HighlightedText, Qt::white);
+  pal.setColor(QPalette::Link, accent);
+  pal.setColor(QPalette::LinkVisited, accent.darker(120));
+
+  for(QPalette::ColorRole role : { QPalette::WindowText, QPalette::Text,
+        QPalette::ButtonText })
+    pal.setColor(QPalette::Disabled, role, QColor(0xbe, 0xbe, 0xbe));
+  pal.setColor(QPalette::Disabled, QPalette::Base, window);
+  pal.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x91, 0x91, 0x91));
   return pal;
 }
 
@@ -298,6 +331,13 @@ void setMode(Mode m)
   QApplication* app = qobject_cast<QApplication*>(QCoreApplication::instance());
   if(!app)
     return;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+  // what the platform draws (window frames, native dialogs) follows too
+  QGuiApplication::styleHints()->setColorScheme(
+    m == Mode::Light ? Qt::ColorScheme::Light
+    : m == Mode::Dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Unknown);
+#endif
 
   if(m == Mode::System) {
     if(QStyle* style = QStyleFactory::create(platformStyleName))

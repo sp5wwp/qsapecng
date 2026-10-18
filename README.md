@@ -95,9 +95,9 @@ Several bugs gave wrong answers rather than crashes:
   raw and numeric), with Copy and Copy LaTeX.
 * Several outputs per circuit: every Out marker, voltmeter and ammeter is
   solved, with a tab each, and can be renamed (Vout, Vb, Ve, ...).
-* A Plots window with magnitude, phase, Bode, and pole-zero plots, smooth
-  curves, and measuring markers: peaks, -3 dB points and differences from
-  a reference marker.
+* A Plots window with magnitude, phase, Bode, pole-zero and Smith chart
+  plots (impedance and admittance circles), smooth curves, and measuring
+  markers: peaks, -3 dB points and differences from a reference marker.
 
 **New parts and export**
 
