@@ -326,6 +326,10 @@ QSapecNG CHANGELOG
     o New Plot dialog: fits its contents when the kind of plot changes
     o The pointer turns into the aiming cross over a pin or a wire end,
       where a click starts a wire
+    o New application icon, sharp at every size (16 and 22 pixels drawn
+      apart); the icon files are made from SVG by packaging/make-icons.py
+    o The splash screen is drawn by the program: icon, name and version
+      on a light card, readable on any desktop
     o Light theme on a dark desktop: the light palette is complete (it
       took Fusion's, which follows the system's dark scheme since Qt 6.5);
       with Qt 6.8 or newer, window frames and native dialogs follow the

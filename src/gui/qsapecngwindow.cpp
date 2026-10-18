@@ -172,7 +172,7 @@ QSapecNGWindow::QSapecNGWindow()
   loadRecentFileList();
   updateStatus();
 
-  setWindowIcon(QIcon(":/images/qsapecng.png"));
+  setWindowIcon(QApplication::windowIcon());
   setWindowTitle(QString("%1 - %2")
       .arg(PACKAGE_NAME)
       .arg(PACKAGE_VERSION)

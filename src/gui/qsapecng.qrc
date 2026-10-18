@@ -2,8 +2,14 @@
 
 <qresource>
 <!-- qsapecng artworks -->
-  <file>images/qsapecng.png</file>
-  <file>images/qsapecng-splash.png</file>
+  <file>images/qsapecng.svg</file>
+  <file>images/qsapecng-16x16.png</file>
+  <file>images/qsapecng-22x22.png</file>
+  <file>images/qsapecng-32x32.png</file>
+  <file>images/qsapecng-48x48.png</file>
+  <file>images/qsapecng-64x64.png</file>
+  <file>images/qsapecng-128x128.png</file>
+  <file>images/qsapecng-256x256.png</file>
 
 <!-- config dialog -->
 
