@@ -233,7 +233,8 @@ QSapecNG CHANGELOG
       and saved
     o Result panel: the Result, Raw and Digit sections sit side by side
       when they fit the panel's width
-    o README: Quick start instead of the old Usage and Translations
+    o README: Quick start instead of the old Usage and Translations, and a
+      What's new in 3.0 section
     o Several outputs: every Out marker, voltmeter and ammeter is solved,
       each with a name (Out1, Out2, VM1, AM1 ... kept in the file); the
       Result panel has a tab per output, and a plot shows the output chosen

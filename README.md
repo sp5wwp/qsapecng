@@ -1,6 +1,6 @@
 # QSapecNG
 
-> **Note:** this README is for a fork of QSapecNG. Release 3.0.0 is a work in progress.
+> **Note:** this README is for a fork of QSapecNG.
 
 QSapecNG v3.0.0  
 Copyright (C) 2009, Michele Caini  
@@ -34,6 +34,81 @@ circuits.
 SapecNG/QSapecNG is freely available on [SourceForge.net](https://sourceforge.net/projects/qsapecng/).
 A previous version of SapecNG is available too, on [SourceForge.net](https://sourceforge.net/projects/sapec-ng/).
 Pre-compiled packages will also be available from the projects' pages.
+
+
+## What's new in 3.0
+
+Version 3.0 brings QSapecNG back to life on current systems and makes its
+results trustworthy. The major changes since 2.1.1 are below, the
+[CHANGELOG](CHANGELOG) lists everything.
+
+**A modern program again**
+
+* Ported to Qt 6, Qwt 6.2/6.3 and C++17, with a modern CMake build - it
+  builds with current GCC, Clang, MSVC and MinGW on Linux and Windows.
+* A new look: scalable icons, tabbed documents, light and dark themes,
+  IEC/DIN or ANSI resistor symbols, and one Configure dialog for all of it.
+
+**Correct results**
+
+Several bugs gave wrong answers rather than crashes:
+
+* Every circuit with a mutual inductance read its coil values as whole
+  numbers (0.001 H became 0 H), so its result was wrong.
+* A netlist with a gap in its node numbers was solved as 0.
+* Terms cancelling out in the transfer function could crash the solver.
+* Plots evaluated the result with values collected again from the parts,
+  where a name not found counted as 0 - they now plot exactly what the
+  Result panel shows.
+* Circuits without a unique solution (a loop of voltage sources, a floating
+  part, an op-amp without feedback) are reported as such, with the usual
+  causes, instead of showing 0 or 1/0.
+
+**Verified solver**
+
+* The solver is cross-checked against an independent numeric solver
+  (modified nodal analysis) on thousands of random circuits with every
+  component type, including the poles, zeros and plotted frequency response.
+* The SPICE export is checked against ngspice the same way.
+* Both run with `ctest` (build with `-DQSAPECNG_BUILD_TESTS=ON`).
+
+**Faster**
+
+* Larger circuits solve much faster: a 25-part circuit takes 9 s instead of
+  65 s. Symbolic analysis still grows quickly with the number of parts, so
+  very large circuits remain slow.
+
+**Drawing circuits**
+
+* Wires drawn as in KiCad - parts and wires stay connected while
+  dragged - click a pin to start a wire there.
+* Parts hang on the pointer by their pin or centre, rotate (R) and flip
+  (H, V) while placed. Values can use a standard notation (4k7, 100n, 1meg).
+* Parameters in a dialog (double-click). Real R, L, and C with parasitics,
+  real op-amp with open-loop gain and gain-bandwidth product.
+* Text labels, a configurable grid, export to SVG, PNG or PDF, and example
+  circuits in File > Open Example.
+
+**Results and plots**
+
+* A Result panel with the transfer function as real fractions (symbolic,
+  raw and numeric), with Copy and Copy LaTeX.
+* Several outputs per circuit: every Out marker, voltmeter and ammeter is
+  solved, with a tab each, and can be renamed (Vout, Vb, Ve, ...).
+* A Plots window with magnitude, phase, Bode, and pole-zero plots, smooth
+  curves, and measuring markers: peaks, -3 dB points and differences from
+  a reference marker.
+
+**New parts and export**
+
+* Nullor (nullator and norator), three winding transformer (ideal, or with
+  inductance and coupling), single-pin voltage source.
+* File > Export SPICE Netlist for ngspice, LTspice and similar simulators.
+
+Files from 2.x open in 3.0. Older versions can open 3.0 files, but they
+leave out or simplify the new parts: a nullor opens as an op-amp, a
+three-winding transformer is skipped, and only the first of several Out
+markers is read.
 
 
 ## Quick start
