@@ -54,6 +54,7 @@
 #include <QFileInfo>
 #include <QSignalBlocker>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QMainWindow>
 #include <QFileDialog>
 #include <QDir>
@@ -332,6 +333,7 @@ WorkPlane* QSapecNGWindow::createPlot(SchematicEditor* editor,
 {
   WorkPlane* plane = new WorkPlane;
   plane->setContextMenu(workplaneMenu_);
+  plane->setLeadingContextActions({ resetViewAct_ });
   if(!editor->accept(*plane, settings.output)) {
     delete plane;
     return 0;
@@ -395,6 +397,7 @@ void QSapecNGWindow::createPlotWindow()
       showMarkersOf(currentPlot_);
       if(currentPlot_ && plotSettingsForm_) {
         plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
+        fitPlotSettingsWidth();
         plotSettingsForm_->setSettings(currentPlot_->settings());
       }
       updateMenus();
@@ -425,6 +428,9 @@ void QSapecNGWindow::createPlotWindow()
   scroll->setWidget(plotSettingsForm_);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
+  // only up and down: the panel is kept as wide as the form
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  plotSettingsScroll_ = scroll;
   QWidget* holder = new QWidget;
   QVBoxLayout* holderLayout = new QVBoxLayout(holder);
   holderLayout->setContentsMargins(8, 8, 8, 8);
@@ -448,6 +454,7 @@ void QSapecNGWindow::createPlotWindow()
   plotWindow_->addDockWidget(Qt::RightDockWidgetArea, markersDock_);
   plotWindow_->splitDockWidget(markersDock_, plotSettingsDock_, Qt::Horizontal);
   markersDock_->hide();
+  fitPlotSettingsWidth();
   connect(markersDock_, &QDockWidget::visibilityChanged, this, [this]() {
       QSignalBlocker block(markersPanelAct_);
       markersPanelAct_->setChecked(markersDock_->isVisible());
@@ -491,6 +498,20 @@ void QSapecNGWindow::showPlotWindow()
     plotWindow_->show();
   plotWindow_->raise();
   plotWindow_->activateWindow();
+}
+
+
+void QSapecNGWindow::fitPlotSettingsWidth()
+{
+  // the panel is never narrower than the form (fields cut off, a
+  // horizontal scroll bar); the form gets wider with the Output choice
+  if(!plotSettingsScroll_ || !plotSettingsForm_)
+    return;
+  plotSettingsForm_->adjustSize();
+  const int width = plotSettingsForm_->minimumSizeHint().width()
+    + plotSettingsScroll_->verticalScrollBar()->sizeHint().width()
+    + 2 * plotSettingsScroll_->frameWidth();
+  plotSettingsScroll_->setMinimumWidth(width);
 }
 
 
@@ -565,6 +586,7 @@ void QSapecNGWindow::editPlotSettings()
   createPlotWindow();
   if(currentPlot_) {
     plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
+    fitPlotSettingsWidth();
     plotSettingsForm_->setSettings(currentPlot_->settings());
   }
   plotSettingsDock_->show();
@@ -1561,10 +1583,10 @@ void QSapecNGWindow::createActions()
   connect(vrangeAct_, &QAction::triggered, this,
     [this]() { if(currentPlot_) currentPlot_->editVerticalRange(); });
 
-  resetViewAct_ = new QAction(tr("Reset &View"), this);
+  resetViewAct_ = new QAction(tr("Zoom to &Fit"), this);
   resetViewAct_->setShortcut(Qt::Key_Home);
-  resetViewAct_->setStatusTip(tr("Undo zooming (mouse wheel) and panning "
-                                 "(middle button)"));
+  resetViewAct_->setStatusTip(tr("Show the whole sweep and fit the vertical "
+    "axis to the curves (undoes zooming and panning)"));
   connect(resetViewAct_, &QAction::triggered, this,
     [this]() { if(currentPlot_) currentPlot_->resetView(); });
 

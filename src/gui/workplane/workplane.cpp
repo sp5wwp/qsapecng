@@ -1986,8 +1986,7 @@ void WorkPlane::createMainLayout()
         .toDouble();
       if(!(hz > 0))
         return actions;
-      QAction* add = new QAction(tr("Add &Marker at %1")
-        .arg(units::format(QString::number(hz, 'g', 3), QStringLiteral("Hz"))), nullptr);
+      QAction* add = new QAction(tr("Add &Marker Here"), nullptr);
       connect(add, &QAction::triggered, this, [this, hz]() { addMarker(hz); });
       actions << add;
       return actions;

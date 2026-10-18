@@ -72,6 +72,8 @@ public:
   // actions shown above the context menu's own, for a click at a point of
   // the canvas (e.g. Add Marker there); the menu deletes them
   std::function<QList<QAction*>(const QPoint& canvasPos)> extraActions;
+  // actions of the context menu moved up next to those (not deleted)
+  QList<QAction*> leadingActions;
 
   void contextMenuEvent(QContextMenuEvent* event)
   {
@@ -85,9 +87,12 @@ public:
     }
     QMenu menu;
     menu.addActions(extra);
+    menu.addActions(leadingActions);
     if(contextMenu_) {
       menu.addSeparator();
-      menu.addActions(contextMenu_->actions());
+      foreach(QAction* a, contextMenu_->actions())
+        if(!leadingActions.contains(a))
+          menu.addAction(a);
     }
     menu.exec(event->globalPos());
     qDeleteAll(extra);
@@ -226,6 +231,9 @@ public:
     );
 
   inline void setContextMenu(QMenu* menu) { plot_->setContextMenu(menu); }
+  // actions of that menu shown first when the plot is right-clicked
+  inline void setLeadingContextActions(const QList<QAction*>& actions)
+    { plot_->leadingActions = actions; }
   PlotSettings settings() const;
   inline QString output() const { return output_; }
   inline int kind() const { return kind_; }

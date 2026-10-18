@@ -51,6 +51,7 @@ class QMenu;
 
 class QToolBar;
 class QDockWidget;
+class QScrollArea;
 
 class QSignalMapper;
 
@@ -237,6 +238,7 @@ private:
   QTabWidget* plotTabs_ = nullptr;
   QDockWidget* plotSettingsDock_ = nullptr;
   QDockWidget* markersDock_ = nullptr;
+  QScrollArea* plotSettingsScroll_ = nullptr;
   PlotSettingsWidget* plotSettingsForm_ = nullptr;
   QAction* showPlotsAct_ = nullptr;
   void createPlotWindow();
@@ -248,6 +250,8 @@ private:
   QStringList plotOutputs(WorkPlane* plane) const;
   // the Markers dock shows this plot's markers
   void showMarkersOf(WorkPlane* plane);
+  // keeps the Plot Settings panel as wide as its form
+  void fitPlotSettingsWidth();
 
 
   QMenu* fileMenu_;

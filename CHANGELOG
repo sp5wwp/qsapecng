@@ -84,8 +84,10 @@ QSapecNG CHANGELOG
       pixel, so even smooth curves came out in steps)
     o The Markers panel is a side panel of the Plots window, like Plot
       Settings, with its own close button; it shows the markers of the
-      plot in front. Right-click on a plot: Add Marker at that frequency.
-      The side panels no longer float off as windows of their own
+      plot in front. Right-click on a plot: Add Marker Here (at the
+      frequency clicked) and Zoom to Fit (Reset View renamed; Home). The
+      side panels no longer float off as windows of their own, and Plot
+      Settings is never narrower than its form (no horizontal scroll bar)
     o Differential markers: Reference makes the selected marker the
       reference; the others show their difference from it in magnitude
       and phase (in the panel and on the plot) and in frequency
@@ -157,7 +159,7 @@ QSapecNG CHANGELOG
       Loss plots, the Data box and the result tooltip are gone; values
       come from the schematic
     o Plots: mouse wheel zooms around the pointer (Shift: frequency only,
-      Ctrl: vertical only), middle button pans, Plot > Reset View
+      Ctrl: vertical only), middle button pans, Plot > Zoom to Fit
       (Home); Plot > Vertical Range sets a fixed or automatic range,
       kept per quantity (dB, linear, degrees, radians; both Bode axes)
     o Plot > Frequency Range: automatic (a decade beyond the poles
