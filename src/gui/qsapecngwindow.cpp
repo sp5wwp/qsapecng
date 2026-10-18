@@ -2169,6 +2169,11 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     if(editor == activeEditor()) {
       editor->scene().undoRedoStack()->setActive(true);
       updateMenus();
+      // the solver is done: no more progress bar (it was hidden only when
+      // another window got active, e.g. the Plots window)
+      progressBar_->setRange(0, 1);
+      progressBar_->reset();
+      progressBar_->hide();
     }
 
     // plots of this schematic follow its result; one asked for before

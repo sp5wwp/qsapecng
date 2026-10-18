@@ -253,7 +253,7 @@ QSapecNG CHANGELOG
       the Result tabs and the plots; undoable, two outputs cannot share a
       name
     o Fixed: after a Resolve, Undo and Redo stayed disabled until another
-      schematic was picked
+      schematic was picked, and the progress bar stayed in the status bar
     o Fixed: a meter's output could be lost when the netlist numbered a
       node after it (the solver moved the meter's internal node but kept
       the output on the old one)
