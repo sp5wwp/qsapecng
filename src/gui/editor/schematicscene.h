@@ -231,6 +231,10 @@ public:
   // Result panel
   QStringList outputNames() const;
   static QString outputName(const Component* output);
+  // an Out marker, a voltmeter or an ammeter
+  static bool isOutput(const QGraphicsItem* item);
+  // asks for a new name (double-click, Properties); undoable
+  void renameOutput(Component* output);
   void setOutputName(Component* output, const QString& name);
   QString uniqueOutputName(SupportedItemType type, const QString& wanted,
     const Component* self) const;

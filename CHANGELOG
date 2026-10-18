@@ -234,7 +234,12 @@ QSapecNG CHANGELOG
       in New Plot or in the Plot Settings panel (and in its tab title).
       Placing a second output no longer dims the first. Older versions
       read the first Out marker of such a file; .crc netlists keep one
-    o The Out tag grows with its name
+    o The Out tag grows with its name; double-click an Out marker or a
+      meter (or Properties) to rename it - Vout, Vbe ... - for the sheet,
+      the Result tabs and the plots; undoable, two outputs cannot share a
+      name
+    o Fixed: after a Resolve, Undo and Redo stayed disabled until another
+      schematic was picked
     o Fixed: a meter's output could be lost when the netlist numbered a
       node after it (the solver moved the meter's internal node but kept
       the output on the old one)

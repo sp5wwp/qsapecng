@@ -24,6 +24,13 @@
 #include "gui/editor/schematicscene.h"
 #include <QFontMetricsF>
 #include <QShortcut>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QRegularExpressionValidator>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QDialogButtonBox>
 #include <cmath>
 #include <QGraphicsLineItem>
 #include <QInputDialog>
@@ -1987,6 +1994,88 @@ private:
 }
 
 
+namespace {
+
+// an output's name (Out1 -> Vout), undoable
+class SetOutputName: public QUndoCommand
+{
+public:
+  SetOutputName(SchematicScene* scene, Component* output,
+      const QString& oldName, const QString& newName)
+    : scene_(scene), output_(output), old_(oldName), new_(newName)
+    { setText(QObject::tr("Rename %1").arg(oldName)); }
+  void undo() override { scene_->setOutputName(output_, old_); }
+  void redo() override { scene_->setOutputName(output_, new_); }
+private:
+  SchematicScene* scene_;
+  Component* output_;
+  QString old_, new_;
+};
+
+}
+
+
+bool SchematicScene::isOutput(const QGraphicsItem* item)
+{
+  const SupportedItemType type = itemType(const_cast<QGraphicsItem*>(item));
+  return type == OutItemType || type == VoltmeterItemType
+    || type == AmmeterItemType;
+}
+
+
+void SchematicScene::renameOutput(Component* output)
+{
+  if(!output || !isOutput(output))
+    return;
+
+  const QString current = outputName(output);
+  QSet<QString> taken;
+  foreach(Item* item, outputList_)
+    if(item != output)
+      taken.insert(outputName(static_cast<Component*>(item)));
+
+  QWidget* parent = views().isEmpty() ? 0 : views().first()->window();
+  QDialog dialog(parent);
+  dialog.setWindowTitle(tr("Rename %1").arg(current));
+  QLabel* label = new QLabel(tr("Name of this output (shown on the sheet, "
+                                "in the Result tabs and in the plots):"));
+  QLineEdit* edit = new QLineEdit(current);
+  label->setBuddy(edit);
+  // no blanks, not the name of another output
+  edit->setValidator(new QRegularExpressionValidator(
+    QRegularExpression(QStringLiteral("\\S{1,24}")), edit));
+  QLabel* note = new QLabel;
+  QDialogButtonBox* buttons =
+    new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  auto check = [edit, note, buttons, taken]() {
+      const QString name = edit->text();
+      const bool clash = taken.contains(name);
+      buttons->button(QDialogButtonBox::Ok)->setEnabled(
+        edit->hasAcceptableInput() && !clash);
+      note->setText(clash ? tr("Another output is called %1.").arg(name)
+                          : QString());
+    };
+  QObject::connect(edit, &QLineEdit::textChanged, &dialog, check);
+  check();
+
+  QVBoxLayout* layout = new QVBoxLayout(&dialog);
+  layout->addWidget(label);
+  layout->addWidget(edit);
+  layout->addWidget(note);
+  layout->addWidget(buttons);
+  edit->selectAll();
+
+  if(dialog.exec() != QDialog::Accepted)
+    return;
+  const QString name = edit->text().trimmed();
+  if(name.isEmpty() || name == current || taken.contains(name))
+    return;
+  undoRedoStack_->push(new SetOutputName(this, output, current, name));
+}
+
+
 bool SchematicScene::reverseSelectedMeters()
 {
   QList<Component*> meters;
@@ -2555,6 +2644,12 @@ void SchematicScene::rotateSelectedItems()
 
 void SchematicScene::editItemProperties(QGraphicsItem* item)
 {
+  // an output: its name is all there is to edit
+  if(isOutput(item)) {
+    renameOutput(dynamic_cast<Component*>(item));
+    return;
+  }
+
   QtProperty* properties = itemProperties(item);
   if(!properties)
     return;

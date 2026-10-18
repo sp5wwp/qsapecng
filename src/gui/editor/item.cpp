@@ -149,7 +149,8 @@ void Item::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 {
   // double-click edits the parameters (rotation: R key or Rotate action)
   if(event->button() == Qt::LeftButton && schematicScene()
-      && SchematicScene::itemProperties(this))
+      && (SchematicScene::itemProperties(this)
+          || SchematicScene::isOutput(this)))
   {
     event->accept();
     // open the dialog once the mouse event has been handled, so the view

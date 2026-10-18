@@ -909,7 +909,7 @@ void QSapecNGWindow::props()
     return;
 
   foreach(QGraphicsItem* item, editor->scene().selectedItems())
-    if(SchematicScene::itemProperties(item)) {
+    if(SchematicScene::itemProperties(item) || SchematicScene::isOutput(item)) {
       editor->scene().editItemProperties(item);
       return;
     }
@@ -1761,12 +1761,13 @@ void QSapecNGWindow::createMenus()
         }
       reverseMeters->setVisible(meter);
 
-      // Properties only for parts that have parameters (not for meters,
-      // Out, ground, wires); the Edit menu keeps it
+      // Properties only for parts that have parameters or a name to edit
+      // (outputs), not for ground or wires; the Edit menu keeps it
       bool params = false;
       if(SchematicEditor* editor = activeEditor())
         foreach(QGraphicsItem* item, editor->scene().selectedItems())
-          params = params || SchematicScene::itemProperties(item);
+          params = params || SchematicScene::itemProperties(item)
+            || SchematicScene::isOutput(item);
       propsAct_->setVisible(params || !propsAct_->isEnabled());
     });
   connect(sceneMenu_, &QMenu::aboutToHide, this, [this]() {
@@ -2105,6 +2106,14 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
   connect(editor, SIGNAL(stackEditor(SchematicEditor*)),
     this, SLOT(stackEditor(SchematicEditor*)));
   connect(editor, &SchematicEditor::solved, this, [this, editor]() {
+    // while solving there was no active editor and so no active undo
+    // stack (updateMenus): give it back, or Undo stays off until another
+    // schematic is picked
+    if(editor == activeEditor()) {
+      editor->scene().undoRedoStack()->setActive(true);
+      updateMenus();
+    }
+
     // plots of this schematic follow its result; one asked for before
     // solving opens now, and a first result opens a Bode plot
     refreshPlots(editor);
