@@ -65,6 +65,9 @@ bool isOne(const Expr& e);
 // true when the expression has two or more terms
 bool isSum(const Expr& e);
 
+// true when the expression has no s in it
+bool isConstant(const Expr& e);
+
 enum class Style { Text, Html, Latex };
 
 // "-10 * V1", "C1 * C2 * s^2 + (C1 * R1 + C2 * R2) * s + 1" (Text);

@@ -324,6 +324,15 @@ QString render(const Expr& expr, Style style)
 }
 
 
+bool isConstant(const Expr& e)
+{
+  for(const auto& g : withoutZeros(e))
+    if(g.first != 0)
+      return false;
+  return true;
+}
+
+
 bool isSum(const Expr& e)
 {
   int terms = 0;

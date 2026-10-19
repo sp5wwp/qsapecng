@@ -417,7 +417,7 @@ void QSapecNGWindow::createPlotWindow()
         plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
         fitPlotSettingsWidth();
         plotSettingsForm_->setSettings(currentPlot_->settings());
-        fitPlotWindowHeight();
+        fitPlotWindowHeight(false);
       }
       updateMenus();
     });
@@ -478,10 +478,10 @@ void QSapecNGWindow::createPlotWindow()
   fitPlotSettingsWidth();
   // its tab brought to the front
   connect(plotSettingsDock_, &QDockWidget::visibilityChanged,
-    this, &QSapecNGWindow::fitPlotWindowHeight);
+    this, [this]() { fitPlotWindowHeight(false); });
   // the form changes height with the kind of plot (the Smith chart group)
   connect(plotSettingsForm_, &PlotSettingsWidget::changed,
-    this, &QSapecNGWindow::fitPlotWindowHeight);
+    this, [this]() { fitPlotWindowHeight(false); });
   connect(plotSettingsForm_, &PlotSettingsWidget::changed, this, [this]() {
       if(!currentPlot_ || !plotSettingsForm_->isValid())
         return;
@@ -518,7 +518,8 @@ void QSapecNGWindow::showPlotWindow()
     plotWindow_->show();
   plotWindow_->raise();
   plotWindow_->activateWindow();
-  fitPlotWindowHeight();
+  fitPlotWindowHeight(!plotWindowSized_);
+  plotWindowSized_ = true;
 }
 
 
@@ -533,6 +534,17 @@ void QSapecNGWindow::fitPlotSettingsWidth()
     + plotSettingsScroll_->verticalScrollBar()->sizeHint().width()
     + 2 * plotSettingsScroll_->frameWidth();
   plotSettingsScroll_->setMinimumWidth(width);
+}
+
+
+bool QSapecNGWindow::hasFrequencyResponse(SchematicEditor* editor) const
+{
+  // some output whose transfer function has s in it
+  for(const OutputResult& o : editor->lastResult().outputs)
+    if(!o.singular && !(formula::isConstant(o.digit.num)
+        && formula::isConstant(o.digit.den)))
+      return true;
+  return false;
 }
 
 
@@ -570,12 +582,12 @@ PlotSettings QSapecNGWindow::plotDefaults(SchematicEditor* editor,
 }
 
 
-void QSapecNGWindow::fitPlotWindowHeight()
+void QSapecNGWindow::fitPlotWindowHeight(bool natural)
 {
   // after the layout has settled: tall enough for the Plot Settings tab
   // (no scroll bar), no taller; then wide enough for a plot of sensible
   // proportions; all within the screen
-  QTimer::singleShot(0, this, [this]() {
+  QTimer::singleShot(0, this, [this, natural]() {
       if(!plotWindow_ || !plotWindow_->isVisible() || plotWindow_->isMaximized()
           || plotWindow_->isFullScreen() || !plotSettingsScroll_
           || !plotSettingsForm_ || !plotTabs_)
@@ -587,22 +599,32 @@ void QSapecNGWindow::fitPlotWindowHeight()
       const int chromeW = frame.width() - inner.width();
       const int chromeH = frame.height() - inner.height();
 
+      // never more than 80 % of the screen either way
+      const int maxW = avail.width() * 8 / 10, maxH = avail.height() * 8 / 10;
+
       // the settings form, measured even when the Markers tab is in front
       int grow = 0;
       if(plotSettingsScroll_->viewport()->height() > 0) {
         const int missing = plotSettingsForm_->sizeHint().height()
           - plotSettingsScroll_->viewport()->height();
-        grow = qBound(0, missing, avail.height() - frame.height());
+        grow = qMin(missing, maxH - frame.height());
+        if(!natural)
+          grow = qMax(0, grow);       // later on it only grows
       }
+      // and a plot of a good size: at least 480 pixels high
+      if(natural)
+        grow = qMax(grow, qMin(480 - plotTabs_->height(),
+                               maxH - frame.height()));
 
-      // the plot area at least 1.4 times as wide as it is high
-      const double minAspect = 1.4;
+      // the plot area 1.25 times as wide as it is high (at least, later)
+      const double aspect = 1.25;
       const int plotH = plotTabs_->height() + grow;
-      const int wantW = int(std::ceil(minAspect * plotH));
-      const int widen = qBound(0, wantW - plotTabs_->width(),
-        avail.width() - frame.width());
+      const int wantW = int(std::ceil(aspect * plotH));
+      int widen = qMin(wantW - plotTabs_->width(), maxW - frame.width());
+      if(!natural)
+        widen = qMax(0, widen);
 
-      if(grow <= 0 && widen <= 0)
+      if(grow == 0 && widen == 0)
         return;
       const QSize size(inner.width() + widen, inner.height() + grow);
       plotWindow_->resize(size);
@@ -2300,6 +2322,11 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
       hasPlot = hasPlot || e.editor == editor;
     if(pendingPlots_.contains(editor))
       createPlot(editor, pendingPlots_.take(editor));
+    else if(!hasPlot && !hasFrequencyResponse(editor))
+      // a circuit of resistors and sources: the same at every frequency,
+      // nothing worth a plot (New Plot still makes one)
+      statusBar()->showMessage(tr("Solved - the result does not depend on "
+        "frequency, so no plot is opened"), 5000);
     else if(!hasPlot) {
       // a Bode plot, unless the file asks for another kind
       PlotSettings bode = plotDefaults(editor, true);

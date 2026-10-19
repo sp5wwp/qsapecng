@@ -33,6 +33,7 @@
 #include <QObject>
 #include <QVector>
 #include <QPair>
+#include <QHash>
 
 #include <qwt_plot.h>
 #include <qwt_plot_curve.h>
@@ -332,6 +333,10 @@ private:
   // Z(j 2 pi hz) from the transfer function (the output over a 1 A source)
   bool impedanceAt(double hz, std::complex<double>* z) const;
   int nearestSmithSample(const QPointF& canvasPos) const;
+  static double roundedHz(double hz, double resolution);
+  static QString hzText(double hz);
+  double hzPerPixel(double canvasX) const;
+  double smithSampleStep(int i) const;
 
   F currentF() const;
   void relabel(F f);
@@ -358,6 +363,7 @@ protected:
   // "phaseRad"); automatic unless set in the dialog
   struct YRange { bool automatic = true; double min = 0.; double max = 1.; };
   YRange yRange(const QString& key) const;
+  QHash<QString, YRange> yRanges_;   // set by hand, this plot only
   void setYRange(const QString& key, const YRange& range);
   QString magnitudeKey() const;
   QString phaseKey() const;

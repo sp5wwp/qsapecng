@@ -339,6 +339,17 @@ QSapecNG CHANGELOG
       100 000 points are computed)
     o Meters: the V and A and the + and - marks stay upright when the
       meter is turned
+    o No plot opens by itself for a result that does not depend on
+      frequency (resistors and sources only)
+    o The Plots window opens at a moderate size (settings without a
+      scroll bar, the plot 1.25 times as wide as high, at most 80 % of
+      the screen) and later only grows when the settings need it
+    o A marker placed by a click keeps the frequency to the resolution of
+      a pixel (it was rounded to 3 digits: on a narrow sweep every click
+      gave the same 10 MHz); marker frequencies show all their digits
+    o The frequency axis spans the sweep exactly (a narrow sweep was
+      widened to whole decades, the curve squeezed out of sight); a
+      vertical range set by hand belongs to its plot only
     o Frequency axis labels carry enough digits to tell a narrow sweep's
       ticks apart (10.005M, 10.01M, 10.015M)
     o Parts cannot be placed, moved, pasted or dropped on top of one

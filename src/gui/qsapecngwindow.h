@@ -255,9 +255,14 @@ private:
   // the last used plot settings, with what the schematic's file asks for
   // (a sweep, and with `kind` the kind of plot)
   PlotSettings plotDefaults(SchematicEditor* editor, bool kind) const;
+  // the result of the schematic changes with frequency (s appears in it)
+  bool hasFrequencyResponse(SchematicEditor* editor) const;
   // the Plots window made taller (within the screen) when the Plot
   // Settings panel would need a vertical scroll bar
-  void fitPlotWindowHeight();
+  // natural: the size it opens with, once a session (it may shrink):
+  // just tall enough for the settings, the plot 1.25 times as wide as high
+  void fitPlotWindowHeight(bool natural = false);
+  bool plotWindowSized_ = false;
 
 
   QMenu* fileMenu_;

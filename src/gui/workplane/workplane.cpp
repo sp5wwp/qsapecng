@@ -921,6 +921,14 @@ void WorkPlane::plot(WorkPlane::F f)
   }
 
   relabel(f);
+  // the frequency axis spans the sweep exactly (the scale engine, left to
+  // itself, rounds a narrow sweep out to whole decades)
+  if(!isMap(f) && !keepAttached_) {
+    const bool rad = f == MAGNITUDE_RAD || f == PHASE_RAD || f == GAIN_RAD
+      || f == LOSS_RAD;
+    const double k = rad ? 8. * std::atan(1.) : 1.;
+    plot_->setAxisScale(QwtPlot::xBottom, fStart_ * k, fStop_ * k);
+  }
   if(!keepAttached_) {
     if(f == PHASE || f == PHASE_RAD)
       applyYRange(QwtPlot::yLeft, phaseKey());
@@ -1105,12 +1113,9 @@ QString WorkPlane::phaseKey() const
 
 WorkPlane::YRange WorkPlane::yRange(const QString& key) const
 {
-  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
-  const QString base = QStringLiteral("Workplane/yRange/%1/").arg(key);
-  YRange r;
-  r.automatic = settings.value(base + "auto", true).toBool();
-  r.min = settings.value(base + "min", 0.).toDouble();
-  r.max = settings.value(base + "max", 1.).toDouble();
+  // this plot's own (a range set by hand for one circuit would hide the
+  // curves of the next one): automatic until set
+  YRange r = yRanges_.value(key);
   if(!(r.max > r.min))
     r.automatic = true;
   return r;
@@ -1119,11 +1124,7 @@ WorkPlane::YRange WorkPlane::yRange(const QString& key) const
 
 void WorkPlane::setYRange(const QString& key, const YRange& r)
 {
-  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
-  const QString base = QStringLiteral("Workplane/yRange/%1/").arg(key);
-  settings.setValue(base + "auto", r.automatic);
-  settings.setValue(base + "min", r.min);
-  settings.setValue(base + "max", r.max);
+  yRanges_.insert(key, r);
 }
 
 
@@ -1479,6 +1480,49 @@ int WorkPlane::sweepPoints() const
 }
 
 
+QString WorkPlane::hzText(double hz)
+{
+  // as many digits as the value has (up to 9): units::format keeps 4,
+  // which shows 10.0123 MHz as 10.01 MHz
+  if(!(std::fabs(hz) > 0.))
+    return QStringLiteral("0 Hz");
+  const int exp = qBound(-15, int(std::floor(std::log10(std::fabs(hz)) / 3.)) * 3, 12);
+  const QString prefix = units::format(
+    QString::number(std::pow(10., exp), 'g', 3), QString()).mid(1);
+  return QString::number(hz / std::pow(10., exp), 'g', 9) + QLatin1Char(' ')
+    + prefix + QStringLiteral("Hz");
+}
+
+
+double WorkPlane::roundedHz(double hz, double resolution)
+{
+  // a clicked frequency, rounded to the resolution of the click (a pixel,
+  // a sample): 1.23 kHz on a wide sweep, 10.0123 MHz on a narrow one
+  if(!(resolution > 0.) || !(hz > 0.))
+    return hz;
+  const double step = std::pow(10., std::floor(std::log10(resolution)));
+  return std::round(hz / step) * step;
+}
+
+
+double WorkPlane::hzPerPixel(double canvasX) const
+{
+  const double twoPi = 8. * std::atan(1.);
+  const double a = plot_->invTransform(QwtPlot::xBottom, canvasX);
+  const double b = plot_->invTransform(QwtPlot::xBottom, canvasX + 1.);
+  return std::fabs(b - a) / (angular_ ? twoPi : 1.);
+}
+
+
+double WorkPlane::smithSampleStep(int i) const
+{
+  if(i < 0 || smithHz_.size() < 2)
+    return 0.;
+  const int j = i + 1 < smithHz_.size() ? i + 1 : i - 1;
+  return std::fabs(smithHz_.at(j) - smithHz_.at(i));
+}
+
+
 bool WorkPlane::impedanceAt(double hz, std::complex<double>* z) const
 {
   if(num_.empty() || !(hz > 0))
@@ -1580,8 +1624,7 @@ void WorkPlane::refreshMarkers()
     double mag = 0., ph = 0.;
     const bool ok = markerValues(hz, &mag, &ph);
 
-    QTableWidgetItem* f = new QTableWidgetItem(units::format(
-      QString::number(hz, 'g', 8), "Hz"));
+    QTableWidgetItem* f = new QTableWidgetItem(hzText(hz));
     QTableWidgetItem* m = new QTableWidgetItem(ok ? magnitudeText(mag) : "-");
     QTableWidgetItem* p = new QTableWidgetItem(ok ? phaseText(ph) : "-");
     m->setFlags(m->flags() & ~Qt::ItemIsEditable);
@@ -1602,7 +1645,7 @@ void WorkPlane::refreshMarkers()
       dPh = (ph - refPh >= 0 ? QStringLiteral("+") : QString())
         + phaseText(ph - refPh);
       dF = (hz - refHz_ >= 0 ? QStringLiteral("+") : QStringLiteral("-"))
-        + units::format(QString::number(std::fabs(hz - refHz_), 'g', 6), "Hz");
+        + hzText(std::fabs(hz - refHz_));
     }
     QTableWidgetItem* dm = new QTableWidgetItem(isRef ? tr("ref") : dMag);
     QTableWidgetItem* dp = new QTableWidgetItem(isRef ? tr("ref") : dPh);
@@ -1634,7 +1677,7 @@ void WorkPlane::refreshMarkers()
         : QStringLiteral("∞");
       dm->setText(returnLoss_ ? rl : vswr);
       QString text = QStringLiteral("M%1  %2\nZ = %3\nΓ = %4").arg(i + 1)
-        .arg(units::format(QString::number(hz, 'g', 6), "Hz")).arg(zText)
+        .arg(hzText(hz)).arg(zText)
         .arg(gText);
       text += returnLoss_ ? QStringLiteral("\nRL %1").arg(rl)
                           : QStringLiteral("\nVSWR %1").arg(vswr);
@@ -1716,7 +1759,7 @@ void WorkPlane::refreshMarkers()
     line->setXValue(angular_ ? hz * twoPi : hz);
     QString text = QStringLiteral("M%1%2  %3").arg(i + 1)
       .arg(isRef ? tr(" (ref)") : QString())
-      .arg(units::format(QString::number(hz, 'g', 6), "Hz"));
+      .arg(hzText(hz));
     if(ok)
       text += QLatin1Char('\n') + magnitudeText(mag)
         + QLatin1Char('\n') + phaseText(ph);
@@ -2017,7 +2060,7 @@ void WorkPlane::plotClicked(const QPointF& pos)
     }
     const int i = nearestSmithSample(canvasPos);
     if(i >= 0)
-      addMarker(QString::number(smithHz_.at(i), 'g', 3).toDouble());
+      addMarker(roundedHz(smithHz_.at(i), smithSampleStep(i)));
     return;
   }
   const double twoPi = 8. * std::atan(1.);
@@ -2034,8 +2077,8 @@ void WorkPlane::plotClicked(const QPointF& pos)
       return;
     }
   }
-  // a clicked position: 3 significant digits (1.23 kHz) is plenty
-  addMarker(QString::number(hz, 'g', 3).toDouble());
+  // the clicked position, to the resolution of a pixel
+  addMarker(roundedHz(hz, hzPerPixel(px)));
 }
 
 
@@ -2311,7 +2354,8 @@ void WorkPlane::createMainLayout()
   connect(add, &QPushButton::clicked, this, [this]() {
       if(lastId_ == SMITH) {
         // the middle of the sweep
-        addMarker(QString::number(std::sqrt(fStart_ * fStop_), 'g', 3).toDouble());
+        addMarker(roundedHz(std::sqrt(fStart_ * fStop_),
+          (fStop_ - fStart_) / 1000.));
         return;
       }
       const QwtScaleMap map = plot_->canvasMap(QwtPlot::xBottom);
@@ -2414,7 +2458,7 @@ void WorkPlane::createMainLayout()
         const int i = nearestSmithSample(canvasPos);
         if(i < 0)
           return actions;
-        const double hz = QString::number(smithHz_.at(i), 'g', 3).toDouble();
+        const double hz = roundedHz(smithHz_.at(i), smithSampleStep(i));
         QAction* add = new QAction(tr("Add &Marker Here"), nullptr);
         connect(add, &QAction::triggered, this, [this, hz]() { addMarker(hz); });
         actions << add;
@@ -2422,8 +2466,8 @@ void WorkPlane::createMainLayout()
       }
       const double x = plot_->invTransform(QwtPlot::xBottom, canvasPos.x());
       const double twoPi = 8. * std::atan(1.);
-      const double hz = QString::number(angular_ ? x / twoPi : x, 'g', 3)
-        .toDouble();
+      const double hz = roundedHz(angular_ ? x / twoPi : x,
+        hzPerPixel(canvasPos.x()));
       if(!(hz > 0))
         return actions;
       QAction* add = new QAction(tr("Add &Marker Here"), nullptr);
