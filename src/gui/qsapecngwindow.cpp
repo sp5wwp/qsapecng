@@ -37,7 +37,6 @@
 #include "gui/editor/schematicscene.h"
 #include "gui/extendedmdiarea.h"
 #include "gui/sidebarmodel.h"
-#include "gui/sidebarview.h"
 
 
 #include <QProgressBar>
@@ -157,7 +156,6 @@ QSapecNGWindow::QSapecNGWindow()
   // the schematics fill the window; plots open in their own docks
   setCentralWidget(mdiArea_);
 
-  sideBarDock_->setObjectName("sideBarDock");
   messageDock_->setObjectName("messageDock");
   undoRedoDock_->setObjectName("undoRedoDock");
   workspaceDock_->setObjectName("workspaceDock");
@@ -1363,29 +1361,12 @@ void QSapecNGWindow::sceneSelectionChanged()
   bool hasSelectedItems = false;
   SchematicEditor* editor = activeEditor();
 
-  // the parts list shows the part being placed (none: no highlight)
+  // the Components toolbar shows the part being placed
   for(int row = 0; row < partActions_.size(); ++row)
     partActions_[row]->setChecked(editor
       && editor->scene().hasActiveItemType()
       && sideBarModel_->data(sideBarModel_->index(row), Qt::UserRole).toInt()
            == editor->scene().activeItemType());
-  if(sideBarView_) {
-    QModelIndex current;
-    if(editor && editor->scene().hasActiveItemType())
-      for(int row = 0; row < sideBarModel_->rowCount(); ++row) {
-        const QModelIndex i = sideBarModel_->index(row);
-        if(sideBarModel_->data(i, Qt::UserRole).toInt()
-            == editor->scene().activeItemType())
-          current = i;
-      }
-    if(current.isValid())
-      sideBarView_->setCurrentIndex(current);
-    else {
-      sideBarView_->clearSelection();
-      sideBarView_->setCurrentIndex(QModelIndex());
-    }
-  }
-
   if(editor)
     hasSelectedItems =
       (editor->scene().selectedItems().size() != 0);
@@ -1883,11 +1864,8 @@ void QSapecNGWindow::createDockWidgets()
   setTabPosition(Qt::RightDockWidgetArea, QTabWidget::North);
   setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::South);
 
-  sideBarDock_ = new QDockWidget(tr("Components"), this);
-  sideBarDock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-  sideBarDock_->setTitleBarWidget(0);
-  createSideBarDockLayout();
-  sideBarDock_->setFocusPolicy(Qt::NoFocus);
+  // the parts (names, symbols, types) for the Components toolbar
+  sideBarModel_ = new SideBarModel(this);
 
   messageDock_ = new QDockWidget(tr("Messages"), this);
   messageDock_->setAllowedAreas(Qt::BottomDockWidgetArea);
@@ -1916,14 +1894,12 @@ void QSapecNGWindow::createDockWidgets()
   resultDock_->setWidget(resultPanel_);
 
   // object names identify the docks in the saved layout
-  sideBarDock_->setObjectName(QStringLiteral("componentsDock"));
   messageDock_->setObjectName(QStringLiteral("messagesDock"));
   undoRedoDock_->setObjectName(QStringLiteral("undoRedoDock"));
   workspaceDock_->setObjectName(QStringLiteral("workspaceDock"));
   resultDock_->setObjectName(QStringLiteral("resultDock"));
 
   addDockWidget(Qt::LeftDockWidgetArea, workspaceDock_);
-  addDockWidget(Qt::LeftDockWidgetArea, sideBarDock_);
   addDockWidget(Qt::BottomDockWidgetArea, messageDock_);
   addDockWidget(Qt::BottomDockWidgetArea, resultDock_);
   addDockWidget(Qt::RightDockWidgetArea, undoRedoDock_);
@@ -2030,7 +2006,6 @@ void QSapecNGWindow::createMenus()
   showMenu_ = windowMenu_->addMenu(tr("&Show"));
   updateWindowMenu();
   connect(windowMenu_, SIGNAL(aboutToShow()), this, SLOT(updateWindowMenu()));
-  showMenu_->addAction(sideBarDock_->toggleViewAction());
   showMenu_->addAction(messageDock_->toggleViewAction());
   showMenu_->addAction(resultDock_->toggleViewAction());
   showMenu_->addAction(undoRedoDock_->toggleViewAction());
@@ -2188,14 +2163,10 @@ void QSapecNGWindow::createToolBars()
   parts->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
   for(int row = 0; row < sideBarModel_->rowCount(); ++row) {
     const QModelIndex index = sideBarModel_->index(row);
-    QString tip = sideBarModel_->data(index, Qt::ToolTipRole).toString();
+    // the name alone: the symbol says the rest
     const QString name = sideBarModel_->data(index, Qt::DisplayRole).toString();
-    if(tip.endsWith(QStringLiteral(" Item")) || tip == name)
-      tip.clear();
     QAction* act = new QAction(name, this);
-    act->setToolTip(tip.isEmpty() ? name
-      : QStringLiteral("<b>%1</b><br>%2").arg(name.toHtmlEscaped(),
-          tip.toHtmlEscaped()));
+    act->setToolTip(name);
     act->setCheckable(true);
     parts->addAction(act);
     partsToolBar_->addAction(act);
@@ -2264,29 +2235,6 @@ void QSapecNGWindow::createStatusBar()
   progressTimer_->setInterval(250);
   connect(progressTimer_, &QTimer::timeout,
     this, &QSapecNGWindow::updateSolveProgress);
-}
-
-
-void QSapecNGWindow::createSideBarDockLayout()
-{
-  sideBarModel_ = new SideBarModel(this);
-  sideBarView_ = new SideBarView;
-  sideBarView_->setModel(sideBarModel_);
-  sideBarDock_->setWidget(sideBarView_);
-
-  connect(sideBarView_, SIGNAL(activated(const QModelIndex&)),
-    this, SLOT(activated(const QModelIndex&)));
-  // one click picks the part to place (dragging still works)
-  connect(sideBarView_, &QAbstractItemView::clicked, this, [this](const QModelIndex& index) {
-      SchematicEditor* editor = activeEditor();
-      const int type = sideBarModel_->data(index, Qt::UserRole).toInt();
-      if(!editor || editor->scene().activeItemType() != type)
-        activated(index);
-    });
-  connect(sideBarView_, &SideBarView::emptyAreaClicked, this, [this]() {
-      if(SchematicEditor* editor = activeEditor())
-        editor->scene().setActiveItem(SchematicScene::NilItemType);
-    });
 }
 
 
@@ -2371,12 +2319,11 @@ void QSapecNGWindow::readSettings()
   move(settings.mwPos());
   resize(settings.mwSize());
 
-  // Default layout: only Components (left) and Messages (bottom) open;
+  // Default layout: the Components toolbar (left) and Messages (bottom);
   // Workspace and Undo/Redo are in Window > Show. A saved
   // layout replaces this, unless it was saved with an older layout version.
   workspaceDock_->hide();
   undoRedoDock_->hide();
-  sideBarDock_->hide();   // the parts toolbar instead (Window > Show)
   messageDock_->raise();
   restoreState(settings.mwState(), LayoutVersion);
 

@@ -45,7 +45,6 @@ set(qsapecng_SRCS
   gui/configdialog/configdialog.cpp
   gui/configdialog/configpage.cpp
   gui/sidebarmodel.cpp
-  gui/sidebarview.cpp
   gui/delegate.cpp
   gui/editor/schematiceditor.cpp
   gui/editor/componentdialog.cpp
@@ -65,7 +64,6 @@ set(qsapecng_SRCS
   gui/configdialog/configdialog.h
   gui/configdialog/configpage.h
   gui/sidebarmodel.h
-  gui/sidebarview.h
   gui/delegate.h
   gui/qlogger.h
   gui/editor/schematiceditor.h

@@ -115,7 +115,7 @@ markers is read.
 
 ## Quick start
 
-1. Draw the circuit: pick parts in the Components list (or with their keys),
+1. Draw the circuit: pick parts on the Components toolbar (or with their keys),
    W draws wires, mark the output with Out (O). Several Out markers,
    voltmeters or ammeters give one result each.
 2. Press F8 (Run > Resolve): the transfer function appears in the Result

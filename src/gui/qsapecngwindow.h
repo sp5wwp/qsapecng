@@ -76,7 +76,6 @@ class QLogPolicy;
 
 class SchematicEditor;
 class SideBarModel;
-class SideBarView;
 class PlotSettingsWidget;
 
 class Item;
@@ -183,7 +182,6 @@ private:
   void createToolBars();
   void createStatusBar();
 
-  void createSideBarDockLayout();
   void createMessageDockLayout();
   void createUndoRedoDockLayout();
   void createWorkspaceDockLayout();
@@ -208,7 +206,6 @@ private:
   QLabel* positionLabel_;
 
   SideBarModel* sideBarModel_;
-  SideBarView* sideBarView_;
 
 
   // version of the saved dock/toolbar layout: bump it when the default
@@ -292,7 +289,6 @@ private:
   QList<QAction*> partActions_;   // one per row of the parts model
   void refreshPartIcons();
 
-  QDockWidget* sideBarDock_;
   QDockWidget* messageDock_;
   QDockWidget* undoRedoDock_;
   QDockWidget* workspaceDock_;
