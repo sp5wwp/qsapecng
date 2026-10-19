@@ -84,6 +84,16 @@ circuit
                 }
                 prop
                 {
+                    name ideal
+                    value 0
+                }
+                prop
+                {
+                    name rs
+                    value 50
+                }
+                prop
+                {
                     name type
                     value 12
                 }
@@ -101,9 +111,69 @@ circuit
         }
         component
         {
-            id R
-            name Rs
-            value 50
+            id C
+            name C1
+            value 7.52e-12
+            symbolic 0
+            nodes
+            {
+                node 0
+                node 1
+            }
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 1
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name esl
+                    value 5e-10
+                }
+                prop
+                {
+                    name esr
+                    value 0.2
+                }
+                prop
+                {
+                    name ideal
+                    value 0
+                }
+                prop
+                {
+                    name rp
+                    value 0
+                }
+                prop
+                {
+                    name type
+                    value 2
+                }
+                prop
+                {
+                    name x
+                    value 70
+                }
+                prop
+                {
+                    name y
+                    value 20
+                }
+            }
+        }
+        component
+        {
+            id L
+            name L2
+            value 2.26e-08
             symbolic 0
             nodes
             {
@@ -124,106 +194,6 @@ circuit
                 }
                 prop
                 {
-                    name type
-                    value 9
-                }
-                prop
-                {
-                    name x
-                    value 30
-                }
-                prop
-                {
-                    name y
-                    value -10
-                }
-            }
-        }
-        component
-        {
-            id C
-            name C1
-            value 7.52e-12
-            symbolic 0
-            nodes
-            {
-                node 0
-                node 2
-            }
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 1
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name esl
-                    value 5e-10
-                }
-                prop
-                {
-                    name esr
-                    value 0.2
-                }
-                prop
-                {
-                    name ideal
-                    value 0
-                }
-                prop
-                {
-                    name rp
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 2
-                }
-                prop
-                {
-                    name x
-                    value 90
-                }
-                prop
-                {
-                    name y
-                    value 20
-                }
-            }
-        }
-        component
-        {
-            id L
-            name L2
-            value 2.26e-08
-            symbolic 0
-            nodes
-            {
-                node 3
-                node 2
-            }
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
                     name cp
                     value 1.3e-13
                 }
@@ -245,7 +215,7 @@ circuit
                 prop
                 {
                     name x
-                    value 120
+                    value 100
                 }
                 prop
                 {
@@ -263,7 +233,7 @@ circuit
             nodes
             {
                 node 0
-                node 3
+                node 2
             }
             props
             {
@@ -305,7 +275,7 @@ circuit
                 prop
                 {
                     name x
-                    value 180
+                    value 160
                 }
                 prop
                 {
@@ -322,8 +292,8 @@ circuit
             symbolic 0
             nodes
             {
-                node 4
                 node 3
+                node 2
             }
             props
             {
@@ -360,7 +330,7 @@ circuit
                 prop
                 {
                     name x
-                    value 210
+                    value 190
                 }
                 prop
                 {
@@ -378,7 +348,7 @@ circuit
             nodes
             {
                 node 0
-                node 4
+                node 3
             }
             props
             {
@@ -420,7 +390,7 @@ circuit
                 prop
                 {
                     name x
-                    value 270
+                    value 250
                 }
                 prop
                 {
@@ -437,8 +407,8 @@ circuit
             symbolic 0
             nodes
             {
-                node 5
                 node 4
+                node 3
             }
             props
             {
@@ -475,7 +445,7 @@ circuit
                 prop
                 {
                     name x
-                    value 300
+                    value 280
                 }
                 prop
                 {
@@ -493,7 +463,7 @@ circuit
             nodes
             {
                 node 0
-                node 5
+                node 4
             }
             props
             {
@@ -535,47 +505,7 @@ circuit
                 prop
                 {
                     name x
-                    value 360
-                }
-                prop
-                {
-                    name y
-                    value 20
-                }
-            }
-        }
-        component
-        {
-            id R
-            name RL
-            value 50
-            symbolic 0
-            nodes
-            {
-                node 0
-                node 5
-            }
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 1
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 9
-                }
-                prop
-                {
-                    name x
-                    value 440
+                    value 340
                 }
                 prop
                 {
@@ -665,7 +595,7 @@ circuit
                 prop
                 {
                     name to_x
-                    value 20
+                    value 50
                 }
                 prop
                 {
@@ -681,6 +611,57 @@ circuit
                 {
                     name x
                     value 10
+                }
+                prop
+                {
+                    name y
+                    value 0
+                }
+            }
+        }
+        wire
+        {
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 0
+                }
+                prop
+                {
+                    name conn
+                    value 0
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name orientation
+                    value 1
+                }
+                prop
+                {
+                    name to_x
+                    value 20
+                }
+                prop
+                {
+                    name to_y
+                    value 0
+                }
+                prop
+                {
+                    name type
+                    value 20
+                }
+                prop
+                {
+                    name x
+                    value 60
                 }
                 prop
                 {
@@ -762,17 +743,17 @@ circuit
                 prop
                 {
                     name orientation
-                    value 1
+                    value 2
                 }
                 prop
                 {
                     name to_x
-                    value 20
+                    value 0
                 }
                 prop
                 {
                     name to_y
-                    value 0
+                    value 20
                 }
                 prop
                 {
@@ -782,7 +763,7 @@ circuit
                 prop
                 {
                     name x
-                    value 100
+                    value 80
                 }
                 prop
                 {
@@ -813,17 +794,17 @@ circuit
                 prop
                 {
                     name orientation
-                    value 2
+                    value 1
                 }
                 prop
                 {
                     name to_x
-                    value 0
+                    value 20
                 }
                 prop
                 {
                     name to_y
-                    value 20
+                    value 0
                 }
                 prop
                 {
@@ -833,7 +814,7 @@ circuit
                 prop
                 {
                     name x
-                    value 100
+                    value 150
                 }
                 prop
                 {
@@ -915,17 +896,17 @@ circuit
                 prop
                 {
                     name orientation
-                    value 1
+                    value 2
                 }
                 prop
                 {
                     name to_x
-                    value 20
+                    value 0
                 }
                 prop
                 {
                     name to_y
-                    value 0
+                    value 20
                 }
                 prop
                 {
@@ -935,7 +916,7 @@ circuit
                 prop
                 {
                     name x
-                    value 190
+                    value 170
                 }
                 prop
                 {
@@ -966,17 +947,17 @@ circuit
                 prop
                 {
                     name orientation
-                    value 2
+                    value 1
                 }
                 prop
                 {
                     name to_x
-                    value 0
+                    value 20
                 }
                 prop
                 {
                     name to_y
-                    value 20
+                    value 0
                 }
                 prop
                 {
@@ -986,7 +967,7 @@ circuit
                 prop
                 {
                     name x
-                    value 190
+                    value 240
                 }
                 prop
                 {
@@ -1068,17 +1049,17 @@ circuit
                 prop
                 {
                     name orientation
-                    value 1
+                    value 2
                 }
                 prop
                 {
                     name to_x
-                    value 20
+                    value 0
                 }
                 prop
                 {
                     name to_y
-                    value 0
+                    value 20
                 }
                 prop
                 {
@@ -1088,7 +1069,7 @@ circuit
                 prop
                 {
                     name x
-                    value 280
+                    value 260
                 }
                 prop
                 {
@@ -1119,17 +1100,17 @@ circuit
                 prop
                 {
                     name orientation
-                    value 2
+                    value 1
                 }
                 prop
                 {
                     name to_x
-                    value 0
+                    value 20
                 }
                 prop
                 {
                     name to_y
-                    value 20
+                    value 0
                 }
                 prop
                 {
@@ -1139,7 +1120,7 @@ circuit
                 prop
                 {
                     name x
-                    value 280
+                    value 330
                 }
                 prop
                 {
@@ -1221,57 +1202,6 @@ circuit
                 prop
                 {
                     name orientation
-                    value 1
-                }
-                prop
-                {
-                    name to_x
-                    value 20
-                }
-                prop
-                {
-                    name to_y
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 370
-                }
-                prop
-                {
-                    name y
-                    value 0
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
                     value 2
                 }
                 prop
@@ -1292,160 +1222,58 @@ circuit
                 prop
                 {
                     name x
+                    value 350
+                }
+                prop
+                {
+                    name y
+                    value 0
+                }
+            }
+        }
+        wire
+        {
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 0
+                }
+                prop
+                {
+                    name conn
+                    value 0
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name orientation
+                    value 1
+                }
+                prop
+                {
+                    name to_x
+                    value 40
+                }
+                prop
+                {
+                    name to_y
+                    value 0
+                }
+                prop
+                {
+                    name type
+                    value 20
+                }
+                prop
+                {
+                    name x
                     value 370
-                }
-                prop
-                {
-                    name y
-                    value 0
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 1
-                }
-                prop
-                {
-                    name to_x
-                    value 60
-                }
-                prop
-                {
-                    name to_y
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 390
-                }
-                prop
-                {
-                    name y
-                    value 0
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 1
-                }
-                prop
-                {
-                    name to_x
-                    value 50
-                }
-                prop
-                {
-                    name to_y
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 450
-                }
-                prop
-                {
-                    name y
-                    value 0
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 2
-                }
-                prop
-                {
-                    name to_x
-                    value 0
-                }
-                prop
-                {
-                    name to_y
-                    value 20
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 450
                 }
                 prop
                 {
@@ -1532,7 +1360,7 @@ circuit
                 prop
                 {
                     name to_x
-                    value 90
+                    value 70
                 }
                 prop
                 {
@@ -1598,148 +1426,46 @@ circuit
                 prop
                 {
                     name x
-                    value 100
-                }
-                prop
-                {
-                    name y
-                    value 110
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 1
-                }
-                prop
-                {
-                    name to_x
-                    value 90
-                }
-                prop
-                {
-                    name to_y
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 190
-                }
-                prop
-                {
-                    name y
-                    value 110
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 1
-                }
-                prop
-                {
-                    name to_x
-                    value 90
-                }
-                prop
-                {
-                    name to_y
-                    value 0
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 280
-                }
-                prop
-                {
-                    name y
-                    value 110
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 1
-                }
-                prop
-                {
-                    name to_x
                     value 80
                 }
                 prop
                 {
+                    name y
+                    value 110
+                }
+            }
+        }
+        wire
+        {
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 0
+                }
+                prop
+                {
+                    name conn
+                    value 0
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name orientation
+                    value 1
+                }
+                prop
+                {
+                    name to_x
+                    value 90
+                }
+                prop
+                {
                     name to_y
                     value 0
                 }
@@ -1751,7 +1477,58 @@ circuit
                 prop
                 {
                     name x
-                    value 370
+                    value 170
+                }
+                prop
+                {
+                    name y
+                    value 110
+                }
+            }
+        }
+        wire
+        {
+            props
+            {
+                prop
+                {
+                    name angle
+                    value 0
+                }
+                prop
+                {
+                    name conn
+                    value 0
+                }
+                prop
+                {
+                    name mirrored
+                    value 0
+                }
+                prop
+                {
+                    name orientation
+                    value 1
+                }
+                prop
+                {
+                    name to_x
+                    value 90
+                }
+                prop
+                {
+                    name to_y
+                    value 0
+                }
+                prop
+                {
+                    name type
+                    value 20
+                }
+                prop
+                {
+                    name x
+                    value 260
                 }
                 prop
                 {
@@ -1802,7 +1579,7 @@ circuit
                 prop
                 {
                     name x
-                    value 450
+                    value 80
                 }
                 prop
                 {
@@ -1853,7 +1630,7 @@ circuit
                 prop
                 {
                     name x
-                    value 100
+                    value 170
                 }
                 prop
                 {
@@ -1904,7 +1681,7 @@ circuit
                 prop
                 {
                     name x
-                    value 190
+                    value 260
                 }
                 prop
                 {
@@ -1955,58 +1732,7 @@ circuit
                 prop
                 {
                     name x
-                    value 280
-                }
-                prop
-                {
-                    name y
-                    value 70
-                }
-            }
-        }
-        wire
-        {
-            props
-            {
-                prop
-                {
-                    name angle
-                    value 0
-                }
-                prop
-                {
-                    name conn
-                    value 0
-                }
-                prop
-                {
-                    name mirrored
-                    value 0
-                }
-                prop
-                {
-                    name orientation
-                    value 2
-                }
-                prop
-                {
-                    name to_x
-                    value 0
-                }
-                prop
-                {
-                    name to_y
-                    value 40
-                }
-                prop
-                {
-                    name type
-                    value 20
-                }
-                prop
-                {
-                    name x
-                    value 370
+                    value 350
                 }
                 prop
                 {
@@ -2018,13 +1744,18 @@ circuit
     }
     out
     {
-        node 5
+        node 4
         props
         {
             prop
             {
                 name angle
                 value 0
+            }
+            prop
+            {
+                name load
+                value 50
             }
             prop
             {
@@ -2044,7 +1775,7 @@ circuit
             prop
             {
                 name x
-                value 500
+                value 410
             }
             prop
             {

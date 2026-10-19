@@ -32,6 +32,7 @@
 #include <QTabBar>
 #include <QMenu>
 #include <QTextBrowser>
+#include <QLabel>
 #include <cmath>
 #include <QTimer>
 #include <QTextDocument>
@@ -218,6 +219,14 @@ ResultPanel::ResultPanel(QWidget* parent)
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
   layout->addWidget(tabs_);
+  // a strip of its own: showing it does not lay out the result again
+  notice_ = new QLabel(tr("Out of date: the circuit changed since it was "
+    "solved. Resolve again (F8) to update."));
+  notice_->setWordWrap(true);
+  notice_->setContentsMargins(8, 5, 8, 5);
+  notice_->setAutoFillBackground(true);
+  notice_->hide();
+  layout->addWidget(notice_);
   layout->addWidget(view_);
 
   render();
@@ -231,6 +240,29 @@ void ResultPanel::showResult(const SolveResult& result, bool outOfDate)
   outOfDate_ = outOfDate;
   updateTabs();
   render();
+}
+
+
+void ResultPanel::setOutOfDate(bool outOfDate)
+{
+  outOfDate_ = outOfDate && hasResult_;
+  updateNotice();
+}
+
+
+void ResultPanel::updateNotice()
+{
+  if(!notice_)
+    return;
+  const QColor bg = theme::isDark() ? QColor(0x4a, 0x3b, 0x12)
+                                    : QColor(0xfd, 0xf1, 0xc8);
+  const QColor fg = theme::isDark() ? QColor(0xf5, 0xd9, 0x8a)
+                                    : QColor(0x6b, 0x4e, 0x00);
+  QPalette pal = notice_->palette();
+  pal.setColor(QPalette::Window, bg);
+  pal.setColor(QPalette::WindowText, fg);
+  notice_->setPalette(pal);
+  notice_->setVisible(outOfDate_ && hasResult_);
 }
 
 
@@ -360,21 +392,11 @@ void ResultPanel::render()
       .arg(dimCss, tr("No result yet. Press <b>Resolve</b> (F8) to solve "
                       "the active schematic."));
     view_->setHtml(html + QStringLiteral("</body></html>"));
+    updateNotice();
     return;
   }
 
-  if(outOfDate_) {
-    const QColor bg = theme::isDark() ? QColor(0x4a, 0x3b, 0x12)
-                                      : QColor(0xfd, 0xf1, 0xc8);
-    const QColor fg = theme::isDark() ? QColor(0xf5, 0xd9, 0x8a)
-                                      : QColor(0x6b, 0x4e, 0x00);
-    html += QStringLiteral(
-        "<table width='100%' cellpadding='6' cellspacing='0' "
-        "bgcolor='%1'><tr><td style='color:%2;'>%3</td></tr></table><br>")
-      .arg(bg.name(), fg.name(),
-           tr("Out of date: the circuit changed since it was solved. "
-              "Resolve again (F8) to update."));
-  }
+  updateNotice();
 
   const OutputResult* out = current();
   QString caption = QFileInfo(result_.file).fileName().toHtmlEscaped();

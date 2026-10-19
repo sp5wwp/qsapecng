@@ -195,6 +195,12 @@ struct PlotSettings
   double z0 = 50.;              // ohm
   bool smithAdmittance = false;
   bool smithReturnLoss = false;   // markers: return loss instead of VSWR
+  // vertical ranges (in the units chosen above); this plot's only, not
+  // kept as defaults: automatic unless set
+  bool magAuto = true;
+  double magMin = 0., magMax = 1.;
+  bool phaseAuto = true;
+  double phaseMin = 0., phaseMax = 1.;
   // which output of the circuit (Out1, VM1 ...; empty: the first). Not
   // kept as a default for the next plot
   QString output;
@@ -234,6 +240,9 @@ public:
   WorkPlane(QWidget* parent = 0);
   ~WorkPlane();
 
+  // a source with internal resistance: the magnitude as transducer gain,
+  // |H| times k = 2 sqrt(Rs / RL)
+  void setGainScale(double k, bool transducer, bool assumedLoad);
   void setData(const std::map<std::string, double>& values,
       const sapecng::metacircuit::expression& numerator,
       const sapecng::metacircuit::expression& denominator
@@ -307,6 +316,10 @@ private:
 
 private:
   sapecng::metacircuit::expression num_;
+  sapecng::metacircuit::expression rawNum_;   // as solved (num_ may be scaled)
+  double gainScale_ = 1.;
+  bool transducer_ = false;    // magnitude = transducer gain
+  bool assumedLoad_ = false;   // ... with RL = Rs, the output has no load
   sapecng::metacircuit::expression den_;
 
   QwtPlotGrid* grid_ = nullptr;
@@ -387,6 +400,7 @@ protected:
   QString phaseText(double v) const;
   void moveSelectedMarker(int direction);
   int selectedMarker() const;
+  void highlightMarkers();
 
 private slots:
   void plotClicked(const QPointF& pos);

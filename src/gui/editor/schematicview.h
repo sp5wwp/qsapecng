@@ -91,8 +91,15 @@ public slots:
   void zoomOut()
     { zoomBy(1 / 1.2); }
 
+  // 100 %, centred on the drawing
   void normalSize()
-    { resetTransform(); updateCanvas(); emit zoomChanged(1.); }
+  {
+    resetTransform();
+    updateCanvas();
+    if(scene() && !scene()->itemsBoundingRect().isEmpty())
+      centerOn(scene()->itemsBoundingRect().center());
+    emit zoomChanged(1.);
+  }
 
   // the scrollable area: the drawing plus a screenful around it, so there
   // is always room to pan, place parts and zoom towards an edge

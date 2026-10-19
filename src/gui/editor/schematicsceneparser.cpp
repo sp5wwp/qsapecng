@@ -294,6 +294,9 @@ void SchematicSceneParser::parse_item(
       if(!discard_) {
         Component* out = static_cast<Component*>(item);
         props["name"] = SchematicScene::outputName(out).toStdString();
+        if(SchematicScene::outputLoad(out) > 0.)
+          props["load"] = QString::number(SchematicScene::outputLoad(out),
+            'g', 12).toStdString();
 
         builder.add_out_component(out->nodes().front(), props);
       }
@@ -359,6 +362,16 @@ void SchematicSceneParser::parse_item(
       Component* component = static_cast<Component*>(item);
       QVector<int> nodes = component->nodes();
       storeLabel(props, component);
+      // internal resistance
+      if(subproperties.contains("Ideal")
+          && !QVariant(subproperties.value("Ideal")).toBool())
+      {
+        props["ideal"] = "0";
+        foreach(const SchematicScene::Parasitic& par,
+            SchematicScene::parasitics(type))
+          props[par.key] = QString::number(
+            subproperties.value(par.property).toDouble(), 'g', 12).toStdString();
+      }
 
       builder.add_dual_component(
         sapecng::abstract_builder::V,
@@ -618,6 +631,8 @@ void SchematicSceneBuilder::add_out_component(
     // its name (older files have none: Out1, Out2 ... are given)
     item->setData(SchematicScene::OutputNameKey,
       QString::fromStdString(props["name"]));
+    item->setData(SchematicScene::OutputLoadKey,
+      QString::fromStdString(props["load"]).toDouble());
 
     scene_->addSupportedItem(item, false);
     grid_coordinate(item, props);

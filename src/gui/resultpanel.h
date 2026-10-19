@@ -32,6 +32,7 @@
 
 class QTabBar;
 class QTextBrowser;
+class QLabel;
 class QUrl;
 
 
@@ -77,6 +78,11 @@ public:
   explicit ResultPanel(QWidget* parent = 0);
 
   void showResult(const SolveResult& result, bool outOfDate);
+  // the "changed since solved" notice only (redrawn when it changes)
+  void setOutOfDate(bool outOfDate);
+private:
+  void updateNotice();
+public:
   void showPlaceholder();
 
   // the output whose result is shown (one tab per output when there are
@@ -104,6 +110,7 @@ private:
   QTabBar* tabs_;
   QString currentName_;   // kept across results
   QTextBrowser* view_;
+  QLabel* notice_ = nullptr;   // "out of date", above the result
   bool sideBySide_ = false;
   // long sections shown in full ("output/section"), kept across results
   QSet<QString> expanded_;

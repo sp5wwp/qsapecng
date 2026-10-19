@@ -164,6 +164,8 @@ QPalette darkPalette()
   const QColor dim(0x8a, 0x8f, 0x98);
   const QColor button(0x34, 0x37, 0x3c);
   const QColor accent(0x4c, 0x9a, 0xff);
+  // selected rows and text: a deeper blue than the accent (links, focus)
+  const QColor selection(0x2a, 0x55, 0x8f);
 
   QPalette pal;
   pal.setColor(QPalette::Window, window);
@@ -182,7 +184,7 @@ QPalette darkPalette()
   pal.setColor(QPalette::Mid, button.darker(120));
   pal.setColor(QPalette::Dark, window.darker(140));
   pal.setColor(QPalette::Shadow, Qt::black);
-  pal.setColor(QPalette::Highlight, accent);
+  pal.setColor(QPalette::Highlight, selection);
   pal.setColor(QPalette::HighlightedText, Qt::white);
   pal.setColor(QPalette::Link, accent);
   pal.setColor(QPalette::LinkVisited, accent.lighter(120));
@@ -450,20 +452,26 @@ QColor sheetForeground()
 
 QColor netColor(int net)
 {
-  // colours for solved nets: Qt's dark colours on paper, lighter tones
-  // of the same hues on the dark sheet
+  // the reference (ground) net: dark grey on paper, light grey on the
+  // dark sheet; the others take 14 distinct hues, darker on paper
+  if(net == 0)
+    return sheetIsDark() ? QColor(0x9a, 0x9f, 0xa8) : QColor(0x50, 0x50, 0x50);
   static const QColor paper[] = {
-    QColor(Qt::darkCyan), QColor(Qt::darkRed), QColor(Qt::darkMagenta),
-    QColor(Qt::darkGreen), QColor(Qt::darkYellow), QColor(Qt::darkBlue),
-    QColor(Qt::darkGray)
+    QColor(0x00, 0x7f, 0x8c), QColor(0xb0, 0x1e, 0x2d), QColor(0x8e, 0x2b, 0xa8),
+    QColor(0x1f, 0x7a, 0x2e), QColor(0xa6, 0x6a, 0x00), QColor(0x1f, 0x4f, 0xc4),
+    QColor(0xc2, 0x18, 0x7a), QColor(0x5a, 0x6b, 0x00), QColor(0x00, 0x60, 0xa0),
+    QColor(0xc4, 0x4d, 0x00), QColor(0x5e, 0x35, 0xb1), QColor(0x00, 0x86, 0x5c),
+    QColor(0x8a, 0x4b, 0x2b), QColor(0x6d, 0x1b, 0x5a)
   };
   static const QColor dark[] = {
     QColor(0x4f, 0xc8, 0xcc), QColor(0xff, 0x6b, 0x6b), QColor(0xd6, 0x7b, 0xe0),
     QColor(0x6c, 0xc6, 0x70), QColor(0xe6, 0xc4, 0x4f), QColor(0x6a, 0xa8, 0xff),
-    QColor(0xa8, 0xad, 0xb5)
+    QColor(0xff, 0x7e, 0xc7), QColor(0xb8, 0xd0, 0x4a), QColor(0x4f, 0xb4, 0xf0),
+    QColor(0xff, 0x9e, 0x4a), QColor(0xa9, 0x8a, 0xf5), QColor(0x3f, 0xd6, 0xa0),
+    QColor(0xd9, 0xa0, 0x7c), QColor(0xe0, 0x8a, 0xc4)
   };
   const int n = int(sizeof(paper) / sizeof(paper[0]));
-  const int i = ((net % n) + n) % n;
+  const int i = (((net - 1) % n) + n) % n;
   return sheetIsDark() ? dark[i] : paper[i];
 }
 

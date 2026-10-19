@@ -175,7 +175,11 @@ void metacircuit::operator()(const circuit& circuit)
       );
 
     term_index rawNum, rawDen, digitNum, digitDen, mixedNum, mixedDen;
+    boost::mrt_progress* progress = boost::mrt_current_progress();
     for(Coll::size_type i = 0; i < coll.size(); ++i) {
+      if(progress && progress->cancel && (i & 1023) == 0
+          && progress->cancel->load(std::memory_order_relaxed))
+        throw boost::mrt_cancelled();
 
       int degree = 0;
       basic_expression raw_rep =

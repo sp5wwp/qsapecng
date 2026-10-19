@@ -22,6 +22,7 @@
 #include "parser/parser_factory.h"
 
 #include "gui/editor/schematicscene.h"
+#include "gui/units.h"
 #include <QFontMetricsF>
 #include <QShortcut>
 #include <QDialog>
@@ -2027,15 +2028,23 @@ class SetOutputName: public QUndoCommand
 {
 public:
   SetOutputName(SchematicScene* scene, Component* output,
-      const QString& oldName, const QString& newName)
-    : scene_(scene), output_(output), old_(oldName), new_(newName)
-    { setText(QObject::tr("Rename %1").arg(oldName)); }
-  void undo() override { scene_->setOutputName(output_, old_); }
-  void redo() override { scene_->setOutputName(output_, new_); }
+      const QString& oldName, const QString& newName,
+      double oldLoad = 0., double newLoad = 0.)
+    : scene_(scene), output_(output), old_(oldName), new_(newName),
+      oldLoad_(oldLoad), newLoad_(newLoad)
+    { setText(QObject::tr("Edit %1").arg(oldName)); }
+  void undo() override { set(old_, oldLoad_); }
+  void redo() override { set(new_, newLoad_); }
 private:
+  void set(const QString& name, double load)
+  {
+    output_->setData(SchematicScene::OutputLoadKey, load);
+    scene_->setOutputName(output_, name);
+  }
   SchematicScene* scene_;
   Component* output_;
   QString old_, new_;
+  double oldLoad_, newLoad_;
 };
 
 }
@@ -2062,7 +2071,7 @@ void SchematicScene::renameOutput(Component* output)
 
   QWidget* parent = views().isEmpty() ? 0 : views().first()->window();
   QDialog dialog(parent);
-  dialog.setWindowTitle(tr("Rename %1").arg(current));
+  dialog.setWindowTitle(tr("Output %1").arg(current));
   QLabel* label = new QLabel(tr("Name of this output (shown on the sheet, "
                                 "in the Result tabs and in the plots):"));
   QLineEdit* edit = new QLineEdit(current);
@@ -2070,6 +2079,19 @@ void SchematicScene::renameOutput(Component* output)
   // no blanks, not the name of another output
   edit->setValidator(new QRegularExpressionValidator(
     QRegularExpression(QStringLiteral("\\S{1,24}")), edit));
+  // an Out marker: its load, a resistor to the ground (optional)
+  const bool isOut = itemType(output) == OutItemType;
+  const double currentLoad = outputLoad(output);
+  QLineEdit* load = nullptr;
+  if(isOut) {
+    load = new QLineEdit(currentLoad > 0.
+      ? units::formatForEdit(QString::number(currentLoad, 'g', 8)) : QString());
+    load->setPlaceholderText(tr("none"));
+    load->setValidator(new units::ValueValidator(QStringLiteral("Ω"), load));
+    load->setToolTip(tr("The load on this output, a resistor to the ground "
+      "(50, 1k): no resistor needs drawing. With a source that has an "
+      "internal resistance, the plots show the transducer gain"));
+  }
   QLabel* note = new QLabel;
   QDialogButtonBox* buttons =
     new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -2089,6 +2111,12 @@ void SchematicScene::renameOutput(Component* output)
   QVBoxLayout* layout = new QVBoxLayout(&dialog);
   layout->addWidget(label);
   layout->addWidget(edit);
+  if(load) {
+    QLabel* loadLabel = new QLabel(tr("&Load (Ω), empty for none:"));
+    loadLabel->setBuddy(load);
+    layout->addWidget(loadLabel);
+    layout->addWidget(load);
+  }
   layout->addWidget(note);
   layout->addWidget(buttons);
   edit->selectAll();
@@ -2096,9 +2124,17 @@ void SchematicScene::renameOutput(Component* output)
   if(dialog.exec() != QDialog::Accepted)
     return;
   const QString name = edit->text().trimmed();
-  if(name.isEmpty() || name == current || taken.contains(name))
+  double newLoad = 0.;
+  if(load && !load->text().trimmed().isEmpty()
+      && !units::parse(load->text(), QStringLiteral("Ω"), &newLoad))
+    newLoad = currentLoad;
+  if(!(newLoad > 0.))
+    newLoad = 0.;
+  if(name.isEmpty() || taken.contains(name)
+      || (name == current && newLoad == currentLoad))
     return;
-  undoRedoStack_->push(new SetOutputName(this, output, current, name));
+  undoRedoStack_->push(new SetOutputName(this, output, current, name,
+    currentLoad, newLoad));
 }
 
 
@@ -2770,12 +2806,31 @@ QString SchematicScene::outputName(const Component* output)
 }
 
 
+double SchematicScene::outputLoad(const Component* output)
+{
+  return output ? output->data(OutputLoadKey).toDouble() : 0.;
+}
+
+
+void SchematicScene::refreshOutputTag(Component* output)
+{
+  if(!output || itemType(output) != OutItemType)
+    return;
+  QString text = outputName(output);
+  const double load = outputLoad(output);
+  if(load > 0.)
+    text += QStringLiteral(" · ")
+      + units::format(QString::number(load, 'g', 6), QStringLiteral("Ω"));
+  output->setPath(outPath(text));
+  output->setTag(text, outPivotRect());
+}
+
+
 void SchematicScene::setOutputName(Component* output, const QString& name)
 {
   output->setData(OutputNameKey, name);
   if(itemType(output) == OutItemType) {
-    output->setPath(outPath(name));
-    output->setTag(name, outPivotRect());
+    refreshOutputTag(output);
   }
   else {
     output->label()->setPlainText(name);
@@ -2890,6 +2945,11 @@ QList<SchematicScene::Parasitic> SchematicScene::parasitics(
         tr("Winding (DC) resistance") },
       { QStringLiteral("Cp"), "cp", QStringLiteral("F"), QStringLiteral("1e-12"),
         tr("Winding capacitance (sets the self-resonant frequency)") } };
+  case VoltageSourceItemType:
+  case SingleVoltageSourceItemType:
+    return {
+      { QStringLiteral("Rs"), "rs", QStringLiteral("Ω"), QStringLiteral("50"),
+        tr("Internal (source) resistance, in series with the + pin") } };
   case CapacitorItemType:
     return {
       { QStringLiteral("ESR"), "esr", QStringLiteral("Ω"), QStringLiteral("0.01"),

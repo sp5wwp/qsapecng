@@ -85,6 +85,14 @@ private:
   QLineEdit* z0_;
   QCheckBox* admittance_;
   QCheckBox* returnLoss_;
+  QCheckBox* magAuto_;
+  QLineEdit* magMin_;
+  QLineEdit* magMax_;
+  QCheckBox* phaseAuto_;
+  QLineEdit* phaseMin_;
+  QLineEdit* phaseMax_;
+  QWidget* magRange_;
+  QWidget* phaseRange_;
   QTimer* settle_;
   bool filling_ = false;
 

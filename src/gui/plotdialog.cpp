@@ -22,6 +22,8 @@
 #include "gui/theme.h"
 #include <QToolButton>
 #include <QButtonGroup>
+#include <tuple>
+#include <QDoubleValidator>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -110,10 +112,39 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   db_ = new QCheckBox(tr("Magnitude in &dB"));
   yLog_ = new QCheckBox(tr("&Logarithmic magnitude axis"));
   degrees_ = new QCheckBox(tr("Phase in de&grees"));
+  // the vertical ranges: automatic, or from - to
+  auto rangeRow = [this](const QString& title, QCheckBox** automatic,
+      QLineEdit** lo, QLineEdit** hi) {
+      QWidget* row = new QWidget;
+      QHBoxLayout* h = new QHBoxLayout(row);
+      h->setContentsMargins(0, 0, 0, 0);
+      *automatic = new QCheckBox(title);
+      *lo = new QLineEdit;
+      *hi = new QLineEdit;
+      for(QLineEdit* e : { *lo, *hi }) {
+        e->setValidator(new QDoubleValidator(e));
+        e->setMaximumWidth(70);
+      }
+      (*automatic)->setToolTip(tr("Ticked: the range follows the curves; "
+                                  "otherwise from the first value to the second"));
+      h->addWidget(*automatic);
+      h->addStretch();
+      h->addWidget(*lo);
+      h->addWidget(new QLabel(QStringLiteral("…")));
+      h->addWidget(*hi);
+      return row;
+    };
+  magRange_ = rangeRow(tr("Magnitude: automatic range"), &magAuto_,
+    &magMin_, &magMax_);
+  phaseRange_ = rangeRow(tr("Phase: automatic range"), &phaseAuto_,
+    &phaseMin_, &phaseMax_);
+
   QVBoxLayout* axes = new QVBoxLayout;
   axes->addWidget(db_);
   axes->addWidget(yLog_);
   axes->addWidget(degrees_);
+  axes->addWidget(magRange_);
+  axes->addWidget(phaseRange_);
   axesBox_ = new QGroupBox(tr("Vertical axes"));
   axesBox_->setLayout(axes);
 
@@ -169,8 +200,12 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
       if(!filling_ && isValid())
         emit changed();
     };
+  for(QLineEdit* e : { magMin_, magMax_, phaseMin_, phaseMax_ }) {
+    connect(e, &QLineEdit::editingFinished, this, edited);
+    connect(e, &QLineEdit::textChanged, this, &PlotSettingsWidget::update);
+  }
   for(QCheckBox* c : { autoRange_, angular_, xLog_, db_, yLog_, degrees_,
-      admittance_, returnLoss_ })
+      admittance_, returnLoss_, magAuto_, phaseAuto_ })
     connect(c, &QCheckBox::toggled, this, edited);
   connect(kind_, &QButtonGroup::idClicked, this, edited);
   connect(output_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
@@ -206,6 +241,12 @@ void PlotSettingsWidget::setSettings(const PlotSettings& s)
   z0_->setText(units::formatForEdit(QString::number(s.z0, 'g', 8)));
   admittance_->setChecked(s.smithAdmittance);
   returnLoss_->setChecked(s.smithReturnLoss);
+  magAuto_->setChecked(s.magAuto);
+  magMin_->setText(QString::number(s.magMin, 'g', 4));
+  magMax_->setText(QString::number(s.magMax, 'g', 4));
+  phaseAuto_->setChecked(s.phaseAuto);
+  phaseMin_->setText(QString::number(s.phaseMin, 'g', 4));
+  phaseMax_->setText(QString::number(s.phaseMax, 'g', 4));
   settle_->stop();
   filling_ = false;
   update();
@@ -234,7 +275,15 @@ void PlotSettingsWidget::update()
   yLog_->setEnabled(!db_->isChecked());   // dB values can be negative
   const bool smith = kind_->checkedId() == WorkPlane::SmithKind;
   smithBox_->setVisible(smith);
-  axesBox_->setVisible(!smith);
+  axesBox_->setVisible(!smith && kind_->checkedId() != WorkPlane::PoleZeroKind);
+  const int k = kind_->checkedId();
+  magRange_->setVisible(k == WorkPlane::MagnitudeKind || k == WorkPlane::BodeKind);
+  phaseRange_->setVisible(k == WorkPlane::PhaseKind || k == WorkPlane::BodeKind);
+  for(auto r : { std::make_tuple(magAuto_, magMin_, magMax_),
+                 std::make_tuple(phaseAuto_, phaseMin_, phaseMax_) }) {
+    std::get<1>(r)->setEnabled(!std::get<0>(r)->isChecked());
+    std::get<2>(r)->setEnabled(!std::get<0>(r)->isChecked());
+  }
   // the chart has no frequency axis
   angular_->setVisible(!smith);
   xLog_->setVisible(!smith);
@@ -246,6 +295,12 @@ bool PlotSettingsWidget::isValid() const
   double a = 0., b = 0.;
   double z0 = 0.;
   if(!units::parse(z0_->text(), QStringLiteral("Ω"), &z0) || !(z0 > 0.))
+    return false;
+  if(!magAuto_->isChecked()
+      && !(magMax_->text().toDouble() > magMin_->text().toDouble()))
+    return false;
+  if(!phaseAuto_->isChecked()
+      && !(phaseMax_->text().toDouble() > phaseMin_->text().toDouble()))
     return false;
   return autoRange_->isChecked()
     || (units::parse(start_->text(), "Hz", &a)
@@ -272,6 +327,12 @@ PlotSettings PlotSettingsWidget::settings() const
     s.z0 = z0;
   s.smithAdmittance = admittance_->isChecked();
   s.smithReturnLoss = returnLoss_->isChecked();
+  s.magAuto = magAuto_->isChecked();
+  s.magMin = magMin_->text().toDouble();
+  s.magMax = magMax_->text().toDouble();
+  s.phaseAuto = phaseAuto_->isChecked();
+  s.phaseMin = phaseMin_->text().toDouble();
+  s.phaseMax = phaseMax_->text().toDouble();
   return s;
 }
 

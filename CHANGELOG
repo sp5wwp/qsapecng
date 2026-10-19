@@ -339,6 +339,33 @@ QSapecNG CHANGELOG
       100 000 points are computed)
     o Meters: the V and A and the + and - marks stay upright when the
       meter is turned
+    o Markers: several can be selected in the table (Ctrl / Shift); the
+      selected ones are drawn bold in the plot; a click on the empty part
+      of the table clears the selection
+    o Voltage sources can have an internal resistance (untick Ideal in
+      their dialog), and an Out marker a load (a resistor to the ground,
+      shown on its tag): neither needs drawing. With both, the magnitude
+      plots show the transducer gain (load power over the power the
+      source can give, 0 dB = lossless), assuming a load equal to the
+      source resistance when the Out marker has none; also in SPICE export
+    o Editing after a Resolve is quick again: every edit laid out the whole
+      result (long ones took seconds); now only an "out of date" strip
+      appears above it
+    o Undo no longer takes back the loading of a file (it emptied the
+      schematic, and Redo brought the parts back renamed with default
+      values)
+    o Plot Settings: the vertical ranges (automatic or from - to) moved in
+      from a separate dialog; Resolve (F8) in the Plots window solves the
+      plot's own schematic; the sweep is no longer carried over to other
+      plots
+    o Markers: names (M1, M2 ...) in the first column; Peak also finds
+      dips (notches, series resonances)
+    o Menus: the Plot menu lives in the Plots window (New Plot is in Run);
+      Window has no Tile / Cascade / Next / Previous (tabs); Zoom Normal
+      is Actual Size (100 %), centred; Output (O) named in full
+    o 14 net colours plus a grey reference (ground) net; a softer
+      selection colour in the dark theme; the example list follows a
+      theme switch; Esc on the Font page no longer empties it
     o No plot opens by itself for a result that does not depend on
       frequency (resistors and sources only)
     o The Plots window opens at a moderate size (settings without a
@@ -373,6 +400,12 @@ QSapecNG CHANGELOG
     o Results: a sum times the input is shown in parentheses,
       (L1 s + R1) I1, as is a negated sum (it lost them when the
       denominator was 1)
+    o Resolve shows its progress in percent (status bar and progress bar)
+      and can be stopped: Run > Stop (Shift+F8), also in the Plots window;
+      quitting or closing a schematic while it solves stops the solver
+      instead of waiting for it
+    o Outputs (Out markers, voltmeters, ammeters) are solved at the same
+      time, one per processor thread; Settings > General sets the most
 
  * 2.1.1
     o Porting to Qwt6

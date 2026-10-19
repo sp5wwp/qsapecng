@@ -28,6 +28,7 @@ class QCheckBox;
 class QComboBox;
 class QFontDialog;
 class QPushButton;
+class QSpinBox;
 
 class QSignalMapper;
 
@@ -71,6 +72,7 @@ private slots:
 
 private:
   QCheckBox* splash_;
+  QSpinBox* threads_;
   QComboBox* logLevel_;
 
   QSignalMapper* colorMapper_;

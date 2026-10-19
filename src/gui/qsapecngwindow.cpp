@@ -76,6 +76,7 @@
 
 #include <QMenu>
 #include <QMenuBar>
+#include <QTimer>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QDockWidget>
@@ -429,15 +430,35 @@ void QSapecNGWindow::createPlotWindow()
   bar->setMovable(false);
   bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   bar->addAction(waveAct_);
+  // Resolve the schematic of the plot shown (F8 here does the same)
+  QAction* plotResolve = new QAction(theme::icon("resolve"), tr("&Resolve"),
+    plotWindow_);
+  plotResolve->setToolTip(tr("Resolve the schematic of this plot again (F8)"));
+  connect(plotResolve, &QAction::triggered, this, [this]() {
+      for(const PlotEntry& e : plots_)
+        if(e.plane == currentPlot_ && e.editor) {
+          e.editor->solve();
+          return;
+        }
+      resolve();
+    });
+  plotResolve->setShortcut(Qt::Key_F8);
+  bar->addAction(plotResolve);
+  bar->addAction(stopAct_);
+  plotWindow_->addAction(stopAct_);   // Shift+F8 here too
+  {
+    // and in its menu
+    QMenu* run = new QMenu(tr("&Run"), plotWindow_);
+    run->addAction(plotResolve);
+    run->addAction(stopAct_);
+    plotWindow_->menuBar()->addMenu(run);
+  }
   bar->addSeparator();
   bar->addAction(resetViewAct_);
-  bar->addAction(vrangeAct_);
   bar->addSeparator();
   bar->addAction(clearMarkersAct_);
   bar->addSeparator();
   bar->addAction(printPlotAct_);
-  // F8 (resolve the schematic) also from here
-  plotWindow_->addAction(resolveAct_);
 
   // settings of the current plot, applied as they are changed
   plotSettingsForm_ = new PlotSettingsWidget(PlotSettings::load());
@@ -739,6 +760,51 @@ void QSapecNGWindow::resolve()
     mdiArea_->setActiveSubWindow(editor);
     syncWithCurrentEditor();
   }
+}
+
+
+void QSapecNGWindow::stopSolving()
+{
+  foreach(QMdiSubWindow* window, mdiArea_->subWindowList())
+    if(SchematicEditor* editor = qobject_cast<SchematicEditor*>(window))
+      editor->stop();
+}
+
+
+// while a solve runs: the progress bar and the status line follow the
+// schematic in front (or any that is solving)
+void QSapecNGWindow::updateSolveProgress()
+{
+  SchematicEditor* running = nullptr;
+  if(mdiArea_->currentSubWindow())
+    running = qobject_cast<SchematicEditor*>(mdiArea_->currentSubWindow());
+  if(!running || !running->isRunning()) {
+    running = nullptr;
+    foreach(QMdiSubWindow* window, mdiArea_->subWindowList()) {
+      SchematicEditor* editor = qobject_cast<SchematicEditor*>(window);
+      if(editor && editor->isRunning()) {
+        running = editor;
+        break;
+      }
+    }
+  }
+  stopAct_->setEnabled(running != nullptr);
+  if(!running) {
+    progressTimer_->stop();
+    return;
+  }
+
+  const int value = running->solveProgress();
+  if(progressBar_->isVisible())
+    progressBar_->setValue(value);
+  const int total = running->outputsToSolve();
+  QString text = tr("Solving... %1 %").arg(value / 10);
+  if(total > 1)
+    text += tr(" - %1 of %2 outputs done").arg(running->outputsSolved())
+      .arg(total);
+  text += tr(" - Shift+F8 stops");
+  if(running == qobject_cast<SchematicEditor*>(mdiArea_->currentSubWindow()))
+    statusLabel_->setText(text);
 }
 
 
@@ -1358,12 +1424,8 @@ void QSapecNGWindow::updateWindowMenu()
   windowMenu_->addSeparator();
   windowMenu_->addAction(closeAct_);
   windowMenu_->addAction(closeAllAct_);
-  windowMenu_->addSeparator();
-  windowMenu_->addAction(tileAct_);
-  windowMenu_->addAction(cascadeAct_);
-  windowMenu_->addSeparator();
-  windowMenu_->addAction(nextAct_);
-  windowMenu_->addAction(previousAct_);
+  // the schematics are tabs: no tiling or cascading; next / previous keep
+  // their keys (the window's own actions) and the list below picks one
   windowMenu_->addAction(separatorAct_);
 
   QList<QMdiSubWindow*> windows = mdiArea_->subWindowList();
@@ -1539,12 +1601,13 @@ void QSapecNGWindow::createActions()
   zoomOutAct_->setStatusTip(tr("Zoom Out"));
   connect(zoomOutAct_, SIGNAL(triggered()), this, SLOT(zoomOut()));
 
-  zoomNormalAct_ = new QAction(theme::icon("zoomnormal"), tr("Zoom &Normal"), this);
-  zoomNormalAct_->setStatusTip(tr("Zoom Normal"));
+  zoomNormalAct_ = new QAction(theme::icon("zoomnormal"), tr("Actual Si&ze (100 %)"), this);
+  zoomNormalAct_->setStatusTip(tr("Actual size: 100 %"));
   connect(zoomNormalAct_, SIGNAL(triggered()), this, SLOT(zoomNormal()));
 
   fitAct_ = new QAction(theme::icon("fit"), tr("&Fit"), this);
-  fitAct_->setStatusTip(tr("Fit"));
+  fitAct_->setText(tr("Zoom to &Fit"));
+  fitAct_->setStatusTip(tr("The whole schematic in the window"));
   connect(fitAct_, SIGNAL(triggered()), this, SLOT(fit()));
 
   nodeAct_ = new QAction(theme::icon("node"), tr("Assign &nodes"), this);
@@ -1556,6 +1619,13 @@ void QSapecNGWindow::createActions()
   resolveAct_->setShortcut(tr("F8"));
   resolveAct_->setStatusTip(tr("Resolve"));
   connect(resolveAct_, SIGNAL(triggered()), this, SLOT(resolve()));
+
+  stopAct_ = new QAction(theme::icon("stop"), tr("S&top"), this);
+  stopAct_->setShortcut(tr("Shift+F8"));
+  stopAct_->setToolTip(tr("Stop solving (Shift+F8)"));
+  stopAct_->setStatusTip(tr("Stop the running Resolve"));
+  stopAct_->setEnabled(false);
+  connect(stopAct_, &QAction::triggered, this, &QSapecNGWindow::stopSolving);
 
   waveAct_ = new QAction(theme::icon("wave"), tr("&New Plot..."), this);
   waveAct_->setShortcut(tr("Ctrl+F9"));
@@ -1608,9 +1678,11 @@ void QSapecNGWindow::createActions()
   connect(nextAct_, SIGNAL(triggered()),
     mdiArea_, SLOT(activateNextSubWindow()));
 
+  addAction(nextAct_);   // keys only (not in a menu)
   previousAct_ = new QAction(tr("&Previous"), this);
   previousAct_->setShortcuts(QKeySequence::PreviousChild);
   previousAct_->setStatusTip(tr("Previous window"));
+  addAction(previousAct_);
   connect(previousAct_, SIGNAL(triggered()),
     mdiArea_, SLOT(activatePreviousSubWindow()));
 
@@ -1658,8 +1730,11 @@ void QSapecNGWindow::createActions()
     this, SLOT(portSessionRequested()));
 
   outSessionAct_ =
-    new QAction(theme::symbolIcon("out"), tr("&Out"), this);
-  outSessionAct_->setStatusTip(tr("Out Session Request"));
+    new QAction(theme::symbolIcon("out"), tr("&Output"), this);
+  outSessionAct_->setToolTip(tr("Output (O): mark the net whose voltage is "
+                                "the result"));
+  outSessionAct_->setStatusTip(tr("Mark an output: the voltage of that net "
+                                  "is the result"));
   outSessionAct_->setShortcut(QKeySequence(Qt::Key_O));
   connect(outSessionAct_, SIGNAL(triggered()),
     this, SLOT(outSessionRequested()));
@@ -1860,13 +1935,18 @@ void QSapecNGWindow::createMenus()
   runMenu_ = menuBar()->addMenu(tr("&Run"));
   runMenu_->addAction(nodeAct_);
   runMenu_->addAction(resolveAct_);
+  runMenu_->addAction(stopAct_);
   runMenu_->addAction(plotsAct_);
+  runMenu_->addAction(waveAct_);
 
-  workplaneMenu_ = menuBar()->addMenu(tr("&Plot"));
+  // the Plot menu belongs to the Plots window; here New Plot sits in Run
+  workplaneMenu_ = new QMenu(tr("&Plot"), this);
+  for(QAction* a : { waveAct_, plotSettingsAct_, resetViewAct_,
+        clearMarkersAct_, markersPanelAct_, replotAct_, printPlotAct_ })
+    addAction(a);       // their keys still work here
   workplaneMenu_->addAction(waveAct_);
   workplaneMenu_->addAction(plotSettingsAct_);
   workplaneMenu_->addSeparator();
-  workplaneMenu_->addAction(vrangeAct_);
   workplaneMenu_->addAction(resetViewAct_);
   workplaneMenu_->addAction(clearMarkersAct_);
   workplaneMenu_->addAction(markersPanelAct_);
@@ -2044,6 +2124,7 @@ void QSapecNGWindow::createToolBars()
   runToolBar_->setObjectName(QStringLiteral("runToolBar"));
   runToolBar_->addAction(nodeAct_);
   runToolBar_->addAction(resolveAct_);
+  runToolBar_->addAction(stopAct_);
   runToolBar_->addAction(plotsAct_);
 
   toolToolBar_ = addToolBar(tr("Tools"));
@@ -2091,6 +2172,11 @@ void QSapecNGWindow::createStatusBar()
   progressBar_->setMaximumWidth(160);
   progressBar_->reset();
   progressBar_->hide();   // only while a Resolve is running
+  progressBar_->setFormat(QStringLiteral("%p %"));
+  progressTimer_ = new QTimer(this);
+  progressTimer_->setInterval(250);
+  connect(progressTimer_, &QTimer::timeout,
+    this, &QSapecNGWindow::updateSolveProgress);
 }
 
 
@@ -2292,7 +2378,28 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
 
   connect(editor, SIGNAL(stackEditor(SchematicEditor*)),
     this, SLOT(stackEditor(SchematicEditor*)));
+  connect(editor, &SchematicEditor::solvingStarted, this, [this]() {
+      progressBar_->setRange(0, 1000);
+      progressBar_->setValue(0);
+      progressBar_->show();
+      stopAct_->setEnabled(true);
+      progressTimer_->start();
+      updateSolveProgress();
+    });
+  connect(editor, &SchematicEditor::solvingStopped, this, [this, editor]() {
+      updateSolveProgress();
+      if(editor == activeEditor()) {
+        editor->scene().undoRedoStack()->setActive(true);
+        progressBar_->setRange(0, 1);
+        progressBar_->reset();
+        progressBar_->hide();
+        updateMenus();
+        updateResultPanel();
+        updateStatus();
+      }
+    });
   connect(editor, &SchematicEditor::solved, this, [this, editor]() {
+      updateSolveProgress();
     // while solving there was no active editor and so no active undo
     // stack (updateMenus): give it back, or Undo stays off until another
     // schematic is picked
@@ -2343,7 +2450,12 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
   });
   connect(editor, &SchematicEditor::dirtyChanged, this, [this, editor]() {
     if(editor == activeEditor()) {
-      updateResultPanel();
+      // only the "changed since solved" notice: the result itself is the
+      // same (laying out a long one takes a while)
+      if(editor->hasResult())
+        resultPanel_->setOutOfDate(!editor->isSolved());
+      else
+        updateResultPanel();
       updateStatus();
     }
   });
@@ -2401,9 +2513,14 @@ void QSapecNGWindow::createExamplesMenu(QMenu* parent)
   list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   list->setMouseTracking(true);
   // rows spaced like menu entries, on the menu's background
-  list->setStyleSheet(QStringLiteral(
-    "QListWidget { background: transparent; }"
-    "QListWidget::item { padding: 4px 22px; }"));
+  // colours from the palette, looked up again each time the menu opens
+  // (a theme switch while it is hidden left the old ones)
+  const QString listStyle = QStringLiteral(
+    "QListWidget { background: transparent; color: palette(text); }"
+    "QListWidget::item { padding: 4px 22px; }"
+    "QListWidget::item:selected { background: palette(highlight);"
+    " color: palette(highlighted-text); }");
+  list->setStyleSheet(listStyle);
   int width = 0;
   foreach(const QFileInfo& file, files) {
     QListWidgetItem* item = new QListWidgetItem(file.completeBaseName(), list);
@@ -2435,7 +2552,10 @@ void QSapecNGWindow::createExamplesMenu(QMenu* parent)
   QWidgetAction* listAction = new QWidgetAction(menu);
   listAction->setDefaultWidget(list);
   menu->addAction(listAction);
-  connect(menu, &QMenu::aboutToShow, list, [list]() {
+  connect(menu, &QMenu::aboutToShow, list, [list, listStyle]() {
+      list->setPalette(QApplication::palette());
+      list->setStyleSheet(QString());
+      list->setStyleSheet(listStyle);
       list->clearSelection();
       list->setCurrentRow(-1);
       list->scrollToTop();
@@ -2607,6 +2727,8 @@ void QSapecNGWindow::updateStatus()
       status = editor->lastResult().anySingular()
         ? tr("Solved - no unique solution (see the Result panel)")
         : tr("Solved - the transfer function is in the Result panel");
+    else if(editor->wasStopped())
+      status = tr("Stopped - press F8 to resolve again");
     else if(editor->hasResult())
       status = tr("Changed since the last Resolve - press F8 to update the "
                   "result");
@@ -2653,8 +2775,9 @@ void QSapecNGWindow::subWindowActivated(QMdiSubWindow* window)
   if(window) {
     SchematicEditor* editor = qobject_cast<SchematicEditor*>(window);
     if(editor && editor->isRunning()) {
-      progressBar_->setRange(0, 0);
+      progressBar_->setRange(0, 1000);
       progressBar_->show();
+      updateSolveProgress();
       undoRedoGroup_->setActiveStack(0);
     }
   }

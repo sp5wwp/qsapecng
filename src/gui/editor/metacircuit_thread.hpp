@@ -28,8 +28,12 @@
 #include <QThread>
 #include <QMutex>
 
+#include "boost-sapecng/mrt_progress.hpp"
+
 #include <algorithm>
+#include <atomic>
 #include <memory>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -45,6 +49,26 @@ class MetaCircuit_Thread: public QThread
 
 public:
   MetaCircuit_Thread(QObject* parent = 0): QThread(parent) { }
+
+  // the most outputs solved at the same time (one thread each)
+  inline void setMaxThreads(int n) { maxThreads_ = std::max(1, n); }
+
+  // asks a running solve to stop; it ends soon after, cancelled()
+  inline void cancel() { cancel_.store(true); }
+  inline bool cancelled() const { return cancelled_.load(); }
+
+  // 0 - 1000 over all the outputs, and how many are done; safe while running
+  inline int progress() const
+    {
+      if(permille_.empty())
+        return 0;
+      long sum = 0;
+      for(const auto& p : permille_)
+        sum += std::min(1000, p->load(std::memory_order_relaxed));
+      return int(sum / long(permille_.size()));
+    }
+  inline int outputsDone() const { return done_.load(); }
+  inline int outputTotal() const { return int(permille_.size()); }
 
   // builds one circuit per output of the netlist (Out markers, voltmeters,
   // ammeters): the parser is run once per output
@@ -65,6 +89,10 @@ public:
           out.name = out.circuit->outputNames().at(k);
         outputs_.push_back(std::move(out));
       }
+      permille_.clear();
+      for(std::size_t k = 0; k < outputs_.size(); ++k)
+        permille_.emplace_back(new std::atomic<int>(0));
+      done_.store(0);
     }
 
   inline int outputCount()
@@ -91,8 +119,38 @@ protected:
   void run()
   {
     QMutexLocker locker(&mutex_);
-    for(Output& out : outputs_)
-      (*out.meta)(*out.circuit);
+    cancel_.store(false);
+    cancelled_.store(false);
+    done_.store(0);
+    for(auto& p : permille_)
+      p->store(0);
+
+    std::atomic<std::size_t> next(0);
+    auto work = [this, &next]() {
+      for(std::size_t k; (k = next.fetch_add(1)) < outputs_.size(); ) {
+        boost::mrt_progress progress;
+        progress.cancel = &cancel_;
+        progress.permille = permille_[k].get();
+        boost::mrt_current_progress() = &progress;
+        try {
+          (*outputs_[k].meta)(*outputs_[k].circuit);
+        } catch(const boost::mrt_cancelled&) {
+          cancelled_.store(true);
+          cancel_.store(true);   // the other outputs stop too
+        }
+        boost::mrt_current_progress() = nullptr;
+        permille_[k]->store(1000);
+        done_.fetch_add(1);
+      }
+    };
+
+    const std::size_t n = std::min<std::size_t>(maxThreads_, outputs_.size());
+    std::vector<std::thread> helpers;
+    for(std::size_t i = 1; i < n; ++i)
+      helpers.emplace_back(work);
+    work();
+    for(std::thread& t : helpers)
+      t.join();
   }
 
 private:
@@ -109,6 +167,11 @@ private:
     { return sapecng::metacircuit::expression(); }
 
   std::vector<Output> outputs_;
+  std::vector< std::unique_ptr< std::atomic<int> > > permille_;
+  std::atomic<bool> cancel_{false};
+  std::atomic<bool> cancelled_{false};
+  std::atomic<int> done_{0};
+  int maxThreads_ = 1;
   QMutex mutex_;
 
 };

@@ -27,6 +27,7 @@
   <file alias="print.svg">icons/print.svg</file>
   <file alias="redo.svg">icons/redo.svg</file>
   <file alias="resolve.svg">icons/resolve.svg</file>
+  <file alias="stop.svg">icons/stop.svg</file>
   <file alias="rotate.svg">icons/rotate.svg</file>
   <file alias="save.svg">icons/save.svg</file>
   <file alias="schematic.svg">icons/schematic.svg</file>

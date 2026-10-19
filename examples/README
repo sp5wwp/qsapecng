@@ -71,13 +71,13 @@ fm-preemphasis-eu.info
 
 lowpass-70cm-pa.info
   Harmonic filter after a 70 cm (420-450 MHz) power amplifier:
-  7th-order Chebyshev, 0.1 dB ripple, 50 Ohm, cut-off 500 MHz. The parts
-  are real: inductors with Q about 100 at 435 MHz and a self-resonance near
-  3 GHz, capacitors with 0.5 nH ESL and 0.2 Ohm ESR. Expect 0.6-0.7 dB of
-  loss across the band (after the 6 dB of the 50 Ohm divider), over 54 dB
-  at the 2nd harmonic (840-900 MHz) and over 95 dB at the 3rd. Solving
-  takes a few seconds. The sweep is 100 MHz - 2 GHz: add markers at 435
-  and 870 MHz.
+  7th-order Chebyshev, 0.1 dB ripple, 50 Ohm, cut-off 500 MHz. V1 is a
+  50 Ohm generator (internal resistance in its dialog) and Out1 has a
+  50 Ohm load, so no terminating resistors are drawn and the plot is the
+  transducer gain: the filter's own insertion loss, 0 dB for a lossless
+  one. The parts are real (inductors with Q about 100 at 435 MHz,
+  capacitors with 0.5 nH ESL and 0.2 Ohm ESR): -0.63 dB at 435 MHz,
+  -57.6 dB at 870 MHz (2nd harmonic). Solving takes a few seconds.
 
 
 RF matching [Smith]

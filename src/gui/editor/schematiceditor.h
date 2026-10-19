@@ -39,6 +39,7 @@ namespace qsapecng
 
 class SchematicEditor: public QMdiSubWindow
 {
+  bool dirtyNotified_ = false;   // dirtyChanged sent since the last solve
 
   Q_OBJECT
 
@@ -58,6 +59,12 @@ public:
   QString currentFile() const;
 
   inline bool isRunning() const { return solver_.isRunning(); }
+  // a running solve: 0 - 1000, and outputs finished of all
+  inline int solveProgress() const { return solver_.progress(); }
+  inline int outputsSolved() const { return solver_.outputsDone(); }
+  inline int outputsToSolve() const { return solver_.outputTotal(); }
+  // the last solve was stopped (Stop) before it was done
+  inline bool wasStopped() const { return stopped_; }
   inline bool isSolved() const { return solved_; }
   // last result of Resolve; it may be out of date (see isSolved())
   inline bool hasResult() const { return hasResult_; }
@@ -81,6 +88,7 @@ public slots:
   // default sweep)
   bool exportSpice(const QString& fileName, const QString& analysis = QString());
   void solve();
+  void stop();
 
 signals:
   void stackEditor(SchematicEditor* editor);
@@ -91,6 +99,8 @@ signals:
   void fileSaved(const QString& fileName);
   void fileLoaded(const QString& fileName);
   void solved();
+  void solvingStarted();
+  void solvingStopped();
 
 private slots:
   void reset();
@@ -115,6 +125,7 @@ private:
 private:
   MetaCircuit_Thread solver_;
   bool solved_;
+  bool stopped_ = false;
   bool hasResult_ = false;
   SolveResult lastResult_;
 

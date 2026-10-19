@@ -212,7 +212,10 @@ ComponentDialog::ComponentDialog(
       QtBoolPropertyManager* bpm = qobject_cast<QtBoolPropertyManager*>(
         sub.value("Ideal")->propertyManager());
       idealProperty_ = sub.value("Ideal");
-      ideal_ = new QCheckBox(tr("Ideal (no parasitics)"));
+      const bool source = type == SchematicScene::VoltageSourceItemType
+        || type == SchematicScene::SingleVoltageSourceItemType;
+      ideal_ = new QCheckBox(source ? tr("Ideal (no internal resistance)")
+                                    : tr("Ideal (no parasitics)"));
       ideal_->setChecked(bpm && bpm->value(idealProperty_));
       form->addRow(QString(), ideal_);
       foreach(const SchematicScene::Parasitic& par, extra) {

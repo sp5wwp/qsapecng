@@ -77,6 +77,7 @@ public:
   enum { Ground = 0 };
   enum { GridStep = 10 };
   enum { OutputNameKey = 3 };   // item data: the name of an output
+  enum { OutputLoadKey = 5 };   // item data: an Out marker's load (ohm, 0: none)
 
   enum SupportedItemType {
     NilItemType = 0,
@@ -239,6 +240,9 @@ public:
   // Result panel
   QStringList outputNames() const;
   static QString outputName(const Component* output);
+  static double outputLoad(const Component* output);
+  // the Out tag shows the name, and its load when it has one
+  static void refreshOutputTag(Component* output);
   // an Out marker, a voltmeter or an ammeter
   static bool isOutput(const QGraphicsItem* item);
   // asks for a new name (double-click, Properties); undoable

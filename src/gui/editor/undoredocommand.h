@@ -49,6 +49,9 @@ class AddItems: public QUndoCommand
 {
 
 public:
+  // the items stay in the scene when the command goes (a loaded file)
+  void release() { items_.clear(); }
+
   AddItems(
       SchematicScene* scene,
       QList<QGraphicsItem*> items,

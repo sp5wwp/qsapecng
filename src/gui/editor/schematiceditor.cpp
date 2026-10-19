@@ -17,6 +17,7 @@
 */
 
 
+#include "config.h"
 #include "gui/theme.h"
 #include "model/metacircuit.h"
 #include "parser/parser_factory.h"
@@ -25,10 +26,17 @@
 #include "gui/qtsolutions/qtpropertyeditor/QtProperty"
 #include "gui/editor/schematiceditor.h"
 #include "gui/editor/schematicsceneparser.h"
+#include "gui/editor/component.h"
+#include <cmath>
+#include "gui/units.h"
+#include <functional>
+#include "gui/editor/undoredocommand.h"
 #include "gui/settings.h"
 #include "gui/qlogger.h"
 
 #include <QPointer>
+#include <QSettings>
+#include <QThread>
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -121,6 +129,41 @@ bool SchematicEditor::accept(WorkPlane& workplane, const QString& output)
       solver_.digit_numerator(k),
       solver_.digit_denominator(k)
     );
+
+  // a source with internal resistance Rs: the magnitude as transducer
+  // gain (load power over the power the source can give), with the load
+  // of the Out marker, or Rs when it has none: |H| 2 sqrt(Rs / RL)
+  double rs = 0.;
+  int sources = 0;
+  foreach(Item* item, scene_->activeItems()) {
+    const SchematicScene::SupportedItemType t = SchematicScene::itemType(item);
+    if(t != SchematicScene::VoltageSourceItemType
+        && t != SchematicScene::SingleVoltageSourceItemType)
+      continue;
+    ++sources;
+    if(QtProperty* p = SchematicScene::itemProperties(item)) {
+      QHash<QString, QString> sub;
+      foreach(QtProperty* s, p->subProperties())
+        sub.insert(s->propertyName(), s->valueText());
+      if(sub.contains("Ideal") && !QVariant(sub.value("Ideal")).toBool())
+        units::parse(sub.value("Rs"), QStringLiteral("Ω"), &rs);
+    }
+  }
+  double rl = 0.;
+  const QString outName = QString::fromStdString(solver_.outputName(k));
+  foreach(Item* item, scene_->activeItems())
+    if(SchematicScene::itemType(item) == SchematicScene::OutItemType) {
+      const Component* c = dynamic_cast<Component*>(item);
+      if(SchematicScene::outputName(c) == outName)
+        rl = SchematicScene::outputLoad(c);
+    }
+  if(sources == 1 && rs > 0.) {
+    const bool assumed = !(rl > 0.);
+    if(assumed)
+      rl = rs;
+    workplane.setGainScale(2. * std::sqrt(rs / rl), true, assumed);
+  } else
+    workplane.setGainScale(1., false, false);
 
   return true;
 }
@@ -339,6 +382,23 @@ bool SchematicEditor::loadFile(const QString& fileName)
 
     setCurrentFile(fileName);
     externalCleanChanged_ = true;
+    // loading is not an edit: Undo must not take the drawing away (and
+    // Redo brought it back with new names and default values). The items
+    // are kept, the commands that added them dropped
+    {
+      QUndoStack* stack = scene_->undoRedoStack();
+      std::function<void(const QUndoCommand*)> release =
+        [&release](const QUndoCommand* cmd) {
+          if(AddItems* add = dynamic_cast<AddItems*>(
+              const_cast<QUndoCommand*>(cmd)))
+            add->release();
+          for(int i = 0; i < cmd->childCount(); ++i)
+            release(cmd->child(i));
+        };
+      for(int i = 0; i < stack->count(); ++i)
+        release(stack->command(i));
+      stack->clear();
+    }
     scene_->undoRedoStack()->setClean();
     emit fileLoaded(fileName);
 
@@ -370,7 +430,19 @@ void SchematicEditor::solve()
   delete parser;
 
   QLogger::info(QObject::tr("Solving..."));
+  stopped_ = false;
+  solver_.setMaxThreads(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/solverThreads"),
+      QThread::idealThreadCount()).toInt());
   solver_.start();
+  emit solvingStarted();
+}
+
+
+void SchematicEditor::stop()
+{
+  if(solver_.isRunning())
+    solver_.cancel();
 }
 
 
@@ -391,7 +463,15 @@ void SchematicEditor::finished()
 //   QApplication::restoreOverrideCursor();
   setCursor(Qt::ArrowCursor);
   view_->setInteractive(true);
+  if(solver_.cancelled()) {
+    // nothing to show: the last result (if any) stays, out of date
+    stopped_ = true;
+    QLogger::info(QObject::tr("Stopped."));
+    emit solvingStopped();
+    return;
+  }
   solved_ = true;
+  dirtyNotified_ = false;
   showResult();
 }
 
@@ -434,9 +514,12 @@ void SchematicEditor::cleanChanged(bool clean)
 void SchematicEditor::closeEvent(QCloseEvent *event)
 {
   if(maybeSave()) {
-    if(solver_.isRunning())
+    if(solver_.isRunning()) {
+      // stop it rather than wait for it (that could take hours)
+      solver_.cancel();
       solver_.wait();
-    
+    }
+
     QMdiSubWindow::closeEvent(event);
     emit(aboutToCloseEditor());
     event->accept();
@@ -448,7 +531,12 @@ void SchematicEditor::closeEvent(QCloseEvent *event)
 
 void SchematicEditor::setDirty()
 {
+  // once: every edit after a solve came here, and each one re-rendered
+  // the whole Result panel
+  if(!solved_ && dirtyNotified_)
+    return;
   solved_ = false;
+  dirtyNotified_ = true;
   emit dirtyChanged(solved_);
 }
 

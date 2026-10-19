@@ -122,6 +122,16 @@ void circuit_builder::add_out_component(
 {
   v = node(v);
   replace_requested(v);
+  // a load on the output: a resistor to the ground (unnamed: numeric)
+  if(props.count("load")) {
+    double load = 0.;
+    std::istringstream in(props["load"]);
+    in >> load;
+    if(load > 0. && std::isfinite(load)) {
+      std::map<std::string, std::string> none;
+      add_edge(v, GROUND, v, GROUND, Z, "", load, 0, false, none);
+    }
+  }
   add_output(v, props["name"], "Out");
 }
 
@@ -169,6 +179,27 @@ void circuit_builder::add_dual(
 {
   replace_requested(va <= vb ? va : vb);
   replace_requested(va > vb ? va : vb);
+
+  // a voltage source with internal resistance: the ideal source to an
+  // internal node, Rs from there to the + pin (unnamed: numeric)
+  if(c_type == abstract_builder::V && props.count("ideal")
+      && props["ideal"] == "0")
+  {
+    double rs = 0.;
+    if(props.count("rs")) {
+      std::istringstream in(props["rs"]);
+      in >> rs;
+    }
+    props.erase("ideal");
+    props.erase("rs");
+    if(rs > 0. && std::isfinite(rs)) {
+      std::map<std::string, std::string> none;
+      circuit::vertex_descriptor n = boost::add_vertex(*(circuit_.iG_));
+      requested_.push_front(boost::add_vertex(*(circuit_.vG_)));
+      add_edge(n, vb, n, vb, Z, "", rs, 0, false, none);
+      vb = n;
+    }
+  }
 
   if((c_type == abstract_builder::R || c_type == abstract_builder::L
       || c_type == abstract_builder::C)

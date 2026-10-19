@@ -131,6 +131,10 @@ void spice_builder::add_out_component(
     name = s.str();
   }
   prints_.push_back(std::make_pair("v(" + node(v) + ")", name));
+  // its load, a resistor to the ground
+  if(prop(props, "load") > 0.)
+    line(element('R', "load_" + name) + " " + node(v) + " 0 "
+      + number(prop(props, "load")));
 }
 
 
@@ -211,8 +215,18 @@ void spice_builder::add_dual_component(
       break;
     }
   case abstract_builder::V:
-    line(element('V', name) + " " + b + " " + a + " DC 0 AC " + number(value));
-    break;
+    {
+      // internal resistance: the source to an internal node, Rs to the pin
+      std::string plus = b;
+      if(real && prop(props, "rs") > 0.) {
+        plus = internal();
+        line(element('R', "Rs_" + name) + " " + plus + " " + b + " "
+          + number(prop(props, "rs")));
+      }
+      line(element('V', name) + " " + plus + " " + a + " DC 0 AC "
+        + number(value));
+      break;
+    }
   case abstract_builder::I:
     line(element('I', name) + " " + b + " " + a + " DC 0 AC " + number(value));
     break;

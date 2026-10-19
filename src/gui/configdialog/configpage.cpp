@@ -28,6 +28,9 @@
 #include <QApplication>
 
 #include <QCheckBox>
+#include <QSpinBox>
+#include <algorithm>
+#include <QThread>
 #include <QComboBox>
 #include <QFormLayout>
 #include <QSettings>
@@ -65,6 +68,30 @@ GeneralPage::GeneralPage(QWidget* parent)
   QHBoxLayout* startupLayout = new QHBoxLayout;
   startupLayout->addWidget(splash_);
   startupBox->setLayout(startupLayout);
+
+  /*
+   * Solver Box
+   */
+  QGroupBox* solverBox = new QGroupBox(tr("Solver"), this);
+  threads_ = new QSpinBox;
+  threads_->setRange(1, std::max(1, QThread::idealThreadCount()));
+  threads_->setValue(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/solverThreads"),
+      QThread::idealThreadCount()).toInt());
+  threads_->setToolTip(tr("Outputs (Out markers and meters) are solved at "
+    "the same time, one per processor thread, up to this many"));
+  connect(threads_, &QSpinBox::valueChanged, this,
+    [this]() { setPageModified(true); });
+  QLabel* threadsLabel = new QLabel(tr("Solve up to"));
+  QLabel* threadsTail = new QLabel(tr("outputs at the same time (of %1 "
+    "processor threads)").arg(QThread::idealThreadCount()));
+  threadsLabel->setBuddy(threads_);
+  QHBoxLayout* solverLayout = new QHBoxLayout;
+  solverLayout->addWidget(threadsLabel);
+  solverLayout->addWidget(threads_);
+  solverLayout->addWidget(threadsTail);
+  solverLayout->addStretch();
+  solverBox->setLayout(solverLayout);
 
   /*
    * Log Settings Box
@@ -181,6 +208,7 @@ GeneralPage::GeneralPage(QWidget* parent)
    */
   QVBoxLayout* mainLayout = new QVBoxLayout;
   mainLayout->addWidget(startupBox);
+  mainLayout->addWidget(solverBox);
   mainLayout->addWidget(logSettingsBox);
   mainLayout->addStretch();
   setLayout(mainLayout);
@@ -191,6 +219,8 @@ void GeneralPage::apply()
 {
   QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
     .setValue(QStringLiteral("Application/showSplash"), splash_->isChecked());
+  QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .setValue(QStringLiteral("Application/solverThreads"), threads_->value());
 
   SettingsManager manager;
 
@@ -348,10 +378,27 @@ void AppearancePage::apply()
 }
 
 
+namespace
+{
+
+// the font dialog as a page: Esc (or any accept / reject) would hide it and
+// leave the page empty; the Configure dialog's own buttons decide instead
+class EmbeddedFontDialog: public QFontDialog
+{
+public:
+  EmbeddedFontDialog() { setWindowFlags(Qt::Widget); }
+  void done(int) override { }
+  void accept() override { }
+  void reject() override { }
+};
+
+}
+
+
 FontPage::FontPage(QWidget* parent)
   : ConfigPage(parent)
 {
-  fontPage_ = new QFontDialog;
+  fontPage_ = new EmbeddedFontDialog;
   fontPage_->setCurrentFont(QApplication::font());
   fontPage_->setOption(QFontDialog::NoButtons, true);
 

@@ -280,7 +280,7 @@ void applyPlotStyle(
 {
   const QColor base = pal.color(QPalette::Base);
   const QColor text = pal.color(QPalette::Text);
-  const QColor accent = pal.color(QPalette::Highlight);
+  const QColor accent = pal.color(QPalette::Link);
   const QColor poleColor(0xe5, 0x48, 0x4d);
 
   if(QwtPlotCanvas* canvas = qobject_cast<QwtPlotCanvas*>(plot->canvas())) {
@@ -461,11 +461,10 @@ WorkPlane::WorkPlane(QWidget* parent)
   : QWidget(parent)
 {
   QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
-  autoRange_ = settings.value("Workplane/autoRange", true).toBool();
-  fStart_ = settings.value("Workplane/fStart", 1.).toDouble();
-  fStop_ = settings.value("Workplane/fStop", 1e5).toDouble();
-  pointsPerDecade_ = settings.value("Workplane/pointsPerDecade", 100).toInt();
-  if(!(fStart_ > 0 && fStop_ > fStart_)) { fStart_ = 1.; fStop_ = 1e5; }
+  autoRange_ = true;
+  fStart_ = 1.;
+  fStop_ = 1e5;
+  pointsPerDecade_ = 100;
 
   createMainLayout();
   setupCurves();
@@ -530,8 +529,11 @@ void WorkPlane::setData(
 
   // the plots use the component values of the schematic
   values_ = values;
+  rawNum_ = numerator;
   num_ = numerator;
   den_ = denominator;
+  gainScale_ = 1.;
+  transducer_ = false;
 
   if(autoRange_)
     autoFrequencyRange();
@@ -891,7 +893,9 @@ void WorkPlane::plot(WorkPlane::F f)
         smithHz_.clear();
         const size_t n = qMin(m.second.size(), ph.second.size());
         for(size_t i = 0; i < n; ++i) {
-          const std::complex<double> z = std::polar(m.second[i], ph.second[i]);
+          // the impedance itself, not scaled as a gain
+          const std::complex<double> z =
+            std::polar(m.second[i] / gainScale_, ph.second[i]);
           const std::complex<double> g = (z - z0_) / (z + z0_);
           if(!std::isfinite(g.real()) || !std::isfinite(g.imag()))
             continue;
@@ -984,13 +988,13 @@ void WorkPlane::relabel(F f)
   switch(f) {
   case MAGNITUDE:
   case MAGNITUDE_RAD:
-    title = tr("Frequency response");
-    yTitle = tr("Magnitude");
+    title = transducer_ ? tr("Transducer gain") : tr("Frequency response");
+    yTitle = transducer_ ? tr("Transducer gain") : tr("Magnitude");
     break;
   case GAIN:
   case GAIN_RAD:
-    title = tr("Frequency response");
-    yTitle = tr("Magnitude (dB)");
+    title = transducer_ ? tr("Transducer gain") : tr("Frequency response");
+    yTitle = transducer_ ? tr("Transducer gain (dB)") : tr("Magnitude (dB)");
     yUnit = QStringLiteral("dB");
     break;
   case LOSS:
@@ -1049,6 +1053,10 @@ void WorkPlane::relabel(F f)
     return;
   }
 
+  // the load assumed: say so
+  if(transducer_ && assumedLoad_ && (f == MAGNITUDE || f == MAGNITUDE_RAD
+      || f == GAIN || f == GAIN_RAD))
+    title += tr(" (load = source resistance)");
   plot_->setTitle(title);
   plot_->setAxisTitle(QwtPlot::xBottom, freq);
   plot_->setAxisTitle(QwtPlot::yLeft, yTitle);
@@ -1365,12 +1373,7 @@ PlotSettings PlotSettings::load()
   p.angular = q.value("Workplane/angularFrequency", p.angular).toBool();
   p.xLog = q.value("Workplane/xLog", p.xLog).toBool();
   p.yLog = q.value("Workplane/yLog", p.yLog).toBool();
-  p.autoRange = q.value("Workplane/autoRange", p.autoRange).toBool();
-  p.fStart = q.value("Workplane/fStart", p.fStart).toDouble();
-  p.fStop = q.value("Workplane/fStop", p.fStop).toDouble();
-  p.pointsPerDecade =
-    q.value("Workplane/pointsPerDecade", p.pointsPerDecade).toInt();
-  if(!(p.fStart > 0 && p.fStop > p.fStart)) { p.fStart = 1.; p.fStop = 1e5; }
+  // the sweep is not kept: automatic (see save())
   p.z0 = q.value("Plot/smithZ0", p.z0).toDouble();
   if(!(p.z0 > 0.) || !std::isfinite(p.z0)) p.z0 = 50.;
   p.smithAdmittance = q.value("Plot/smithAdmittance", p.smithAdmittance).toBool();
@@ -1389,10 +1392,8 @@ void PlotSettings::save() const
   q.setValue("Workplane/angularFrequency", angular);
   q.setValue("Workplane/xLog", xLog);
   q.setValue("Workplane/yLog", yLog);
-  q.setValue("Workplane/autoRange", autoRange);
-  q.setValue("Workplane/fStart", fStart);
-  q.setValue("Workplane/fStop", fStop);
-  q.setValue("Workplane/pointsPerDecade", pointsPerDecade);
+  // the sweep is the plot's own (a sweep for one circuit is wrong for the
+  // next): a new plot starts automatic, or with what its file asks for
   q.setValue("Plot/smithZ0", z0);
   q.setValue("Plot/smithAdmittance", smithAdmittance);
   q.setValue("Plot/smithReturnLoss", smithReturnLoss);
@@ -1415,6 +1416,18 @@ PlotSettings WorkPlane::settings() const
   p.z0 = z0_;
   p.smithAdmittance = admittance_;
   p.smithReturnLoss = returnLoss_;
+  // the ranges: as set, or (automatic) what is on screen, a starting point
+  auto fill = [&](const QString& key, int axis, bool* automatic, double* lo,
+      double* hi) {
+      const YRange r = yRange(key);
+      *automatic = r.automatic;
+      const QwtInterval shown = plot_->axisInterval(axis);
+      *lo = r.automatic ? shown.minValue() : r.min;
+      *hi = r.automatic ? shown.maxValue() : r.max;
+    };
+  fill(magnitudeKey(), QwtPlot::yLeft, &p.magAuto, &p.magMin, &p.magMax);
+  fill(phaseKey(), kind_ == BodeKind ? QwtPlot::yRight : QwtPlot::yLeft,
+       &p.phaseAuto, &p.phaseMin, &p.phaseMax);
   p.output = output_;
   return p;
 }
@@ -1444,6 +1457,17 @@ void WorkPlane::applySettings(const PlotSettings& p)
   }
   admittance_ = p.smithAdmittance;
   returnLoss_ = p.smithReturnLoss;
+  {
+    YRange m, ph;
+    m.automatic = p.magAuto || !(p.magMax > p.magMin);
+    m.min = p.magMin;
+    m.max = p.magMax;
+    ph.automatic = p.phaseAuto || !(p.phaseMax > p.phaseMin);
+    ph.min = p.phaseMin;
+    ph.max = p.phaseMax;
+    setYRange(magnitudeKey(), m);
+    setYRange(phaseKey(), ph);
+  }
 
   if(autoRange_ && !num_.empty())
     autoFrequencyRange();
@@ -1538,8 +1562,27 @@ bool WorkPlane::impedanceAt(double hz, std::complex<double>* z) const
   const auto p = sapecng::phase(at, 1., true)(num_, den_, values_);
   if(m.second.empty() || p.second.empty())
     return false;
-  *z = std::polar(m.second.front(), p.second.front());
+  *z = std::polar(m.second.front() / gainScale_, p.second.front());
   return std::isfinite(z->real()) && std::isfinite(z->imag());
+}
+
+
+void WorkPlane::setGainScale(double k, bool transducer, bool assumedLoad)
+{
+  // the numerator times k: magnitude and gain plots, markers and peak
+  // searches all see the scaled transfer function (the phase, poles and
+  // zeros do not change; the Smith chart divides it out again)
+  if(!(k > 0.) || !std::isfinite(k))
+    k = 1.;
+  gainScale_ = k;
+  transducer_ = transducer;
+  assumedLoad_ = assumedLoad;
+  num_ = rawNum_;
+  if(k != 1.)
+    for(auto& degree : num_)
+      for(auto& term : degree.second)
+        term.first *= k;
+  invalidateCurves();
 }
 
 
@@ -1598,6 +1641,10 @@ void WorkPlane::refreshMarkers()
 
   fillingTable_ = true;
   markerTable_->setRowCount(markers_.size());
+  QStringList names;
+  for(int i = 0; i < markers_.size(); ++i)
+    names << QStringLiteral("M%1").arg(i + 1);
+  markerTable_->setVerticalHeaderLabels(names);
   const double twoPi = 8. * std::atan(1.);
   // labels of neighbouring markers go to different heights
   const QwtScaleMap xMap = plot_->canvasMap(QwtPlot::xBottom);
@@ -1794,7 +1841,8 @@ void WorkPlane::refreshMarkers()
   fillingTable_ = false;
 
   // the panel is as wide as the columns need
-  int width = 2 * markerTable_->frameWidth() + 8;
+  int width = 2 * markerTable_->frameWidth() + 8
+    + markerTable_->verticalHeader()->sizeHint().width();
   for(int c = 0; c < markerTable_->columnCount(); ++c)
     if(!markerTable_->isColumnHidden(c))
     {
@@ -1809,7 +1857,7 @@ void WorkPlane::refreshMarkers()
     width += markerTable_->verticalScrollBar()->width();
   markerPanel_->setMinimumWidth(qBound(260, width + 8, 560));
 
-  plot_->replot();
+  highlightMarkers();   // replots
 }
 
 
@@ -1869,38 +1917,44 @@ void WorkPlane::markerToPeak(int direction)
   const QVector<QPointF> g = magnitudeGrid();
   const double l0 = std::log10(f0);
 
+  // the next peak or dip (a notch, a series resonance) of the magnitude
+  auto extremum = [&](int i) {
+      return (g[i].y() > g[i - 1].y() && g[i].y() >= g[i + 1].y())
+          || (g[i].y() < g[i - 1].y() && g[i].y() <= g[i + 1].y());
+    };
   int found = -1;
   if(direction > 0) {
     for(int i = 1; i + 1 < g.size(); ++i)
-      if(g[i].x() > l0 + 1e-6 && g[i].y() > g[i - 1].y() && g[i].y() >= g[i + 1].y()) {
+      if(g[i].x() > l0 + 1e-6 && extremum(i)) {
         found = i;
         break;
       }
   } else {
     for(int i = g.size() - 2; i >= 1; --i)
-      if(g[i].x() < l0 - 1e-6 && g[i].y() > g[i + 1].y() && g[i].y() >= g[i - 1].y()) {
+      if(g[i].x() < l0 - 1e-6 && extremum(i)) {
         found = i;
         break;
       }
   }
   if(found < 0) {
     markerNote_->setText(direction > 0
-      ? tr("No peak to the right in the plotted range.")
-      : tr("No peak to the left in the plotted range."));
+      ? tr("No peak or dip to the right in the plotted range.")
+      : tr("No peak or dip to the left in the plotted range."));
     return;
   }
 
   // refine between the neighbours (golden section on log f)
+  const double sign = g[found].y() > g[found - 1].y() ? 1. : -1.;   // dip: -1
   double lo = g[found - 1].x(), hi = g[found + 1].x();
   const double phi = (std::sqrt(5.) - 1) / 2;
   for(int k = 0; k < 60; ++k) {
     const double c = hi - phi * (hi - lo), d = lo + phi * (hi - lo);
-    if(magnitudeAt(std::pow(10., c)) > magnitudeAt(std::pow(10., d)))
+    if(sign * magnitudeAt(std::pow(10., c)) > sign * magnitudeAt(std::pow(10., d)))
       hi = d;
     else
       lo = c;
   }
-  const double hz = QString::number(std::pow(10., (lo + hi) / 2), 'g', 6).toDouble();
+  const double hz = QString::number(std::pow(10., (lo + hi) / 2), 'g', 9).toDouble();
   setMarker(row, hz);
   markerNote_->clear();
   refreshMarkers();
@@ -2012,8 +2066,37 @@ void WorkPlane::addMarker(double hz)
 
 int WorkPlane::selectedMarker() const
 {
+  // the current one of those selected (the others go along when moved)
+  const QModelIndex cur = markerTable_->currentIndex();
+  if(cur.isValid() && markerTable_->selectionModel()->isRowSelected(cur.row()))
+    return cur.row();
   const QList<QTableWidgetSelectionRange> r = markerTable_->selectedRanges();
   return r.isEmpty() ? -1 : r.first().topRow();
+}
+
+
+void WorkPlane::highlightMarkers()
+{
+  // the markers selected in the table: drawn bold, in the accent colour
+  if(!markerTable_)
+    return;
+  const QColor accent = QApplication::palette().color(QPalette::Link);
+  QColor plain = QApplication::palette().color(QPalette::Text);
+  plain.setAlpha(150);
+  for(int i = 0; i < markerLines_.size() && i < markers_.size(); ++i) {
+    const bool on = markerTable_->selectionModel()->isRowSelected(i);
+    QwtPlotMarker* m = markerLines_.at(i);
+    const bool isRef = markers_.at(i) == refHz_;
+    if(m->lineStyle() == QwtPlotMarker::VLine)
+      m->setLinePen(on ? accent : plain, on ? 2.5 : (isRef ? 2 : 1),
+        isRef ? Qt::DashDotLine : Qt::DashLine);
+    else
+      m->setSymbol(new QwtSymbol(QwtSymbol::Ellipse,
+        QApplication::palette().color(QPalette::Base),
+        QPen(on ? accent : QApplication::palette().color(QPalette::Text),
+             on ? 3 : 2), on ? QSize(12, 12) : QSize(9, 9)));
+  }
+  plot_->replot();
 }
 
 
@@ -2235,11 +2318,6 @@ void WorkPlane::editFrequencyRange()
     units::parse(stop->text(), "Hz", &fStop_);
   }
 
-  QSettings settings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION);
-  settings.setValue("Workplane/autoRange", autoRange_);
-  settings.setValue("Workplane/fStart", fStart_);
-  settings.setValue("Workplane/fStop", fStop_);
-  settings.setValue("Workplane/pointsPerDecade", pointsPerDecade_);
 
   invalidateCurves();
   if(lastId_ != NOOP)
@@ -2389,9 +2467,15 @@ void WorkPlane::createMainLayout()
       QStringLiteral("Δ ") + tr("Mag."), QStringLiteral("Δ ") + tr("Phase") });
   // the visible columns share the width (the last one may be hidden)
   markerTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  markerTable_->verticalHeader()->setVisible(false);
+  // the marker names (M1, M2 ...) in the leftmost column
+  markerTable_->verticalHeader()->setVisible(true);
+  markerTable_->verticalHeader()->setDefaultAlignment(Qt::AlignCenter);
   markerTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  markerTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+  // Ctrl / Shift add to the selection; a click on the empty part of the
+  // table clears it (the plot shows the selected markers in bold)
+  markerTable_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  connect(markerTable_, &QTableWidget::itemSelectionChanged,
+    this, &WorkPlane::highlightMarkers);
   markerTable_->setToolTip(tr("Click a curve to add a marker; edit a "
     "frequency here (10k, 2.5MEG)"));
   connect(markerTable_, &QTableWidget::cellChanged,
@@ -2458,12 +2542,12 @@ void WorkPlane::createMainLayout()
 
   // searches: peaks of the magnitude, the -3 dB point
   QPushButton* prevPeak = new QPushButton(tr("◀ Peak"));
-  prevPeak->setToolTip(tr("Move the selected marker to the previous peak of "
-                          "the magnitude"));
+  prevPeak->setToolTip(tr("Move the selected marker to the previous peak or "
+                          "dip of the magnitude"));
   connect(prevPeak, &QPushButton::clicked, this, [this]() { markerToPeak(-1); });
   QPushButton* nextPeak = new QPushButton(tr("Peak ▶"));
-  nextPeak->setToolTip(tr("Move the selected marker to the next peak of the "
-                          "magnitude"));
+  nextPeak->setToolTip(tr("Move the selected marker to the next peak or dip "
+                          "of the magnitude"));
   connect(nextPeak, &QPushButton::clicked, this, [this]() { markerToPeak(1); });
   QPushButton* minus3 = new QPushButton(tr("−3 dB"));
   minus3->setToolTip(tr("A marker where the magnitude is 3 dB below the "

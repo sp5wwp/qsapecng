@@ -35,6 +35,7 @@
 class QWidget;
 
 class QProgressBar;
+class QTimer;
 class QLabel;
 
 class QMdiArea;
@@ -114,6 +115,8 @@ private slots:
   void showPlots();
   void assignNodes();
   void resolve();
+  void stopSolving();
+  void updateSolveProgress();
   void plot(int f);
   void xAxisLogScale(bool log);
   void yAxisLogScale(bool log);
@@ -198,6 +201,7 @@ private:
 
 private:
   QProgressBar* progressBar_;
+  QTimer* progressTimer_ = nullptr;
   QLabel* statusLabel_;
   QLabel* countLabel_;
   QLabel* zoomLabel_;
@@ -316,6 +320,7 @@ private:
   QAction* fitAct_;
   QAction* nodeAct_;
   QAction* resolveAct_;
+  QAction* stopAct_;
   QAction* waveAct_;
   QAction* plotsAct_;
   QAction* toggleScreenModeAct_;
