@@ -405,7 +405,10 @@ QSapecNG CHANGELOG
       quitting or closing a schematic while it solves stops the solver
       instead of waiting for it
     o Outputs (Out markers, voltmeters, ammeters) are solved at the same
-      time, one per processor thread; Settings > General sets the most
+      time, one per processor thread; Settings > General sets how many
+      at most
+    o Plots window: the size it had last time is kept. It no longer grows
+      to most of the screen when the Markers tab is in front
 
  * 2.1.1
     o Porting to Qwt6

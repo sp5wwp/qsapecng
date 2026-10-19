@@ -521,9 +521,13 @@ void QSapecNGWindow::createPlotWindow()
   plotWindow_->restoreState(
     settings.value(QStringLiteral("PlotWindow/state")).toByteArray(),
     PlotWindowLayoutVersion);
-  if(!plotWindow_->restoreGeometry(
+  if(plotWindow_->restoreGeometry(
       settings.value(QStringLiteral("PlotWindow/geometry")).toByteArray()))
   {
+    // the size chosen last time stays (it only grows if the settings
+    // form would not fit)
+    plotWindowSized_ = true;
+  } else {
     plotWindow_->resize(1000, 640);
     plotWindow_->move(geometry().center() - QPoint(500, 320));
   }
@@ -624,10 +628,22 @@ void QSapecNGWindow::fitPlotWindowHeight(bool natural)
       const int maxW = avail.width() * 8 / 10, maxH = avail.height() * 8 / 10;
 
       // the settings form, measured even when the Markers tab is in front
+      // (behind the Markers tab its own size is stale: the tab in front
+      // has the size both get)
+      int viewportH = plotSettingsScroll_->viewport()->height();
+      if(!plotSettingsScroll_->isVisible() && markersDock_
+          && markersDock_->widget() && markersDock_->widget()->isVisible())
+      {
+        const QMargins m = plotSettingsDock_->widget()->layout()
+          ? plotSettingsDock_->widget()->layout()->contentsMargins()
+          : QMargins();
+        viewportH = markersDock_->widget()->height() - m.top() - m.bottom()
+          - 2 * plotSettingsScroll_->frameWidth();
+      }
       int grow = 0;
-      if(plotSettingsScroll_->viewport()->height() > 0) {
+      if(viewportH > 0) {
         const int missing = plotSettingsForm_->sizeHint().height()
-          - plotSettingsScroll_->viewport()->height();
+          - viewportH;
         grow = qMin(missing, maxH - frame.height());
         if(!natural)
           grow = qMax(0, grow);       // later on it only grows
