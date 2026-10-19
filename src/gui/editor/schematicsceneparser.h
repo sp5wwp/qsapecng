@@ -63,6 +63,7 @@ public:
 
 private:
   QSet<Item*> floatingParts() const;
+  QMap<QString, QString> props_;   // the schematic's own properties
   void storeItemData(
       std::map<std::string,std::string>& props,
       SchematicScene::SupportedItemType type,

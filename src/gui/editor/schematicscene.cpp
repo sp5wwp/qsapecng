@@ -286,6 +286,39 @@ QRectF SchematicScene::outPivotRect()
 }
 
 
+namespace
+{
+
+// the letter of a meter, centred on (0, 0), as the old symbols drew it
+QPainterPath meterGlyph(char letter)
+{
+  const qreal h = SchematicScene::GridStep / 2.;
+  QPainterPath glyph;
+  const qreal m = SchematicScene::GridStep / 4.;   // + and - marks
+  if(letter == '+' || letter == '-') {
+    glyph.moveTo(-m, 0);
+    glyph.lineTo(m, 0);
+    if(letter == '+') {
+      glyph.moveTo(0, -m);
+      glyph.lineTo(0, m);
+    }
+  } else if(letter == 'V') {
+    glyph.moveTo(-h, -h);
+    glyph.lineTo(0, h);
+    glyph.lineTo(h, -h);
+  } else {
+    glyph.moveTo(-h, h);
+    glyph.lineTo(0, -h);
+    glyph.lineTo(h, h);
+    glyph.moveTo(-h / 2, 0);
+    glyph.lineTo(h / 2, 0);
+  }
+  return glyph;
+}
+
+}
+
+
 QPainterPath SchematicScene::voltmeterPath()
 {
   QPainterPath path;
@@ -302,18 +335,7 @@ QPainterPath SchematicScene::voltmeterPath()
   );
   path.lineTo(step, 5 * step);
 
-  path.moveTo(step - step / 2, 2 * step);
-  path.lineTo(step, 3 * step);
-  path.lineTo(step + step / 2, 2 * step);
-
-  path.moveTo(step + step / 2, step / 2 - step / 4);
-  path.lineTo(step + step / 2, step / 2 + step / 4);
-
-  path.moveTo(step + step / 2 - step / 4, step / 2);
-  path.lineTo(step + step / 2 + step / 4, step / 2);
-
-  path.moveTo(step + step / 2 - step / 4, 4 * step + step / 2);
-  path.lineTo(step + step / 2 + step / 4, 4 * step + step / 2);
+  // the V and the + and - marks are drawn upright apart (meterGlyph)
 
   return path;
 }
@@ -335,12 +357,7 @@ QPainterPath SchematicScene::ammeterPath()
   );
   path.lineTo(step, 5 * step);
 
-  path.moveTo(step + step / 2, 3 * step);
-  path.lineTo(step, 2 * step);
-  path.lineTo(step - step / 2, 3 * step);
-
-  path.moveTo(step + step / 4, 2 * step + step / 2);
-  path.lineTo(step - step / 4, 2 * step + step / 2);
+  // the A is drawn upright apart (meterGlyph)
 
   path.moveTo(step / 2, 5 * step / 4);
   path.lineTo(step / 2, step / 4);
@@ -1016,7 +1033,11 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
       QList<QPointF> nodes;
       nodes.push_back(QPointF(GridStep, 0));
       nodes.push_back(QPointF(GridStep, 5 * GridStep));
-      item = new Component(voltmeterPath(), nodes);
+      Component* meter = new Component(voltmeterPath(), nodes);
+      meter->addGlyph(QPointF(GridStep, 2.5 * GridStep), meterGlyph('V'));
+      meter->addGlyph(QPointF(1.5 * GridStep, 0.5 * GridStep), meterGlyph('+'));
+      meter->addGlyph(QPointF(1.5 * GridStep, 4.5 * GridStep), meterGlyph('-'));
+      item = meter;
       break;
     }
   case AmmeterItemType:
@@ -1024,7 +1045,9 @@ Item* SchematicScene::itemByType(SchematicScene::SupportedItemType type)
       QList<QPointF> nodes;
       nodes.push_back(QPointF(GridStep, 0));
       nodes.push_back(QPointF(GridStep, 5 * GridStep));
-      item = new Component(ammeterPath(), nodes);
+      Component* meter = new Component(ammeterPath(), nodes);
+      meter->addGlyph(QPointF(GridStep, 2.5 * GridStep), meterGlyph('A'));
+      item = meter;
       break;
     }
   case WireItemType:
@@ -2514,6 +2537,9 @@ void SchematicScene::endDrag(bool commit)
 
   if(!commit || drag.total.isNull() || drag.items.isEmpty())
     return;
+  // not onto another part: the items go back where they were
+  if(overlapsParts(drag.items, drag.total))
+    return;
 
   undoRedoStack_->beginMacro(tr("Move item(s)"));
   undoRedoStack_->push(new MoveItems(this, drag.items, drag.total));
@@ -2616,6 +2642,9 @@ void SchematicScene::pasteItems()
 void SchematicScene::finishFloatingPaste(bool place)
 {
   if(!floatingPaste_)
+    return;
+  // not onto another part: the pasted items keep following the pointer
+  if(place && overlapsParts(floating_))
     return;
   floatingPaste_ = false;
 
@@ -2978,6 +3007,7 @@ void SchematicScene::binSelectedItems()
 
 void SchematicScene::clearSchematicScene()
 {
+  circuitProps_.clear();
   QList<QGraphicsItem*> itemList = items();
   if(itemList.isEmpty())
     return;
@@ -3244,6 +3274,12 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
       return;
     case Qt::LeftButton:
     {
+      // not on top of another part
+      if(item_ && overlapsParts({ item_ })) {
+        event->accept();
+        return;
+      }
+
       QUndoCommand* addCommand = 0;
       
       if(hasUserDefReq()) {
@@ -3698,6 +3734,15 @@ void SchematicScene::dropEvent(QGraphicsSceneDragDropEvent* event)
 {
   if(item_) {
     SupportedItemType type = (SupportedItemType) item_->data(0).toInt();
+    if(overlapsParts({ item_ }, event->scenePos() - item_->pos()
+        - QPointF(item_->boundingRect().width() / 2,
+                  item_->boundingRect().height() / 2))) {
+      removeItem(item_);
+      delete item_;
+      item_ = 0;
+      event->ignore();
+      return;
+    }
     qreal xoffset = item_->boundingRect().width() / 2;
     qreal yoffset = item_->boundingRect().height() / 2;
 
@@ -3877,40 +3922,115 @@ void SchematicScene::setPrePostWireLine(QPointF toPoint)
 }
 
 
-bool SchematicScene::connectionAt(const QPointF& point, QPointF* exact) const
+bool SchematicScene::overlapsParts(const QList<QGraphicsItem*>& items,
+  const QPointF& offset)
 {
-  // a pin of a part, or the end of a wire, within a few pixels (computed:
-  // the node markers have no reliable shape to hit)
-  auto near = [&point](const QPointF& p) {
-      return qAbs(p.x() - point.x()) <= 4 && qAbs(p.y() - point.y()) <= 4;
+  // the symbols (without their names and values), a little inside, so
+  // that parts meeting at a pin or side by side do not count
+  auto body = [](const Component* c, const QPointF& shift) {
+      QRectF r = c->sceneTransform().mapRect(c->path().boundingRect());
+      r.translate(shift);
+      return r.adjusted(2, 2, -2, -2);
     };
+  QList<const Component*> moving;
+  foreach(QGraphicsItem* item, items)
+    if(const Component* c = dynamic_cast<const Component*>(item))
+      moving.append(c);
+  if(moving.isEmpty())
+    return false;
+
   QList<Item*> parts;
   parts << standardList_ << groundList_ << portList_ << userDefList_;
   parts << outputList_;
   foreach(Item* item, parts) {
-    const Component* c = dynamic_cast<const Component*>(item);
-    if(!c || !c->isVisible())
+    const Component* other = dynamic_cast<const Component*>(item);
+    if(!other || !other->isVisible() || other == item_
+        || items.contains(item))
       continue;
-    foreach(const QPointF& pin, c->pinPoints()) {
-      const QPointF p = c->mapToScene(pin);
-      if(near(p)) {
-        *exact = closestGridPoint(p);
+    const QRectF there = body(other, QPointF());
+    if(!there.isValid())
+      continue;
+    for(const Component* c : moving) {
+      const QRectF here = body(c, offset);
+      if(here.isValid() && here.intersects(there)) {
+        emit notice(tr("Parts cannot lie on top of each other (a %1 is "
+                       "there)").arg(itemNameByType(itemType(
+          const_cast<Component*>(other))).toLower()));
         return true;
       }
+    }
+  }
+  return false;
+}
+
+
+bool SchematicScene::connectionAt(const QPointF& point, QPointF* exact) const
+{
+  // a pin of a part, or the end of a wire, within a few pixels (computed:
+  // the node markers have no reliable shape to hit); a wire can start
+  // there. A pin already connected (to a wire or another pin) is not one:
+  // a click there selects the part; a junction of wires is
+  auto near = [&point](const QPointF& p) {
+      return qAbs(p.x() - point.x()) <= 4 && qAbs(p.y() - point.y()) <= 4;
+    };
+  auto same = [](const QPointF& a, const QPointF& b) {
+      return qAbs(a.x() - b.x()) < 0.5 && qAbs(a.y() - b.y()) < 0.5;
+    };
+  QList<Item*> parts;
+  parts << standardList_ << groundList_ << portList_ << userDefList_;
+  parts << outputList_;
+
+  QList<QPointF> pins, ends;
+  QList<QLineF> lines;
+  foreach(Item* item, parts) {
+    const Component* c = dynamic_cast<const Component*>(item);
+    if(c && c->isVisible()) {
+      foreach(const QPointF& pin, c->pinPoints())
+        pins.append(c->mapToScene(pin));
     }
   }
   foreach(Item* item, wireList_) {
     const Wire* w = static_cast<const Wire*>(item);
     if(!w->isVisible())
       continue;
-    for(const QPointF& end : { w->mapToScene(w->fromPoint()),
-                               w->mapToScene(w->toPoint()) })
-      if(near(end)) {
-        *exact = closestGridPoint(end);
-        return true;
-      }
+    const QLineF l(w->mapToScene(w->fromPoint()), w->mapToScene(w->toPoint()));
+    lines.append(l);
+    ends << l.p1() << l.p2();
   }
-  return false;
+
+  // the point clicked: a pin first, then a wire end
+  QPointF at;
+  bool found = false;
+  for(const QPointF& p : pins)
+    if(near(p)) { at = p; found = true; break; }
+  if(!found)
+    for(const QPointF& p : ends)
+      if(near(p)) { at = p; found = true; break; }
+  if(!found)
+    return false;
+
+  int pinsHere = 0, others = 0;
+  for(const QPointF& p : pins)
+    if(same(p, at))
+      ++pinsHere;
+  for(const QPointF& p : ends)
+    if(same(p, at))
+      ++others;
+  for(const QLineF& l : lines) {
+    // passing through (not ending) here
+    if(same(l.p1(), at) || same(l.p2(), at))
+      continue;
+    const QRectF box = QRectF(l.p1(), l.p2()).normalized().adjusted(-0.5, -0.5, 0.5, 0.5);
+    const bool onLine = (qAbs(l.dx()) < 0.5 && qAbs(at.x() - l.x1()) < 0.5)
+      || (qAbs(l.dy()) < 0.5 && qAbs(at.y() - l.y1()) < 0.5);
+    if(onLine && box.contains(at))
+      ++others;
+  }
+  if(pinsHere > 0 && pinsHere + others > 1)
+    return false;
+
+  *exact = closestGridPoint(at);
+  return true;
 }
 
 

@@ -401,27 +401,45 @@ RotateItems::RotateItems(
 }
 
 
+namespace
+{
+
+// a part with one pin (Out, ground, port, one-pin source) turns around
+// that pin, so it stays on its wire
+void turn(QGraphicsItem* graphicsItem, bool back)
+{
+  Item* item = qgraphicsitem_cast<Item*>(graphicsItem);
+  if(!item) {
+    rotateItem(graphicsItem, back ? -90 : 90);
+    return;
+  }
+  const Component* c = dynamic_cast<const Component*>(item);
+  const bool onePin = c && c->pinPoints().size() == 1;
+  const QPointF before = onePin ? c->mapToScene(c->pinPoints().first())
+                                : QPointF();
+  if(back)
+    item->rotateBack();
+  else
+    item->rotate();
+  if(onePin)
+    item->moveBy(before.x() - c->mapToScene(c->pinPoints().first()).x(),
+                 before.y() - c->mapToScene(c->pinPoints().first()).y());
+}
+
+}
+
+
 void RotateItems::undo()
 {
-  foreach(QGraphicsItem* graphicsItem, items_) {
-    Item* item = qgraphicsitem_cast<Item*>(graphicsItem);
-    if(item)
-      item->rotateBack();
-    else
-      rotateItem(graphicsItem, -90);
-  }
+  foreach(QGraphicsItem* graphicsItem, items_)
+    turn(graphicsItem, true);
 }
 
 
 void RotateItems::redo()
 {
-  foreach(QGraphicsItem* graphicsItem, items_) {
-    Item* item = qgraphicsitem_cast<Item*>(graphicsItem);
-    if(item)
-      item->rotate();
-    else
-      rotateItem(graphicsItem, 90);
-  }
+  foreach(QGraphicsItem* graphicsItem, items_)
+    turn(graphicsItem, false);
 }
 
 

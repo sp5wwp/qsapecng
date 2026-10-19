@@ -161,15 +161,18 @@ void Component::paint(
     // smeared and looks grey
     painter->translate(QPointF(qRound(box.center().x()), qRound(box.center().y())));
     painter->setTransform(upright, true);
-    const QRectF r = upright.inverted().mapRect(QRectF(QPointF(0, 0), box.size()));
+    // upright now; a tag standing on end (rotated a quarter turn) has its
+    // caption along it, read from the bottom up
+    if(qAbs(t.m11()) < 0.5)
+      painter->rotate(-90);
+    const QRectF r(-box.width() / 2, -box.height() / 2, box.width(), box.height());
     // the schematic font, sized in pixels so the caption fits the tag the
     // same way on every platform (point sizes differ with the screen DPI)
     QFont font = theme::schematicFont(10);
     font.setPixelSize(qMax(6, qRound(box.height() * 0.7)));
     painter->setFont(font);
     painter->setPen(text);
-    painter->drawText(r.translated(-r.width() / 2, -r.height() / 2),
-      Qt::AlignCenter, tag_);
+    painter->drawText(r, Qt::AlignCenter, tag_);
 
     painter->restore();
     return;
@@ -179,6 +182,20 @@ void Component::paint(
   pen.setColor(theme::sheetForeground());
   painter->setPen(pen);
   painter->drawPath(path_);
+
+  // upright drawings inside the symbol (the meters' V and A)
+  if(!glyphs_.isEmpty()) {
+    const QTransform t = transform();
+    const QTransform upright =
+      QTransform(t.m11(), t.m12(), t.m21(), t.m22(), 0, 0).inverted();
+    for(const auto& g : glyphs_) {
+      painter->save();
+      painter->translate(g.first);
+      painter->setTransform(upright, true);
+      painter->drawPath(g.second);
+      painter->restore();
+    }
+  }
 
   // small upright captions inside the symbol (e.g. Lp / Ls)
   if(!captions_.isEmpty()) {
@@ -217,6 +234,16 @@ void Component::setReversed(bool reversed)
     t = QTransform(-1, 0, 0, 1, 2 * mid.x(), 0);
   prepareGeometryChange();
   path_ = t.map(path_);
+  // the upright marks (+ and -) change places too
+  for(auto& g : glyphs_)
+    g.first = t.map(g.first);
+  update();
+}
+
+
+void Component::addGlyph(const QPointF& centre, const QPainterPath& glyph)
+{
+  glyphs_.append(qMakePair(centre, glyph));
   update();
 }
 

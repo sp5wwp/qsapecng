@@ -193,6 +193,7 @@ struct PlotSettings
   // (where a shunt part moves the point) over the impedance ones
   double z0 = 50.;              // ohm
   bool smithAdmittance = false;
+  bool smithReturnLoss = false;   // markers: return loss instead of VSWR
   // which output of the circuit (Out1, VM1 ...; empty: the first). Not
   // kept as a default for the next plot
   QString output;
@@ -323,6 +324,7 @@ private:
   bool angular_ = false;   // frequency axis in rad/s instead of Hz
   double z0_ = 50.;        // Smith chart reference impedance (ohm)
   bool admittance_ = false;   // Smith chart: admittance circles too
+  bool returnLoss_ = false;   // Smith markers: return loss, not VSWR
   QVector<double> smithHz_;   // the frequency of each Smith curve sample
   QwtPlotItem* smithGrid_ = nullptr;
   // the plots with both axes in the same units (no frequency axis)
@@ -348,6 +350,7 @@ protected:
   bool keepAttached_ = false;   // drawing the second curve of a Bode plot
 
   void autoFrequencyRange();
+  int sweepPoints() const;
   void invalidateCurves();
   void plotBode();
 

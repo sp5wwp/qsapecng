@@ -53,6 +53,7 @@ SchematicSceneParser::SchematicSceneParser(
 {
   setupMap();
   items_ = scene.activeItems();
+  props_ = scene.circuitProperties();
 }
 
 
@@ -86,6 +87,13 @@ void SchematicSceneParser::parse(
     sapecng::abstract_builder& builder
   )
 {
+  if(!props_.isEmpty()) {
+    std::map<std::string, std::string> map;
+    for(auto i = props_.constBegin(); i != props_.constEnd(); ++i)
+      map[i.key().toStdString()] = i.value().toStdString();
+    builder.add_circuit_properties(map);
+  }
+
   const QSet<Item*> floating = skipFloating_ ? floatingParts() : QSet<Item*>();
   foreach(Item* item, items_) {
     if(floating.contains(item)) {
@@ -552,12 +560,18 @@ void SchematicSceneParser::parse_item(
 void SchematicSceneBuilder::add_circuit_properties(
   std::map<std::string, std::string> map)
 {
+  for(const auto& p : map)
+    add_circuit_property(p.first, p.second);
 }
 
 
 void SchematicSceneBuilder::add_circuit_property(
   std::string name, std::string value)
 {
+  // the top schematic's only (not those of sub-circuits)
+  if(stack_.isEmpty())
+    scene_->setCircuitProperty(QString::fromStdString(name),
+      QString::fromStdString(value));
 }
 
 

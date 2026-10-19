@@ -53,6 +53,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QScreen>
+#include <QWidgetAction>
+#include <QListWidget>
 #include <cmath>
 #include <QSignalBlocker>
 #include <QScrollArea>
@@ -323,7 +325,7 @@ void QSapecNGWindow::wave()
   // window stays in front when the dialog closes
   QWidget* owner = (plotWindow_ && plotWindow_->isVisible()
       && plotWindow_->isActiveWindow()) ? static_cast<QWidget*>(plotWindow_) : this;
-  PlotDialog dialog(PlotSettings::load(), true, owner);
+  PlotDialog dialog(plotDefaults(editor, false), true, owner);
   // the output shown in the Result panel, unless the schematic changed
   // its outputs since
   dialog.setOutputs(editor->scene().outputNames(), resultPanel_->currentOutput());
@@ -531,6 +533,40 @@ void QSapecNGWindow::fitPlotSettingsWidth()
     + plotSettingsScroll_->verticalScrollBar()->sizeHint().width()
     + 2 * plotSettingsScroll_->frameWidth();
   plotSettingsScroll_->setMinimumWidth(width);
+}
+
+
+PlotSettings QSapecNGWindow::plotDefaults(SchematicEditor* editor,
+  bool kind) const
+{
+  PlotSettings s = PlotSettings::load();
+  if(!editor)
+    return s;
+  const QMap<QString, QString> p = editor->scene().circuitProperties();
+  bool ok1 = false, ok2 = false;
+  const double a = p.value(QStringLiteral("plot.fstart")).toDouble(&ok1);
+  const double b = p.value(QStringLiteral("plot.fstop")).toDouble(&ok2);
+  if(ok1 && ok2 && a > 0 && b > a) {
+    s.autoRange = false;
+    s.fStart = a;
+    s.fStop = b;
+  }
+  bool ok = false;
+  const int points = p.value(QStringLiteral("plot.points")).toInt(&ok);
+  if(ok && points >= 10)
+    s.pointsPerDecade = points;
+  const double z0 = p.value(QStringLiteral("plot.z0")).toDouble(&ok);
+  if(ok && z0 > 0)
+    s.z0 = z0;
+  if(kind) {
+    static const QStringList kinds = { QStringLiteral("magnitude"),
+      QStringLiteral("phase"), QStringLiteral("polezero"),
+      QStringLiteral("bode"), QStringLiteral("smith") };
+    const int k = kinds.indexOf(p.value(QStringLiteral("plot.kind")).toLower());
+    if(k >= 0)
+      s.kind = k;
+  }
+  return s;
 }
 
 
@@ -2265,8 +2301,10 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     if(pendingPlots_.contains(editor))
       createPlot(editor, pendingPlots_.take(editor));
     else if(!hasPlot) {
-      PlotSettings bode = PlotSettings::load();
-      bode.kind = WorkPlane::BodeKind;
+      // a Bode plot, unless the file asks for another kind
+      PlotSettings bode = plotDefaults(editor, true);
+      if(!editor->scene().circuitProperties().contains(QStringLiteral("plot.kind")))
+        bode.kind = WorkPlane::BodeKind;
       // the first output with a transfer function
       for(const OutputResult& o : editor->lastResult().outputs)
         if(!o.singular) {
@@ -2284,6 +2322,11 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
   });
   connect(&(editor->scene()), &SchematicScene::placementChanged,
       this, &QSapecNGWindow::sceneSelectionChanged);
+  connect(&(editor->scene()), &SchematicScene::notice, this,
+      [this](const QString& text) {
+        QApplication::beep();
+        statusBar()->showMessage(text, 4000);
+      });
   connect(&(editor->scene()), SIGNAL(selectionChanged()),
       this, SLOT(sceneSelectionChanged()));
   connect(this, SIGNAL(toggleGrid(bool)),
@@ -2323,11 +2366,53 @@ void QSapecNGWindow::createExamplesMenu(QMenu* parent)
   if(files.isEmpty())
     return;
 
+  // a long list: a list with a scroll bar inside the menu, about a dozen
+  // rows high
   QMenu* menu = parent->addMenu(tr("Open E&xample"));
+  QListWidget* list = new QListWidget;
+  list->setFrameShape(QFrame::NoFrame);
+  list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  list->setMouseTracking(true);
+  // rows spaced like menu entries, on the menu's background
+  list->setStyleSheet(QStringLiteral(
+    "QListWidget { background: transparent; }"
+    "QListWidget::item { padding: 4px 22px; }"));
+  int width = 0;
   foreach(const QFileInfo& file, files) {
-    const QString path = file.absoluteFilePath();
-    menu->addAction(file.fileName(), this, [this, path]() { open(path); });
+    QListWidgetItem* item = new QListWidgetItem(file.completeBaseName(), list);
+    item->setData(Qt::UserRole, file.absoluteFilePath());
+    item->setToolTip(file.absoluteFilePath());
+    width = qMax(width, list->fontMetrics().horizontalAdvance(item->text()));
   }
+  list->ensurePolished();
+  const int row = qMax(list->sizeHintForRow(0), list->fontMetrics().height() + 8);
+  for(int i = 0; i < list->count(); ++i)
+    list->item(i)->setSizeHint(QSize(width + 44, row));
+  list->setFixedHeight(row * qMin(12, int(files.size())) + 2);
+  list->setMinimumWidth(width + 44 + list->verticalScrollBar()->sizeHint().width());
+  // the row under the pointer is highlighted, as in a menu
+  connect(list, &QListWidget::itemEntered, list, [list](QListWidgetItem* item) {
+      list->setCurrentItem(item);
+    });
+  auto openItem = [this](QListWidgetItem* item) {
+      if(!item)
+        return;
+      const QString path = item->data(Qt::UserRole).toString();
+      // close the menus first
+      while(QWidget* popup = QApplication::activePopupWidget())
+        popup->close();
+      open(path);
+    };
+  connect(list, &QListWidget::itemClicked, this, openItem);
+  connect(list, &QListWidget::itemActivated, this, openItem);
+  QWidgetAction* listAction = new QWidgetAction(menu);
+  listAction->setDefaultWidget(list);
+  menu->addAction(listAction);
+  connect(menu, &QMenu::aboutToShow, list, [list]() {
+      list->clearSelection();
+      list->setCurrentRow(-1);
+      list->scrollToTop();
+    });
 }
 
 

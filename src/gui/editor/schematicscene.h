@@ -26,6 +26,7 @@
 #include <QList>
 #include <QRect>
 #include <QHash>
+#include <QMap>
 #include <QPointF>
 #include <QVariant>
 #include <QMetaType>
@@ -172,6 +173,13 @@ public:
   inline bool isGridPoint(QPointF point) const
     { return (point == closestGridPoint(point)); }
 
+  // properties of the whole schematic, kept in its file (e.g. the sweep a
+  // plot of it starts with: plot.fstart, plot.fstop, plot.points,
+  // plot.kind, plot.z0)
+  inline QMap<QString, QString> circuitProperties() const
+    { return circuitProps_; }
+  inline void setCircuitProperty(const QString& name, const QString& value)
+    { circuitProps_.insert(name, value); }
   void setActiveItem(SupportedItemType item);
   inline SupportedItemType activeItem() const { return activeItem_; }
   QList<Item*> activeItems() const;
@@ -268,6 +276,8 @@ signals:
   void propertyChanged();
   // placing a new item started or ended (see isPlacingItem())
   void placementChanged();
+  // a short notice for the status bar (e.g. why a part was not placed)
+  void notice(const QString& text);
 
 protected:
   void drawBackground(QPainter* painter, const QRectF& rect);
@@ -330,6 +340,10 @@ private:
   bool hoverAim_ = false;
   QPointF pinPoint_, pinPressScreen_;
   bool connectionAt(const QPointF& point, QPointF* exact) const;
+  // true when a part of `items`, moved by `offset`, would lie on another
+  // part (touching at the pins is fine); a notice says so
+  bool overlapsParts(const QList<QGraphicsItem*>& items,
+    const QPointF& offset = QPointF());
   QList<QGraphicsItem*> floating_;
   QPointF floatAnchor_, floatTotal_;
   void finishFloatingPaste(bool place);
@@ -396,6 +410,7 @@ private:
   bool wireTapsPending_ = false;
   QString nextFreeName(SupportedItemType type);
   QHash<SupportedItemType, unsigned int> itemCntMap_;
+  QMap<QString, QString> circuitProps_;
   QHash<SupportedItemType, QtProperty*> typeRootMap_;
 
 };

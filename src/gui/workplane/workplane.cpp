@@ -674,7 +674,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate magnitude."));
         std::map<std::string, double> values = actValues();
         res = sapecng::magnitude(
-            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
+            std::make_pair(fStart_, fStop_), sweepPoints(), true
           )(num_, den_, values);
       }
 
@@ -710,7 +710,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate phase."));
         std::map<std::string, double> values = actValues();
         res = sapecng::phase(
-            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
+            std::make_pair(fStart_, fStop_), sweepPoints(), true
           )(num_, den_, values);
       }
 
@@ -749,7 +749,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate gain."));
         std::map<std::string, double> values = actValues();
         res = sapecng::gain(
-            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
+            std::make_pair(fStart_, fStop_), sweepPoints(), true
           )(num_, den_, values);
       }
 
@@ -785,7 +785,7 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate loss."));
         std::map<std::string, double> values = actValues();
         res = sapecng::loss(
-            std::make_pair(fStart_, fStop_), pointsPerDecade_, true
+            std::make_pair(fStart_, fStop_), sweepPoints(), true
           )(num_, den_, values);
       }
 
@@ -877,9 +877,9 @@ void WorkPlane::plot(WorkPlane::F f)
         QLogger::info(QObject::tr("Calculate the reflection coefficient."));
         std::map<std::string, double> values = actValues();
         const std::pair<double, double> range(fStart_, fStop_);
-        const auto m = sapecng::magnitude(range, pointsPerDecade_, true)(
+        const auto m = sapecng::magnitude(range, sweepPoints(), true)(
           num_, den_, values);
-        const auto ph = sapecng::phase(range, pointsPerDecade_, true)(
+        const auto ph = sapecng::phase(range, sweepPoints(), true)(
           num_, den_, values);
         std::pair< std::vector<double>, std::vector<double> > res;
         smithHz_.clear();
@@ -1367,6 +1367,7 @@ PlotSettings PlotSettings::load()
   p.z0 = q.value("Plot/smithZ0", p.z0).toDouble();
   if(!(p.z0 > 0.) || !std::isfinite(p.z0)) p.z0 = 50.;
   p.smithAdmittance = q.value("Plot/smithAdmittance", p.smithAdmittance).toBool();
+  p.smithReturnLoss = q.value("Plot/smithReturnLoss", p.smithReturnLoss).toBool();
   if(p.kind < 0 || p.kind > 4) p.kind = 3;
   return p;
 }
@@ -1387,6 +1388,7 @@ void PlotSettings::save() const
   q.setValue("Workplane/pointsPerDecade", pointsPerDecade);
   q.setValue("Plot/smithZ0", z0);
   q.setValue("Plot/smithAdmittance", smithAdmittance);
+  q.setValue("Plot/smithReturnLoss", smithReturnLoss);
 }
 
 
@@ -1405,6 +1407,7 @@ PlotSettings WorkPlane::settings() const
   p.pointsPerDecade = pointsPerDecade_;
   p.z0 = z0_;
   p.smithAdmittance = admittance_;
+  p.smithReturnLoss = returnLoss_;
   p.output = output_;
   return p;
 }
@@ -1433,6 +1436,7 @@ void WorkPlane::applySettings(const PlotSettings& p)
     curves_[SMITH].second = false;
   }
   admittance_ = p.smithAdmittance;
+  returnLoss_ = p.smithReturnLoss;
 
   if(autoRange_ && !num_.empty())
     autoFrequencyRange();
@@ -1460,6 +1464,18 @@ bool WorkPlane::markerValues(double hz, double* magnitude, double* phase) const
   *phase = phaseDegrees_ ? p.second.front() * 180. / (4. * std::atan(1.))
                          : p.second.front();
   return true;
+}
+
+
+int WorkPlane::sweepPoints() const
+{
+  // points per decade for the sweep: as set, but at most about 100 000
+  // points in all (a narrow range around a crystal's resonance wants a
+  // great many per decade; a wide one would take long)
+  const double decades = std::log10(fStop_ / fStart_);
+  if(!(decades > 0.) || !std::isfinite(decades))
+    return pointsPerDecade_;
+  return qMax(10, qMin(pointsPerDecade_, int(100000. / decades)));
 }
 
 
@@ -1547,8 +1563,13 @@ void WorkPlane::refreshMarkers()
   const int refIndex = hasRef ? markers_.indexOf(refHz_) : -1;
   const bool smith = (lastId_ == SMITH);
   QList<QRectF> smithLabels;   // labels placed so far (canvas pixels)
-  markerTable_->setColumnHidden(3, !hasRef || smith);
+  // the Smith chart: Z, the reflection coefficient and the VSWR (or the
+  // return loss)
+  markerTable_->setColumnHidden(3, smith ? false : !hasRef);
   markerTable_->setColumnHidden(4, !hasRef || smith);
+  markerTable_->setHorizontalHeaderItem(3, new QTableWidgetItem(
+    smith ? (returnLoss_ ? tr("RL") : tr("VSWR"))
+          : QStringLiteral("Δ ") + tr("Mag.")));
   markerTable_->setHorizontalHeaderItem(1, new QTableWidgetItem(
     smith ? tr("Z") : tr("Magnitude")));
   markerTable_->setHorizontalHeaderItem(2, new QTableWidgetItem(
@@ -1605,11 +1626,18 @@ void WorkPlane::refreshMarkers()
         .arg(std::arg(g) * 180. / (4. * std::atan(1.)), 0, 'f', 1);
       m->setText(zText);
       p->setText(gText);
+      // VSWR, or the return loss -20 log |Gamma| in dB
+      const QString vswr = mg < 1.
+        ? QString::number((1. + mg) / (1. - mg), 'f', 2) : QStringLiteral("∞");
+      const QString rl = mg > 0.
+        ? QStringLiteral("%1 dB").arg(-20. * std::log10(mg), 0, 'f', 1)
+        : QStringLiteral("∞");
+      dm->setText(returnLoss_ ? rl : vswr);
       QString text = QStringLiteral("M%1  %2\nZ = %3\nΓ = %4").arg(i + 1)
         .arg(units::format(QString::number(hz, 'g', 6), "Hz")).arg(zText)
         .arg(gText);
-      if(mg < 1.)
-        text += QStringLiteral("\nVSWR %1").arg((1. + mg) / (1. - mg), 0, 'f', 2);
+      text += returnLoss_ ? QStringLiteral("\nRL %1").arg(rl)
+                          : QStringLiteral("\nVSWR %1").arg(vswr);
       QwtPlotMarker* dot = new QwtPlotMarker;
       dot->setValue(g.real(), g.imag());
       QColor c = QApplication::palette().color(QPalette::Text);
@@ -2075,7 +2103,7 @@ void WorkPlane::editFrequencyRange()
   QLineEdit* stop = field(fStop_);
 
   QSpinBox* points = new QSpinBox;
-  points->setRange(10, 10000);
+  points->setRange(10, 1000000);
   points->setValue(pointsPerDecade_);
   points->setToolTip(tr("Points per decade, spaced logarithmically"));
 
@@ -2207,7 +2235,23 @@ public:
     // prefixes from 1000 up; below that the plain numbers read better
     if(std::fabs(v) < 999.5)
       return QwtScaleDraw::label(v);
-    return QwtText(units::format(QString::number(v, 'g', 6), QString()));
+    // enough digits to tell neighbouring ticks apart (a narrow sweep:
+    // 10.005M, 10.01M, 10.015M)
+    const QList<double> ticks = scaleDiv().ticks(QwtScaleDiv::MajorTick);
+    double step = 0.;
+    for(int i = 1; i < ticks.size(); ++i) {
+      const double d = std::fabs(ticks.at(i) - ticks.at(i - 1));
+      if(d > 0. && (step == 0. || d < step))
+        step = d;
+    }
+    int digits = 4;
+    if(step > 0.)
+      digits = qBound(4, int(std::ceil(std::log10(std::fabs(v) / step))) + 1, 9);
+    // the prefix as units::format gives it for 10^exp ("1k" -> "k")
+    const int exp = int(std::floor(std::log10(std::fabs(v)) / 3.)) * 3;
+    const QString prefix = units::format(
+      QString::number(std::pow(10., exp), 'g', 3), QString()).mid(1);
+    return QwtText(QString::number(v / std::pow(10., exp), 'g', digits) + prefix);
   }
 };
 

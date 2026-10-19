@@ -84,6 +84,7 @@ private:
   QGroupBox* smithBox_;     // shown for the Smith chart
   QLineEdit* z0_;
   QCheckBox* admittance_;
+  QCheckBox* returnLoss_;
   QTimer* settle_;
   bool filling_ = false;
 

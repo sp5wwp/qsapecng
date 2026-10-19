@@ -114,6 +114,9 @@ public:
   inline bool isReversed() const { return reversed_; }
   // a small caption centred on a point of the symbol, kept upright
   void addCaption(const QPointF& centre, const QString& text);
+  // a small drawing (centred on 0, 0) kept upright at `centre` however the
+  // part is turned or mirrored (the V and A of the meters)
+  void addGlyph(const QPointF& centre, const QPainterPath& glyph);
   QRectF pivotRect() const override;
 
   inline void setPath(const QPainterPath& path)
@@ -143,6 +146,7 @@ private:
   QString tag_;
   bool reversed_ = false;
   QList< QPair<QPointF, QString> > captions_;
+  QList< QPair<QPointF, QPainterPath> > glyphs_;
   QRectF pivot_;
   QPointF labelAnchor_;
   bool labelMoved_ = false;

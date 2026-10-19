@@ -326,6 +326,28 @@ QSapecNG CHANGELOG
     o New Plot dialog: fits its contents when the kind of plot changes
     o The pointer turns into the aiming cross over a pin or a wire end,
       where a click starts a wire
+    o 16 examples (File > Open Example, now a scrolling list): besides the
+      basics, an RF chain for 70 cm around the Semtech SX1255 (receive
+      match, transmit balun, 5 W PA pi network, harmonic low-pass with
+      real parts), a 10 MHz crystal model, EU FM pre-emphasis, a bridge
+      with meters, and a through-hole dummy load with its parasitics
+    o A schematic file can carry the sweep and kind of plot it opens with
+      (plot.fstart, plot.fstop, plot.points, plot.kind, plot.z0)
+    o Smith chart markers: Z, the reflection coefficient and the VSWR or,
+      by a tick in Plot Settings, the return loss
+    o Points per decade up to 1 000 000 for narrow sweeps (at most about
+      100 000 points are computed)
+    o Meters: the V and A and the + and - marks stay upright when the
+      meter is turned
+    o Frequency axis labels carry enough digits to tell a narrow sweep's
+      ticks apart (10.005M, 10.01M, 10.015M)
+    o Parts cannot be placed, moved, pasted or dropped on top of one
+      another (meeting at the pins is fine); the status bar says why
+    o A part with one pin (Out, ground, port, one-pin source) turns around
+      its pin and stays on its wire; the Out tag's caption stays inside
+      the tag, read upwards when the tag stands on end
+    o A wire is started by a click only on a free pin or on a wire end or
+      junction; a click on a connected pin selects the part
     o New application icon, sharp at every size (16 and 22 pixels drawn
       apart); the icon files are made from SVG by packaging/make-icons.py
     o The splash screen is drawn by the program: icon, name and version

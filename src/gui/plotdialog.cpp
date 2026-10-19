@@ -91,7 +91,7 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   start_ = field();
   stop_ = field();
   points_ = new QSpinBox;
-  points_->setRange(10, 10000);
+  points_->setRange(10, 1000000);
   points_->setToolTip(tr("Points per decade, spaced logarithmically"));
   angular_ = new QCheckBox(tr("Frequency in &rad/s"));
   xLog_ = new QCheckBox(tr("Logarithmic &frequency axis"));
@@ -131,6 +131,10 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
   z0Label->setBuddy(z0_);
   smith->addRow(z0Label, z0_);
   smith->addRow(admittance_);
+  returnLoss_ = new QCheckBox(tr("Markers: return loss instead of &VSWR"));
+  returnLoss_->setToolTip(tr("The markers show the return loss, "
+    "-20 log |Γ| in dB, in place of the VSWR"));
+  smith->addRow(returnLoss_);
   smithBox_ = new QGroupBox(tr("Smith chart"));
   smithBox_->setLayout(smith);
 
@@ -166,7 +170,7 @@ PlotSettingsWidget::PlotSettingsWidget(const PlotSettings& s, QWidget* parent)
         emit changed();
     };
   for(QCheckBox* c : { autoRange_, angular_, xLog_, db_, yLog_, degrees_,
-      admittance_ })
+      admittance_, returnLoss_ })
     connect(c, &QCheckBox::toggled, this, edited);
   connect(kind_, &QButtonGroup::idClicked, this, edited);
   connect(output_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
@@ -201,6 +205,7 @@ void PlotSettingsWidget::setSettings(const PlotSettings& s)
   degrees_->setChecked(s.phaseDegrees);
   z0_->setText(units::formatForEdit(QString::number(s.z0, 'g', 8)));
   admittance_->setChecked(s.smithAdmittance);
+  returnLoss_->setChecked(s.smithReturnLoss);
   settle_->stop();
   filling_ = false;
   update();
@@ -266,6 +271,7 @@ PlotSettings PlotSettingsWidget::settings() const
   if(units::parse(z0_->text(), QStringLiteral("Ω"), &z0) && z0 > 0.)
     s.z0 = z0;
   s.smithAdmittance = admittance_->isChecked();
+  s.smithReturnLoss = returnLoss_->isChecked();
   return s;
 }
 

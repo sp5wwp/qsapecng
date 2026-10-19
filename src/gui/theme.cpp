@@ -366,6 +366,14 @@ void applyAppearance(QApplication& app)
   }
   platformStyleName = app.style()->name();
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+  // no contextual alternates: some fonts (Inter) draw the x of "4x200"
+  // as a multiplication sign
+  QFont font = app.font();
+  font.setFeature(QFont::Tag("calt"), 0);
+  app.setFont(font);
+#endif
+
   if(mode() != Mode::System)
     setMode(mode());
 }
