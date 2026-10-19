@@ -513,6 +513,10 @@ WorkPlane::~WorkPlane()
   delete grid_;
   smithGrid_->detach();
   delete smithGrid_;
+  if(smithGhost_) {
+    smithGhost_->detach();
+    delete smithGhost_;
+  }
 }
 
 
@@ -659,6 +663,8 @@ void WorkPlane::plot(WorkPlane::F f)
       smithGrid_->attach(plot_);
     } else
       smithGrid_->detach();
+    if(smithGhost_)
+      smithGhost_->detach();
     tracker_->setRubberBand(smith || f == ZEROS || f == POLES
       ? QwtPicker::NoRubberBand : QwtPicker::VLineRubberBand);
   }
@@ -2038,8 +2044,46 @@ void WorkPlane::markerEdited(int row, int column)
 }
 
 
+void WorkPlane::smithPreview(const QPointF& pos)
+{
+  if(lastId_ != SMITH)
+    return;
+  const QPointF canvasPos(plot_->transform(QwtPlot::xBottom, pos.x()),
+                          plot_->transform(QwtPlot::yLeft, pos.y()));
+  const int i = nearestSmithSample(canvasPos);
+  const QwtSeriesData<QPointF>* d = curves_[SMITH].first->data();
+  if(i < 0 || !d) {
+    if(smithGhost_)
+      smithGhost_->detach();
+    return;
+  }
+  if(!smithGhost_) {
+    smithGhost_ = new QwtPlotMarker;
+    smithGhost_->setZ(31);
+  }
+  QColor c = QApplication::palette().color(QPalette::Text);
+  c.setAlpha(160);
+  smithGhost_->setSymbol(new QwtSymbol(QwtSymbol::Ellipse, Qt::NoBrush,
+    QPen(c, 2, Qt::DotLine), QSize(11, 11)));
+  const QPointF g = d->sample(i);
+  smithGhost_->setValue(g);
+  QwtText label(hzText(roundedHz(smithHz_.at(i), smithSampleStep(i))));
+  label.setColor(c);
+  QColor bg = QApplication::palette().color(QPalette::Base);
+  bg.setAlpha(200);
+  label.setBackgroundBrush(bg);
+  smithGhost_->setLabel(label);
+  smithGhost_->setLabelAlignment((g.y() >= 0 ? Qt::AlignBottom : Qt::AlignTop)
+    | (g.x() >= 0 ? Qt::AlignLeft : Qt::AlignRight));
+  smithGhost_->attach(plot_);
+  plot_->replot();
+}
+
+
 void WorkPlane::plotClicked(const QPointF& pos)
 {
+  if(smithGhost_)
+    smithGhost_->detach();
   if(lastId_ == NOOP || lastId_ == ZEROS || lastId_ == POLES)
     return;
   if(lastId_ == SMITH) {
@@ -2333,6 +2377,10 @@ void WorkPlane::createMainLayout()
   // click on the plot: a marker at that frequency (or remove one there)
   connect(tracker_, SIGNAL(selected(const QPointF&)),
     this, SLOT(plotClicked(const QPointF&)));
+  // Smith chart: while the button is held, a ghost marker shows where the
+  // marker goes (the other plots show a vertical line); released: placed
+  connect(tracker_, &QwtPlotPicker::appended, this, &WorkPlane::smithPreview);
+  connect(tracker_, &QwtPlotPicker::moved, this, &WorkPlane::smithPreview);
 
   // markers panel
   markerTable_ = new QTableWidget(0, 5);

@@ -328,6 +328,7 @@ private:
   bool returnLoss_ = false;   // Smith markers: return loss, not VSWR
   QVector<double> smithHz_;   // the frequency of each Smith curve sample
   QwtPlotItem* smithGrid_ = nullptr;
+  QwtPlotMarker* smithGhost_ = nullptr;   // where a marker would go
   // the plots with both axes in the same units (no frequency axis)
   static bool isMap(F f) { return f == ZEROS || f == POLES || f == SMITH; }
   // Z(j 2 pi hz) from the transfer function (the output over a 1 A source)
@@ -389,6 +390,7 @@ protected:
 
 private slots:
   void plotClicked(const QPointF& pos);
+  void smithPreview(const QPointF& pos);
   void markerEdited(int row, int column);
 
 private:

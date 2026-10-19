@@ -347,6 +347,9 @@ QSapecNG CHANGELOG
     o A marker placed by a click keeps the frequency to the resolution of
       a pixel (it was rounded to 3 digits: on a narrow sweep every click
       gave the same 10 MHz); marker frequencies show all their digits
+    o Smith chart: while the mouse button is held, a dotted ghost marker
+      with its frequency follows the curve; releasing places the marker
+      there (as the vertical line does on the other plots)
     o The frequency axis spans the sweep exactly (a narrow sweep was
       widened to whole decades, the curve squeezed out of sight); a
       vertical range set by hand belongs to its plot only
