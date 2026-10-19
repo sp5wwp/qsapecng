@@ -106,6 +106,18 @@ void PropertyTextItem::refreshText()
         break;
       }
     }
+    // a voltage source with an internal resistance: "Rs = 50 Ω" below
+    if(unit_ == QLatin1String("V") && ideal
+        && ideal->valueText() != tr("True")
+        && ideal->valueText() != QLatin1String("True"))
+    {
+      foreach(QtProperty* sub, property_->subProperties()) {
+        if(sub->propertyName() == QLatin1String("Rs")
+            && sub->valueText().toDouble() > 0)
+          text += QStringLiteral("\nRs = ")
+            + units::format(sub->valueText(), QStringLiteral("Ω"));
+      }
+    }
   }
 
   if(text != toPlainText()) {

@@ -988,13 +988,13 @@ void WorkPlane::relabel(F f)
   switch(f) {
   case MAGNITUDE:
   case MAGNITUDE_RAD:
-    title = transducer_ ? tr("Transducer gain") : tr("Frequency response");
-    yTitle = transducer_ ? tr("Transducer gain") : tr("Magnitude");
+    title = tr("Frequency response");
+    yTitle = tr("Magnitude");
     break;
   case GAIN:
   case GAIN_RAD:
-    title = transducer_ ? tr("Transducer gain") : tr("Frequency response");
-    yTitle = transducer_ ? tr("Transducer gain (dB)") : tr("Magnitude (dB)");
+    title = tr("Frequency response");
+    yTitle = tr("Magnitude (dB)");
     yUnit = QStringLiteral("dB");
     break;
   case LOSS:

@@ -343,9 +343,9 @@ QSapecNG CHANGELOG
       selected ones are drawn bold in the plot; a click on the empty part
       of the table clears the selection
     o Voltage sources can have an internal resistance (untick Ideal in
-      their dialog), and an Out marker a load (a resistor to the ground,
-      shown on its tag): neither needs drawing. With both, the magnitude
-      plots show the transducer gain (load power over the power the
+      their dialog; shown under the value, Rs = 50 Ω), and an Out marker
+      a load (a resistor to the ground, shown on its tag): neither needs
+      drawing. With both, the magnitude plots show the transducer gain (load power over the power the
       source can give, 0 dB = lossless), assuming a load equal to the
       source resistance when the Out marker has none; also in SPICE export
     o Editing after a Resolve is quick again: every edit laid out the whole

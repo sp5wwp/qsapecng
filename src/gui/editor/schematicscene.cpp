@@ -2090,7 +2090,8 @@ void SchematicScene::renameOutput(Component* output)
     load->setValidator(new units::ValueValidator(QStringLiteral("Ω"), load));
     load->setToolTip(tr("The load on this output, a resistor to the ground "
       "(50, 1k): no resistor needs drawing. With a source that has an "
-      "internal resistance, the plots show the transducer gain"));
+      "internal resistance, 0 dB in the plots is all of the source's "
+      "available power reaching the load"));
   }
   QLabel* note = new QLabel;
   QDialogButtonBox* buttons =
