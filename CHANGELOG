@@ -409,6 +409,11 @@ QSapecNG CHANGELOG
       at most
     o Plots window: the size it had last time is kept. It no longer grows
       to most of the screen when the Markers tab is in front
+    o Components: a column of tool buttons on the left edge, as in
+      Inkscape; the button of the part being placed stays pressed, and
+      the names are in the tooltips. The list with names is still in
+      Window > Show; the window layout starts afresh once. Docked at the
+      top or bottom, the buttons are the size of the other toolbars'
 
  * 2.1.1
     o Porting to Qwt6

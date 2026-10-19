@@ -213,7 +213,7 @@ private:
 
   // version of the saved dock/toolbar layout: bump it when the default
   // layout changes, so layouts saved by older versions are replaced once
-  enum { LayoutVersion = 2 };
+  enum { LayoutVersion = 3 };
 
   QLogPolicy* policy_;
   LogViewer* logViewer_;
@@ -267,6 +267,7 @@ private:
   // just tall enough for the settings, the plot 1.25 times as wide as high
   void fitPlotWindowHeight(bool natural = false);
   bool plotWindowSized_ = false;
+  bool plotWindowOpening_ = false;   // just shown: its size stays
 
 
   QMenu* fileMenu_;
@@ -287,6 +288,9 @@ private:
   QToolBar* viewToolBar_;
   QToolBar* runToolBar_;
   QToolBar* toolToolBar_;
+  QToolBar* partsToolBar_ = nullptr;
+  QList<QAction*> partActions_;   // one per row of the parts model
+  void refreshPartIcons();
 
   QDockWidget* sideBarDock_;
   QDockWidget* messageDock_;

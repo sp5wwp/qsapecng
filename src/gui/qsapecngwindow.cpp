@@ -543,8 +543,13 @@ void QSapecNGWindow::showPlotWindow()
     plotWindow_->show();
   plotWindow_->raise();
   plotWindow_->activateWindow();
-  fitPlotWindowHeight(!plotWindowSized_);
+  // a size of its own (from last time) is kept as it is: no fitting while
+  // the window comes up (the dock signals that it is shown, too)
+  if(!plotWindowSized_)
+    fitPlotWindowHeight(true);
   plotWindowSized_ = true;
+  plotWindowOpening_ = true;
+  QTimer::singleShot(500, this, [this]() { plotWindowOpening_ = false; });
 }
 
 
@@ -612,7 +617,10 @@ void QSapecNGWindow::fitPlotWindowHeight(bool natural)
   // after the layout has settled: tall enough for the Plot Settings tab
   // (no scroll bar), no taller; then wide enough for a plot of sensible
   // proportions; all within the screen
-  QTimer::singleShot(0, this, [this, natural]() {
+  if(!natural && plotWindowOpening_)
+    return;
+  // the first sizing waits until the window is laid out and mapped
+  QTimer::singleShot(natural ? 250 : 0, this, [this, natural]() {
       if(!plotWindow_ || !plotWindow_->isVisible() || plotWindow_->isMaximized()
           || plotWindow_->isFullScreen() || !plotSettingsScroll_
           || !plotSettingsForm_ || !plotTabs_)
@@ -641,7 +649,8 @@ void QSapecNGWindow::fitPlotWindowHeight(bool natural)
           - 2 * plotSettingsScroll_->frameWidth();
       }
       int grow = 0;
-      if(viewportH > 0) {
+      // (a height this small is a panel not laid out yet: no measure)
+      if(viewportH > 100) {
         const int missing = plotSettingsForm_->sizeHint().height()
           - viewportH;
         grow = qMin(missing, maxH - frame.height());
@@ -659,7 +668,7 @@ void QSapecNGWindow::fitPlotWindowHeight(bool natural)
       const int wantW = int(std::ceil(aspect * plotH));
       int widen = qMin(wantW - plotTabs_->width(), maxW - frame.width());
       if(!natural)
-        widen = qMax(0, widen);
+        widen = 0;   // later on only the height follows the form
 
       if(grow == 0 && widen == 0)
         return;
@@ -1317,6 +1326,17 @@ void QSapecNGWindow::changeEvent(QEvent* event)
 }
 
 
+void QSapecNGWindow::refreshPartIcons()
+{
+  for(int row = 0; row < partActions_.size(); ++row) {
+    const QVariant d = sideBarModel_->data(sideBarModel_->index(row),
+      Qt::DecorationRole);
+    partActions_[row]->setIcon(d.canConvert<QIcon>() && !d.value<QIcon>().isNull()
+      ? d.value<QIcon>() : QIcon(d.value<QPixmap>()));
+  }
+}
+
+
 void QSapecNGWindow::activated(const QModelIndex& index)
 {
   SchematicEditor* editor = activeEditor();
@@ -1344,6 +1364,11 @@ void QSapecNGWindow::sceneSelectionChanged()
   SchematicEditor* editor = activeEditor();
 
   // the parts list shows the part being placed (none: no highlight)
+  for(int row = 0; row < partActions_.size(); ++row)
+    partActions_[row]->setChecked(editor
+      && editor->scene().hasActiveItemType()
+      && sideBarModel_->data(sideBarModel_->index(row), Qt::UserRole).toInt()
+           == editor->scene().activeItemType());
   if(sideBarView_) {
     QModelIndex current;
     if(editor && editor->scene().hasActiveItemType())
@@ -1989,6 +2014,7 @@ void QSapecNGWindow::createMenus()
   toolbarMenu_->addAction(viewToolBar_->toggleViewAction());
   toolbarMenu_->addAction(runToolBar_->toggleViewAction());
   toolbarMenu_->addAction(toolToolBar_->toggleViewAction());
+  toolbarMenu_->addAction(partsToolBar_->toggleViewAction());
   settingMenu_->addAction(toggleScreenModeAct_);
 
   settingMenu_->addSeparator();
@@ -2142,6 +2168,51 @@ void QSapecNGWindow::createToolBars()
   runToolBar_->addAction(resolveAct_);
   runToolBar_->addAction(stopAct_);
   runToolBar_->addAction(plotsAct_);
+
+  // the parts, Inkscape style: a column of tool buttons on the left edge;
+  // a click picks the part to place, a second click puts it back
+  partsToolBar_ = new QToolBar(tr("Components"), this);
+  partsToolBar_->setObjectName(QStringLiteral("partsToolBar"));
+  partsToolBar_->setOrientation(Qt::Vertical);
+  partsToolBar_->setIconSize(QSize(32, 32));
+  // in a row with the other toolbars: their size, or its edge is drawn a
+  // pixel off theirs (a double line under it)
+  connect(partsToolBar_, &QToolBar::orientationChanged,
+    this, [this](Qt::Orientation o) {
+      partsToolBar_->setIconSize(o == Qt::Vertical ? QSize(32, 32)
+                                                   : iconSize());
+    });
+  partsToolBar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  addToolBar(Qt::LeftToolBarArea, partsToolBar_);
+  QActionGroup* parts = new QActionGroup(this);
+  parts->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
+  for(int row = 0; row < sideBarModel_->rowCount(); ++row) {
+    const QModelIndex index = sideBarModel_->index(row);
+    QString tip = sideBarModel_->data(index, Qt::ToolTipRole).toString();
+    const QString name = sideBarModel_->data(index, Qt::DisplayRole).toString();
+    if(tip.endsWith(QStringLiteral(" Item")) || tip == name)
+      tip.clear();
+    QAction* act = new QAction(name, this);
+    act->setToolTip(tip.isEmpty() ? name
+      : QStringLiteral("<b>%1</b><br>%2").arg(name.toHtmlEscaped(),
+          tip.toHtmlEscaped()));
+    act->setCheckable(true);
+    parts->addAction(act);
+    partsToolBar_->addAction(act);
+    partActions_.append(act);
+    connect(act, &QAction::triggered, this, [this, row](bool checked) {
+        if(checked) {
+          activated(sideBarModel_->index(row));
+        } else if(SchematicEditor* editor = activeEditor()) {
+          editor->scene().setActiveItem(SchematicScene::NilItemType);
+          sceneSelectionChanged();
+        }
+      });
+  }
+  refreshPartIcons();
+  // the symbols are redrawn for the theme and the resistor style
+  connect(sideBarModel_, &QAbstractItemModel::dataChanged,
+    this, [this]() { refreshPartIcons(); });
 
   toolToolBar_ = addToolBar(tr("Tools"));
   toolToolBar_->setObjectName(QStringLiteral("toolToolBar"));
@@ -2305,7 +2376,7 @@ void QSapecNGWindow::readSettings()
   // layout replaces this, unless it was saved with an older layout version.
   workspaceDock_->hide();
   undoRedoDock_->hide();
-  sideBarDock_->raise();
+  sideBarDock_->hide();   // the parts toolbar instead (Window > Show)
   messageDock_->raise();
   restoreState(settings.mwState(), LayoutVersion);
 
