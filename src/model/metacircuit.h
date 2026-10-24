@@ -116,11 +116,11 @@ private:
   static std::string as_string(const degree_expression& e);
   static std::string as_string(const basic_expression& e);
 
-  int get_sign(
+  static int get_sign(
       size_t vertices,
       const Graph& graph,
-      std::vector< circuit::edge_descriptor > order,
-      std::vector<bool> inL
+      const std::vector< circuit::edge_descriptor >& order,
+      const std::vector<bool>& inL
     );
 
 private:

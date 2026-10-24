@@ -2994,8 +2994,11 @@ QString SchematicScene::valueUnit(SchematicScene::SupportedItemType type)
 void SchematicScene::rotatePlacedOrSelected()
 {
   if(isPlacingItem()) {
-    if(item_)
+    if(item_) {
+      // still held by the same point (the pin of a one-pin part)
       item_->rotate();
+      item_->setPos(placementPos(lastMousePos_));
+    }
   } else {
     rotateSelectedItems();
   }
@@ -3020,6 +3023,7 @@ void SchematicScene::mirrorPlacedOrSelected(bool vertical)
         item_->rotate();
         item_->rotate();
       }
+      item_->setPos(placementPos(lastMousePos_));
     }
     return;
   }
@@ -3331,6 +3335,7 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
     {
     case Qt::RightButton:
       item_->rotate();
+      item_->setPos(placementPos(event->scenePos()));
       event->accept();
       return;
     case Qt::LeftButton:
@@ -3372,28 +3377,24 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
       undoRedoStack_->beginMacro(addCommand->text());
       undoRedoStack_->push(addCommand);
 
-      uint rotFact = item_->angle() / 90;
-      for(uint i = 0; i < rotFact; ++i) {
-        RotateItems* rotateCommand = 0;
-
-        if(hasUserDefReq()) {
-          rotateCommand = new RotateItems(
-            static_cast<AddUserDefItem*>(addCommand)->item());
-        } else {
-          rotateCommand = new RotateItems(
+      QGraphicsItem* placed = hasUserDefReq()
+        ? static_cast<QGraphicsItem*>(
+            static_cast<AddUserDefItem*>(addCommand)->item())
+        : static_cast<QGraphicsItem*>(
             static_cast<AddSupportedItem*>(addCommand)->item());
-        }
 
-        undoRedoStack_->push(rotateCommand);
-      }
-      if(item_->mirrored()) {
-        QGraphicsItem* placed = hasUserDefReq()
-          ? static_cast<QGraphicsItem*>(
-              static_cast<AddUserDefItem*>(addCommand)->item())
-          : static_cast<QGraphicsItem*>(
-              static_cast<AddSupportedItem*>(addCommand)->item());
+      uint rotFact = item_->angle() / 90;
+      for(uint i = 0; i < rotFact; ++i)
+        undoRedoStack_->push(new RotateItems(placed));
+      if(item_->mirrored())
         undoRedoStack_->push(new MirrorItems(placed));
-      }
+
+      // a part with one pin turns around that pin (RotateItems), the one
+      // shown under the pointer around its box: the new part goes exactly
+      // where it was shown
+      const QPointF offset = item_->pos() - placed->pos();
+      if(!offset.isNull())
+        undoRedoStack_->push(new MoveItems(this, { placed }, offset));
       undoRedoStack_->endMacro();
 
       event->accept();

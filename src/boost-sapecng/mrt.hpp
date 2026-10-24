@@ -41,7 +41,11 @@
 #include <vector>
 #include <stack>
 #include "boost-sapecng/mrt_progress.hpp"
+#include "boost-sapecng/mrt_pool.hpp"
 #include <map>
+#include <memory>
+#include <type_traits>
+#include <utility>
 
 
 namespace boost
@@ -74,11 +78,50 @@ namespace detail
     {
       if(mrt_progress* p = mrt_current_progress()) {
         p->done += weight - used;
-        if(p->permille)
-          p->permille->store(int(p->done * 1000.), std::memory_order_relaxed);
+        p->advanced();
       }
     }
   };
+
+
+  // [ QSapecNG ] an edge -> bool map whose contents can be copied, so that
+  // a sub-search can go on elsewhere with a state of its own; an edge that
+  // is not in it is false
+  template <class Key>
+  struct mrt_bool_map
+  {
+    typedef Key key_type;
+    typedef bool value_type;
+    typedef bool reference;
+    typedef read_write_property_map_tag category;
+
+    mrt_bool_map(): map(nullptr) { }
+    explicit mrt_bool_map(std::map<Key, bool>& m): map(&m) { }
+
+    std::map<Key, bool>* map;
+  };
+
+  template <class Key>
+  inline bool get(const mrt_bool_map<Key>& pm, const Key& k)
+  {
+    typename std::map<Key, bool>::const_iterator it = pm.map->find(k);
+    return it != pm.map->end() && it->second;
+  }
+
+  template <class Key>
+  inline void put(const mrt_bool_map<Key>& pm, const Key& k, bool v)
+    { (*pm.map)[k] = v; }
+
+
+  // [ QSapecNG ] a function that can give a sub-search a function of its
+  // own (Func::fork()), whose results come where the sub-search started
+  template <class Func, class = void>
+  struct mrt_forkable: std::false_type { };
+
+  template <class Func>
+  struct mrt_forkable<Func,
+      decltype(void(std::declval<const Func&>().fork()))>
+    : std::true_type { };
 
 }
 
@@ -201,23 +244,131 @@ namespace detail {
   void rec_mrt_two_graphs_common_spanning_trees
     (
       const Graph& iG,
-      bimap<
+      const bimap<
           bimaps::set_of<int>,
           bimaps::set_of< typename graph_traits<Graph>::edge_descriptor >
-        > iG_bimap,
+        >& iG_bimap,
       Map aiG_inL,
       Map diG,
       const Graph& vG,
-      bimap<
+      const bimap<
           bimaps::set_of<int>,
           bimaps::set_of< typename graph_traits<Graph>::edge_descriptor >
-        > vG_bimap,
+        >& vG_bimap,
+      Map avG_inL,
+      Map dvG,
+      Func func,
+      Seq inL
+    );
+
+
+  // [ QSapecNG ] a sub-search (the recursion below) leaves the maps as it
+  // found them: with idle threads around it can as well run elsewhere, on
+  // copies of them. Only worth it while there is a fair amount left to
+  // choose (`left` edges of the tree); returns false when not handed on
+  template <
+    class Graph,
+    class Func,
+    class Seq,
+    class Map,
+    class Bimap
+  >
+  inline bool mrt_hand_on
+    (
+      int left,
+      const Graph& iG,
+      const Bimap& iG_bimap,
+      Map aiG_inL,
+      Map diG,
+      const Graph& vG,
+      const Bimap& vG_bimap,
+      Map dvG,
+      const Func& func,
+      const Seq& inL,
+      std::true_type
+    )
+  {
+    mrt_progress* p = mrt_current_progress();
+    if(left < 3 || !p || !p->pool || !p->group || !p->pool->hungry())
+      return false;
+
+    typedef typename graph_traits<Graph>::edge_descriptor edge_descriptor;
+    struct state
+    {
+      std::map<edge_descriptor, bool> inL, diG, dvG;
+    };
+    std::shared_ptr<state> copy(new state);
+    copy->inL = *aiG_inL.map;
+    copy->diG = *diG.map;
+    copy->dvG = *dvG.map;
+
+    mrt_progress own;   // its share of the whole, the rest as here
+    own.weight = p->weight;
+    own.cancel = p->cancel;
+    own.permille = p->permille;
+    own.pool = p->pool;
+    own.group = p->group;
+    own.total = p->total;
+
+    Func child = func.fork();
+    p->pool->submit(*p->group,
+      [&iG, &iG_bimap, &vG, &vG_bimap, copy, own, child, inL]() mutable {
+        mrt_progress_scope scope(&own);
+        Map inLMap(copy->inL), diGMap(copy->diG), dvGMap(copy->dvG);
+        rec_mrt_two_graphs_common_spanning_trees<Graph, Func, Seq, Map>
+          (iG, iG_bimap, inLMap, diGMap, vG, vG_bimap, inLMap, dvGMap,
+            child, inL);
+      });
+    return true;
+  }
+
+  template <
+    class Graph,
+    class Func,
+    class Seq,
+    class Map,
+    class Bimap
+  >
+  inline bool mrt_hand_on
+    (
+      int, const Graph&, const Bimap&, Map, Map, const Graph&, const Bimap&,
+      Map, const Func&, const Seq&, std::false_type
+    )
+    { return false; }
+
+
+  template <
+    class Graph,
+    class Func,
+    class Seq,
+    class Map
+  >
+  void rec_mrt_two_graphs_common_spanning_trees
+    (
+      const Graph& iG,
+      const bimap<
+          bimaps::set_of<int>,
+          bimaps::set_of< typename graph_traits<Graph>::edge_descriptor >
+        >& iG_bimap,
+      Map aiG_inL,
+      Map diG,
+      const Graph& vG,
+      const bimap<
+          bimaps::set_of<int>,
+          bimaps::set_of< typename graph_traits<Graph>::edge_descriptor >
+        >& vG_bimap,
       Map avG_inL,
       Map dvG,
       Func func,
       Seq inL
     )
   {
+    typedef std::integral_constant<bool,
+        mrt_forkable<Func>::value
+        && std::is_same<Map, mrt_bool_map<
+          typename graph_traits<Graph>::edge_descriptor> >::value
+      > can_hand_on;
+
     typedef graph_traits<Graph> GraphTraits;
 
     typedef typename GraphTraits::vertex_descriptor vertex_descriptor;
@@ -269,8 +420,7 @@ namespace detail {
 
           undirected_dfs(
               make_filtered_graph(iG,
-                detail::inL_edge_status< associative_property_map<
-                  std::map<edge_descriptor, bool> > >(aiG_inL)),
+                detail::inL_edge_status<Map>(aiG_inL)),
               make_dfs_visitor(
                 detail::cycle_finder< std::stack<edge_descriptor> > (&iG_buf)),
               associative_property_map<
@@ -280,8 +430,7 @@ namespace detail {
             );
           undirected_dfs(
               make_filtered_graph(vG,
-                detail::inL_edge_status< associative_property_map<
-                  std::map<edge_descriptor, bool> > >(avG_inL)),
+                detail::inL_edge_status<Map>(avG_inL)),
               make_dfs_visitor(
                 detail::cycle_finder< std::stack<edge_descriptor> > (&vG_buf)),
               associative_property_map<
@@ -317,8 +466,7 @@ namespace detail {
 
             undirected_dfs(
                 make_filtered_graph(iG,
-                  detail::inL_edge_status< associative_property_map<
-                    std::map<edge_descriptor, bool> > >(aiG_inL)),
+                  detail::inL_edge_status<Map>(aiG_inL)),
                 make_dfs_visitor(
                   detail::cycle_finder<
                     std::stack<edge_descriptor> > (&iG_buf)),
@@ -329,8 +477,7 @@ namespace detail {
               );
             undirected_dfs(
                 make_filtered_graph(vG,
-                  detail::inL_edge_status< associative_property_map<
-                    std::map<edge_descriptor, bool> > >(avG_inL)),
+                  detail::inL_edge_status<Map>(avG_inL)),
                 make_dfs_visitor(
                   detail::cycle_finder<
                     std::stack<edge_descriptor> > (&vG_buf)),
@@ -356,8 +503,10 @@ namespace detail {
 
         // REC_MRT
         share.hand_on();
-        detail::rec_mrt_two_graphs_common_spanning_trees<Graph, Func, Seq, Map>
-          (iG, iG_bimap, aiG_inL, diG, vG, vG_bimap, aiG_inL, dvG, func, inL);
+        if(!mrt_hand_on(edges - 1, iG, iG_bimap, aiG_inL, diG, vG, vG_bimap,
+            dvG, func, inL, can_hand_on()))
+          detail::rec_mrt_two_graphs_common_spanning_trees<Graph, Func, Seq, Map>
+            (iG, iG_bimap, aiG_inL, diG, vG, vG_bimap, aiG_inL, dvG, func, inL);
 
         while(!iG_buf_copy.empty()) {
           put(diG, iG_buf_copy.top(), false);
@@ -418,8 +567,7 @@ namespace detail {
           );
 
         undirected_dfs(make_filtered_graph(iG,
-              detail::deleted_edge_status< associative_property_map<
-              std::map<edge_descriptor, bool> > >(diG)),
+              detail::deleted_edge_status<Map>(diG)),
             iG_vis,
             associative_property_map<
               std::map<vertex_descriptor, default_color_type> >(vertex_color),
@@ -427,8 +575,7 @@ namespace detail {
               std::map<edge_descriptor, default_color_type> >(edge_color)
           );
         undirected_dfs(make_filtered_graph(vG,
-              detail::deleted_edge_status< associative_property_map<
-              std::map<edge_descriptor, bool> > >(dvG)),
+              detail::deleted_edge_status<Map>(dvG)),
             vG_vis,
             associative_property_map<
               std::map<vertex_descriptor, default_color_type> >(vertex_color),
@@ -446,8 +593,7 @@ namespace detail {
 
             undirected_dfs(
                 make_filtered_graph(iG,
-                  detail::inL_edge_status< associative_property_map<
-                    std::map<edge_descriptor, bool> > >(aiG_inL)),
+                  detail::inL_edge_status<Map>(aiG_inL)),
                 make_dfs_visitor(
                   detail::cycle_finder<
                     std::stack<edge_descriptor> > (&iG_buf_tmp)),
@@ -459,8 +605,7 @@ namespace detail {
               );
             undirected_dfs(
                 make_filtered_graph(vG,
-                  detail::inL_edge_status< associative_property_map<
-                    std::map<edge_descriptor, bool> > >(avG_inL)),
+                  detail::inL_edge_status<Map>(avG_inL)),
                 make_dfs_visitor(
                   detail::cycle_finder<
                     std::stack<edge_descriptor> > (&vG_buf_tmp)),
@@ -493,8 +638,7 @@ namespace detail {
 
             undirected_dfs(
                 make_filtered_graph(iG,
-                  detail::inL_edge_status< associative_property_map<
-                    std::map<edge_descriptor, bool> > >(aiG_inL)),
+                  detail::inL_edge_status<Map>(aiG_inL)),
                 make_dfs_visitor(
                   detail::cycle_finder<
                     std::stack<edge_descriptor> > (&iG_buf_tmp)),
@@ -506,8 +650,7 @@ namespace detail {
               );
             undirected_dfs(
                 make_filtered_graph(vG,
-                  detail::inL_edge_status< associative_property_map<
-                    std::map<edge_descriptor, bool> > >(avG_inL)),
+                  detail::inL_edge_status<Map>(avG_inL)),
                 make_dfs_visitor(
                   detail::cycle_finder<
                     std::stack<edge_descriptor> > (&vG_buf_tmp)),
@@ -554,9 +697,12 @@ namespace detail {
 
           // REC_MRT
           share.hand_on();
-          detail::rec_mrt_two_graphs_common_spanning_trees<
-              Graph, Func, Seq, Map>
-            (iG, iG_bimap, aiG_inL, diG, vG, vG_bimap, aiG_inL, dvG, func, inL);
+          if(!mrt_hand_on(edges, iG, iG_bimap, aiG_inL, diG, vG, vG_bimap,
+              dvG, func, inL, can_hand_on()))
+            detail::rec_mrt_two_graphs_common_spanning_trees<
+                Graph, Func, Seq, Map>
+              (iG, iG_bimap, aiG_inL, diG, vG, vG_bimap, aiG_inL, dvG,
+                func, inL);
 
           while(!iG_buf.empty()) {
             inL[iG_bimap.right.at(iG_buf.top())] = false;
@@ -583,6 +729,62 @@ namespace detail {
   }
 
 } // namespace detail
+
+
+
+// [ QSapecNG ] the trees of a search split among threads, in the order a
+// single thread would have found them: a part handed on keeps its trees
+// in a segment of its own, linked where it started
+template <class Seq>
+struct tree_segment
+{
+  std::vector<Seq> trees;
+  // before trees[first] come the trees of second
+  std::vector< std::pair< std::size_t, std::unique_ptr<tree_segment> > >
+    parts;
+
+  // f(tree) for all the trees in order, moving them out
+  template <class F>
+  void drain(F& f)
+  {
+    std::size_t part = 0;
+    for(std::size_t i = 0; i <= trees.size(); ++i) {
+      for(; part < parts.size() && parts[part].first == i; ++part) {
+        parts[part].second->drain(f);
+        parts[part].second.reset();
+      }
+      if(i < trees.size())
+        f(std::move(trees[i]));
+    }
+    trees.clear();
+    parts.clear();
+  }
+};
+
+
+template <class Seq>
+struct segment_collector
+{
+
+public:
+  explicit segment_collector(tree_segment<Seq>& segment)
+    : segment_(&segment) { }
+
+  inline void operator()(const Seq& seq) const
+    { segment_->trees.push_back(seq); }
+
+  // for a part of the search done elsewhere (called where it starts)
+  segment_collector fork() const
+  {
+    segment_->parts.emplace_back(segment_->trees.size(),
+      std::unique_ptr< tree_segment<Seq> >(new tree_segment<Seq>));
+    return segment_collector(*segment_->parts.back().second);
+  }
+
+private:
+  tree_segment<Seq>* segment_;
+
+};
 
 
 
@@ -864,10 +1066,35 @@ mrt_two_graphs_common_spanning_trees
     if(cc != 2)
       return;
 
-    // REC_MRT
-    detail::rec_mrt_two_graphs_common_spanning_trees<Graph, Func, Seq,
-        associative_property_map< std::map<edge_descriptor, bool> > >
-      (iG, iG_bimap, aiG_inL, diG, vG, vG_bimap, aiG_inL, dvG, func, inL);
+    // [ QSapecNG ] with a pool (see mrt_progress), parts of the search may
+    // run on other threads: they are all done before this returns
+    typedef detail::mrt_bool_map<edge_descriptor> bool_map;
+    mrt_progress* progress = mrt_current_progress();
+    mrt_pool::group group;
+    mrt_pool::group* outer = progress ? progress->group : nullptr;
+    if(progress && progress->pool)
+      progress->group = &group;
+
+    std::exception_ptr error;
+    try {
+      // REC_MRT
+      detail::rec_mrt_two_graphs_common_spanning_trees<Graph, Func, Seq,
+          bool_map>
+        (iG, iG_bimap, bool_map(iG_inL), bool_map(iG_deleted), vG, vG_bimap,
+          bool_map(iG_inL), bool_map(vG_deleted), func, inL);
+    } catch(...) {
+      error = std::current_exception();
+      if(progress && progress->cancel)
+        progress->cancel->store(true);   // the parts elsewhere stop too
+    }
+    if(progress && progress->pool) {
+      std::exception_ptr other = progress->pool->wait(group);
+      if(!error)
+        error = other;
+      progress->group = outer;
+    }
+    if(error)
+      std::rethrow_exception(error);
 
   }
 

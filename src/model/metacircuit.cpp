@@ -19,6 +19,8 @@
 
 #include "model/metacircuit.h"
 
+#include <algorithm>
+#include <atomic>
 #include <iterator>
 #include "boost-sapecng/mrt.hpp"
 
@@ -155,14 +157,14 @@ void metacircuit::operator()(const circuit& circuit)
     }
     //
     typedef std::vector<bool> Seq;
-    typedef std::vector< std::vector<bool> > Coll;
 
-    Coll coll;
+    // the trees, in the same order however many threads look for them
+    boost::tree_segment<Seq> found;
     boost::mrt_two_graphs_common_spanning_trees
         <
           sapecng::Graph,
           std::vector< sapecng::circuit::edge_descriptor >,
-          boost::tree_collector< Coll, Seq >,
+          boost::segment_collector<Seq>,
           std::vector< bool >
         >
       (
@@ -170,47 +172,44 @@ void metacircuit::operator()(const circuit& circuit)
         circuit.iGraph_order(),
         circuit.vGraph(),
         circuit.vGraph_order(),
-        boost::tree_collector< Coll, Seq >(coll),
+        boost::segment_collector<Seq>(found),
         forcedIn
       );
 
-    term_index rawNum, rawDen, digitNum, digitDen, mixedNum, mixedDen;
+    std::vector<Seq> coll;
+    auto take = [&coll](Seq&& tree) { coll.push_back(std::move(tree)); };
+    found.drain(take);
+
     boost::mrt_progress* progress = boost::mrt_current_progress();
-    for(Coll::size_type i = 0; i < coll.size(); ++i) {
-      if(progress && progress->cancel && (i & 1023) == 0
-          && progress->cancel->load(std::memory_order_relaxed))
-        throw boost::mrt_cancelled();
+    std::atomic<bool>* cancel = progress ? progress->cancel : nullptr;
+    boost::mrt_pool* pool = progress ? progress->pool : nullptr;
 
+    // what a tree adds: worked out in parallel (the signs take most of the
+    // time), then summed up in order so the result does not depend on the
+    // number of threads
+    struct term
+    {
       int degree = 0;
-      basic_expression raw_rep =
-        std::make_pair< double, std::list<std::string> >
-          (1., std::list<std::string>());
-      basic_expression digit_rep =
-        std::make_pair< double, std::list<std::string> >
-          (1., std::list<std::string>());
-      basic_expression mixed_rep =
-        std::make_pair< double, std::list<std::string> >
-          (1., std::list<std::string>());
-
-      Seq inL = coll[i];
+      int part = 0;   // 1: numerator, 2: denominator, 0: neither
+      basic_expression raw, digit, mixed;
+    };
+    const Graph& iG = circuit.iGraph();
+    const Graph& vG = circuit.vGraph();
+    const std::vector<circuit::edge_descriptor>& iO = circuit.iGraph_order();
+    const std::vector<circuit::edge_descriptor>& vO = circuit.vGraph_order();
+    auto make_term = [&](const Seq& inL, term& t) {
+      t.degree = 0;
+      t.raw = basic_expression(1., std::list<std::string>());
+      t.digit = basic_expression(1., std::list<std::string>());
+      t.mixed = basic_expression(1., std::list<std::string>());
 
       int sign = 1;
-      sign *= get_sign(
-          num_vertices(circuit.iGraph()),
-          circuit.iGraph(),
-          circuit.iGraph_order(),
-          inL
-        );
-      sign *= get_sign(
-          num_vertices(circuit.vGraph()),
-          circuit.vGraph(),
-          circuit.vGraph_order(),
-          inL
-        );
+      sign *= get_sign(num_vertices(iG), iG, iO, inL);
+      sign *= get_sign(num_vertices(vG), vG, vO, inL);
 
-      raw_rep.first *= sign;
-      digit_rep.first *= sign;
-      mixed_rep.first *= sign;
+      t.raw.first *= sign;
+      t.digit.first *= sign;
+      t.mixed.first *= sign;
 
       bool numerator_part = false;
       bool denominator_part = false;
@@ -228,37 +227,60 @@ void metacircuit::operator()(const circuit& circuit)
           // read all data, creating complex expressions
           if(get(boost::edge_symbolic, refG)[ refO[j] ]) {
             if(get(boost::edge_name, refG)[ refO[j] ].size())
-              mixed_rep.second.push_back(get(boost::edge_name, refG)[ refO[j] ]);
+              t.mixed.second.push_back(get(boost::edge_name, refG)[ refO[j] ]);
           } else {
-            mixed_rep.first *= get(boost::edge_weight, refG)[ refO[j] ];
+            t.mixed.first *= get(boost::edge_weight, refG)[ refO[j] ];
           }
 
-          digit_rep.first *= get(boost::edge_weight, refG)[ refO[j] ];
+          t.digit.first *= get(boost::edge_weight, refG)[ refO[j] ];
           if(get(boost::edge_name, refG)[ refO[j] ].size())
-            raw_rep.second.push_back(get(boost::edge_name, refG)[ refO[j] ]);
+            t.raw.second.push_back(get(boost::edge_name, refG)[ refO[j] ]);
           else
-            raw_rep.first *= get(boost::edge_weight, refG)[ refO[j] ];
+            t.raw.first *= get(boost::edge_weight, refG)[ refO[j] ];
 
-          degree += get(boost::edge_degree, refG)[ refO[j] ];
+          t.degree += get(boost::edge_degree, refG)[ refO[j] ];
         }
 
       }
 
-      raw_rep.second.sort();
-      digit_rep.second.sort();
-      mixed_rep.second.sort();
+      t.raw.second.sort();
+      t.digit.second.sort();
+      t.mixed.second.sort();
 
-      if(numerator_part) {
-        append(degree, raw_.first, raw_rep, rawNum);
-        append(degree, digit_.first, digit_rep, digitNum);
-        append(degree, mixed_.first, mixed_rep, mixedNum);
-      } else if(denominator_part) {
-        append(degree, raw_.second, raw_rep, rawDen);
-        append(degree, digit_.second, digit_rep, digitDen);
-        append(degree, mixed_.second, mixed_rep, mixedDen);
+      t.part = numerator_part ? 1 : (denominator_part ? 2 : 0);
+    };
+
+    term_index rawNum, rawDen, digitNum, digitDen, mixedNum, mixedDen;
+    const std::size_t block = std::size_t(1) << 14;
+    std::vector<term> terms;
+    for(std::size_t base = 0; base < coll.size(); base += block) {
+      if(cancel && cancel->load(std::memory_order_relaxed))
+        throw boost::mrt_cancelled();
+
+      const std::size_t n = std::min(block, coll.size() - base);
+      terms.assign(n, term());
+      boost::mrt_pool::for_each(pool, n, 256,
+        [&](std::size_t i) {
+          if((i & 255) == 0 && cancel
+              && cancel->load(std::memory_order_relaxed))
+            throw boost::mrt_cancelled();
+          make_term(coll[base + i], terms[i]);
+        });
+
+      for(const term& t : terms) {
+        if(t.part == 1) {
+          append(t.degree, raw_.first, t.raw, rawNum);
+          append(t.degree, digit_.first, t.digit, digitNum);
+          append(t.degree, mixed_.first, t.mixed, mixedNum);
+        } else if(t.part == 2) {
+          append(t.degree, raw_.second, t.raw, rawDen);
+          append(t.degree, digit_.second, t.digit, digitDen);
+          append(t.degree, mixed_.second, t.mixed, mixedDen);
+        }
       }
-
     }
+    coll.clear();
+    coll.shrink_to_fit();
 
     const bool rawOk = simplify(raw_);
     const bool digitOk = simplify(digit_);
@@ -503,8 +525,8 @@ void metacircuit::normalize(expression& e, double div)
 int metacircuit::get_sign(
     size_t vertices,
     const Graph& graph,
-    std::vector< circuit::edge_descriptor > order,
-    std::vector<bool> inL
+    const std::vector< circuit::edge_descriptor >& order,
+    const std::vector<bool>& inL
   )
 {
   size_t row = vertices;

@@ -28,12 +28,12 @@
 #include <QThread>
 #include <QMutex>
 
+#include "boost-sapecng/mrt_pool.hpp"
 #include "boost-sapecng/mrt_progress.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <memory>
-#include <thread>
 #include <string>
 #include <vector>
 
@@ -50,7 +50,7 @@ class MetaCircuit_Thread: public QThread
 public:
   MetaCircuit_Thread(QObject* parent = 0): QThread(parent) { }
 
-  // the most outputs solved at the same time (one thread each)
+  // the most cores (threads) a solve uses, for all its outputs together
   inline void setMaxThreads(int n) { maxThreads_ = std::max(1, n); }
 
   // asks a running solve to stop; it ends soon after, cancelled()
@@ -116,6 +116,8 @@ public:
     { QMutexLocker locker(&mutex_); return !valid(k) || outputs_[k].meta->singular(); }
 
 protected:
+  // all the outputs share one pool of maxThreads_ threads: several outputs
+  // are solved at the same time, and a single big one is split among them
   void run()
   {
     QMutexLocker locker(&mutex_);
@@ -125,32 +127,33 @@ protected:
     for(auto& p : permille_)
       p->store(0);
 
-    std::atomic<std::size_t> next(0);
-    auto work = [this, &next]() {
-      for(std::size_t k; (k = next.fetch_add(1)) < outputs_.size(); ) {
-        boost::mrt_progress progress;
-        progress.cancel = &cancel_;
-        progress.permille = permille_[k].get();
-        boost::mrt_current_progress() = &progress;
-        try {
-          (*outputs_[k].meta)(*outputs_[k].circuit);
-        } catch(const boost::mrt_cancelled&) {
-          cancelled_.store(true);
-          cancel_.store(true);   // the other outputs stop too
-        }
-        boost::mrt_current_progress() = nullptr;
-        permille_[k]->store(1000);
-        done_.fetch_add(1);
-      }
-    };
+    boost::mrt_pool pool{ unsigned(maxThreads_) };
+    boost::mrt_pool::group all;
+    for(std::size_t k = 0; k < outputs_.size(); ++k)
+      pool.submit_root(all, [this, k, &pool]() { solve(k, pool); });
+    pool.wait_all(all);   // runs outputs too; their failures are theirs
+  }
 
-    const std::size_t n = std::min<std::size_t>(maxThreads_, outputs_.size());
-    std::vector<std::thread> helpers;
-    for(std::size_t i = 1; i < n; ++i)
-      helpers.emplace_back(work);
-    work();
-    for(std::thread& t : helpers)
-      t.join();
+private:
+  void solve(std::size_t k, boost::mrt_pool& pool)
+  {
+    std::atomic<long long> total(0);
+    boost::mrt_progress progress;
+    progress.cancel = &cancel_;
+    progress.permille = permille_[k].get();
+    progress.pool = &pool;
+    progress.total = &total;
+    try {
+      boost::mrt_progress_scope scope(&progress);
+      (*outputs_[k].meta)(*outputs_[k].circuit);
+    } catch(const boost::mrt_cancelled&) {
+      cancelled_.store(true);
+      cancel_.store(true);   // the other outputs stop too
+    } catch(...) {
+      // out of memory and the like: this output stays without a result
+    }
+    permille_[k]->store(1000);
+    done_.fetch_add(1);
   }
 
 private:

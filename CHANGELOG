@@ -404,9 +404,11 @@ QSapecNG CHANGELOG
       and can be stopped: Run > Stop (Shift+F8), also in the Plots window;
       quitting or closing a schematic while it solves stops the solver
       instead of waiting for it
-    o Outputs (Out markers, voltmeters, ammeters) are solved at the same
-      time, one per processor thread; Settings > General sets how many
-      at most
+    o The solver uses several processor cores: outputs (Out markers,
+      voltmeters, ammeters) are solved at the same time, and a single
+      output is split among the cores too. Settings > General > Solver
+      sets the maximum number of cores used in all. The result does not
+      depend on the number of cores
     o Plots window: the size it had last time is kept. It no longer grows
       to most of the screen when the Markers tab is in front
     o Components: a column of tool buttons on the left edge, as in

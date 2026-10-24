@@ -102,7 +102,9 @@ public slots:
   }
 
   // the scrollable area: the drawing plus a screenful around it, so there
-  // is always room to pan, place parts and zoom towards an edge
+  // is always room to pan, place parts and zoom towards an edge. What is on
+  // the screen stays in it: the drawing never shifts under the pointer
+  // (a part being placed would follow it, grow the area again and jump)
   void updateCanvas()
   {
     if(!scene())
@@ -111,6 +113,8 @@ public slots:
     const QRectF screen = mapToScene(viewport()->rect()).boundingRect();
     r.adjust(-screen.width(), -screen.height(),
              screen.width(), screen.height());
+    if(placed_)
+      r |= screen;
     setSceneRect(r);
     if(!placed_)
       centerOn((scene()->itemsBoundingRect() | QRectF(0, 0, 1, 1)).center());
@@ -198,6 +202,9 @@ protected:
 
   void mouseMoveEvent(QMouseEvent* event) override
   {
+    // the pointer is on the drawing (maybe holding a part to place): no
+    // more centring, which would move the drawing under it
+    placed_ = true;
     emit cursorMoved(mapToScene(event->position().toPoint()));
     if(panning_) {
       const QPoint p = event->position().toPoint();

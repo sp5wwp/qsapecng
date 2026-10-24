@@ -10,11 +10,13 @@ set(ENGINE_SRCS
   ${PROJECT_SOURCE_DIR}/src/logger/logger.cpp
 )
 
+find_package(Threads REQUIRED)
+
 function(qsapecng_test name)
   add_executable(${name} ${ARGN} ${ENGINE_SRCS})
   target_include_directories(${name} PRIVATE
     ${PROJECT_SOURCE_DIR}/src ${PROJECT_BINARY_DIR}/src)
-  target_link_libraries(${name} PRIVATE Boost::headers)
+  target_link_libraries(${name} PRIVATE Boost::headers Threads::Threads)
   target_compile_definitions(${name} PRIVATE
     BOOST_BIND_GLOBAL_PLACEHOLDERS BOOST_ALLOW_DEPRECATED_HEADERS)
   # checked iterators turn container misuse into a deterministic failure
@@ -55,6 +57,20 @@ add_test(NAME real_passives
   COMMAND solve_test ${CMAKE_CURRENT_SOURCE_DIR}/data/real-passives.info
     "C1 * R1 * V1 * s^2 + ( 1e+09 * C1 * V1 + 0.1 * R1 * V1 ) * s + 1e+08 * V1 / C1 * R1 * s^2 + ( 1e+09 * C1 + 0.1 * R1 + 1e+08 * C1 * R1 ) * s + 1e+08"
     "1 * s^2 + 1.1e+06 * s + 1e+11 / 1 * s^2 + 1.011e+08 * s + 1e+11")
+# the multi-core solver gives the same result as a single thread, term for
+# term, and stops when cancelled
+qsapecng_test(parallel_test parallel_test.cpp)
+add_test(NAME parallel_files
+  COMMAND parallel_test
+    ${CMAKE_CURRENT_SOURCE_DIR}/data/issue6-active-bandpass.info
+    ${CMAKE_CURRENT_SOURCE_DIR}/data/opamp-finite-gain.info
+    ${CMAKE_CURRENT_SOURCE_DIR}/data/real-passives.info
+    ${CMAKE_CURRENT_SOURCE_DIR}/data/rc-lowpass-2nd-order.crc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../examples/mfb-bandpass.info
+    ${CMAKE_CURRENT_SOURCE_DIR}/../examples/twin-t-notch.info
+    ${CMAKE_CURRENT_SOURCE_DIR}/../examples/sallen-key-lowpass.info)
+add_test(NAME parallel_grid COMMAND parallel_test grid 3)
+
 # the symbolic engine against an independent numeric (MNA) solver
 qsapecng_test(mna_check mna_check.cpp
   ${PROJECT_SOURCE_DIR}/src/functor/rpoly.cpp

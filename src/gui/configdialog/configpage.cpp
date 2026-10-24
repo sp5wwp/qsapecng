@@ -78,13 +78,15 @@ GeneralPage::GeneralPage(QWidget* parent)
   threads_->setValue(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
     .value(QStringLiteral("Application/solverThreads"),
       QThread::idealThreadCount()).toInt());
-  threads_->setToolTip(tr("Outputs (Out markers and meters) are solved at "
-    "the same time, one per processor thread, up to this many"));
+  threads_->setToolTip(tr("The solver works on this many processor cores "
+    "at most, for all the outputs (Out markers and meters) together: "
+    "several outputs are solved at the same time, and a single output is "
+    "split among the cores"));
   connect(threads_, &QSpinBox::valueChanged, this,
     [this]() { setPageModified(true); });
-  QLabel* threadsLabel = new QLabel(tr("Solve up to"));
-  QLabel* threadsTail = new QLabel(tr("outputs at the same time (of %1 "
-    "processor threads)").arg(QThread::idealThreadCount()));
+  QLabel* threadsLabel = new QLabel(tr("Use a &maximum of"));
+  QLabel* threadsTail = new QLabel(tr("cores (of %1)")
+    .arg(QThread::idealThreadCount()));
   threadsLabel->setBuddy(threads_);
   QHBoxLayout* solverLayout = new QHBoxLayout;
   solverLayout->addWidget(threadsLabel);
