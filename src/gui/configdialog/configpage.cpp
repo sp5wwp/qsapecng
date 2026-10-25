@@ -88,11 +88,39 @@ GeneralPage::GeneralPage(QWidget* parent)
   QLabel* threadsTail = new QLabel(tr("cores (of %1)")
     .arg(QThread::idealThreadCount()));
   threadsLabel->setBuddy(threads_);
-  QHBoxLayout* solverLayout = new QHBoxLayout;
-  solverLayout->addWidget(threadsLabel);
-  solverLayout->addWidget(threads_);
-  solverLayout->addWidget(threadsTail);
-  solverLayout->addStretch();
+  QHBoxLayout* threadsLayout = new QHBoxLayout;
+  threadsLayout->addWidget(threadsLabel);
+  threadsLayout->addWidget(threads_);
+  threadsLayout->addWidget(threadsTail);
+  threadsLayout->addStretch();
+
+  // Resolve gives the numeric result (Digit) and the plots first; the
+  // symbolic one (Result, Raw) lists every term and can take hours
+  symbolic_ = new QComboBox;
+  symbolic_->addItem(tr("Always"), 0);
+  symbolic_->addItem(tr("Ask when it takes long"), 1);
+  symbolic_->addItem(tr("Never (numeric only)"), 2);
+  const int mode = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/symbolicResult"), 1).toInt();
+  symbolic_->setCurrentIndex(std::max(0, symbolic_->findData(mode)));
+  symbolic_->setToolTip(tr("Resolve gives the numeric result (Digit) and "
+    "the plots at once, whatever the circuit. The symbolic result (Result, "
+    "Raw) can take hours for a big circuit: it is worked out in the "
+    "background, and Ask shows the time it would take first when that is "
+    "more than about 10 seconds. A small circuit gets it at once, unless "
+    "Never is chosen"));
+  connect(symbolic_, &QComboBox::currentIndexChanged, this,
+    [this]() { setPageModified(true); });
+  QLabel* symbolicLabel = new QLabel(tr("&Symbolic result:"));
+  symbolicLabel->setBuddy(symbolic_);
+  QHBoxLayout* symbolicLayout = new QHBoxLayout;
+  symbolicLayout->addWidget(symbolicLabel);
+  symbolicLayout->addWidget(symbolic_);
+  symbolicLayout->addStretch();
+
+  QVBoxLayout* solverLayout = new QVBoxLayout;
+  solverLayout->addLayout(threadsLayout);
+  solverLayout->addLayout(symbolicLayout);
   solverBox->setLayout(solverLayout);
 
   /*
@@ -223,6 +251,9 @@ void GeneralPage::apply()
     .setValue(QStringLiteral("Application/showSplash"), splash_->isChecked());
   QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
     .setValue(QStringLiteral("Application/solverThreads"), threads_->value());
+  QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .setValue(QStringLiteral("Application/symbolicResult"),
+      symbolic_->currentData().toInt());
 
   SettingsManager manager;
 

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <iterator>
 #include <list>
 #include <map>
@@ -340,6 +341,46 @@ inline std::string check(const sapecng::circuit& circuit, bool* sameText,
   }
   if(sameText)
     *sameText = same;
+  return "";
+}
+
+
+
+// the numeric solve (metacircuit::numeric) against the tree solve's digit
+// result: the same singular verdict and the same transfer function, to
+// 1e-9 at a few frequencies. *sameText: printed identically
+inline std::string check_numeric(const sapecng::circuit& circuit,
+  bool* sameText)
+{
+  sapecng::metacircuit full, fast;
+  full(circuit);
+  fast.numeric(circuit);
+  if(full.singular() != fast.singular())
+    return "different singular verdict";
+  if(sameText)
+    *sameText = sapecng::metacircuit::as_string(full.digit().first)
+        == sapecng::metacircuit::as_string(fast.digit().first)
+      && sapecng::metacircuit::as_string(full.digit().second)
+        == sapecng::metacircuit::as_string(fast.digit().second);
+  if(full.singular())
+    return "";
+  auto eval = [](const expression& e, std::complex<long double> s) {
+      std::complex<long double> v = 0;
+      for(const auto& d : e)
+        for(const auto& t : d.second)
+          v += (long double)t.first * std::pow(s, d.first);
+      return v;
+    };
+  for(double f : { 0.01, 3.7, 159.2, 12345., 7.7e5, 3.1e7, 2.2e9 }) {
+    const std::complex<long double> s(0.L, 2.L * 3.14159265358979323846L * f);
+    const std::complex<long double> a = eval(full.digit().first, s)
+      / eval(full.digit().second, s);
+    const std::complex<long double> b = eval(fast.digit().first, s)
+      / eval(fast.digit().second, s);
+    const long double scale = std::max(std::abs(a), std::abs(b));
+    if(!(std::abs(a - b) <= 1e-9L * scale) && scale > 0)
+      return "H(j 2 pi " + std::to_string(f) + ") differs";
+  }
   return "";
 }
 

@@ -24,6 +24,7 @@ set(qsapecng_SRCS
   logger/logger.cpp
   model/circuit.cpp
   model/metacircuit.cpp
+  model/numericsolve.cpp
   parser/ir_circuit.cpp
   parser/crc_circuit.cpp
   parser/spice_circuit.cpp

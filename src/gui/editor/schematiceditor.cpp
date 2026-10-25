@@ -40,6 +40,7 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QPlainTextEdit>
 #include <QUndoStack>
 #include <QApplication>
@@ -77,6 +78,15 @@ SchematicEditor::SchematicEditor(
 }
 
 
+SchematicEditor::~SchematicEditor()
+{
+  if(solver_.isRunning()) {
+    solver_.cancel();
+    solver_.wait();
+  }
+}
+
+
 QString SchematicEditor::userFriendlyCurrentFile() const
 {
   return strippedName(curFile_);
@@ -111,13 +121,15 @@ bool SchematicEditor::accept(WorkPlane& workplane, const QString& output)
 
   // the output by name (the order may change between results); the
   // first when it is gone
+  if(numeric_.empty())
+    return false;
   int k = 0;
-  for(int i = 0; i < solver_.outputCount(); ++i)
-    if(QString::fromStdString(solver_.outputName(i)) == output)
+  for(int i = 0; i < int(numeric_.size()); ++i)
+    if(QString::fromStdString(numeric_[i].name) == output)
       k = i;
 
   // no transfer function to plot
-  if(solver_.singular(k))
+  if(numeric_[k].singular)
     return false;
 
   // the numeric result (every value already in): what the Result panel
@@ -126,8 +138,8 @@ bool SchematicEditor::accept(WorkPlane& workplane, const QString& output)
   // parts, where any name not found counted as 0)
   workplane.setData(
       std::map<std::string, double>(),
-      solver_.digit_numerator(k),
-      solver_.digit_denominator(k)
+      numeric_[k].num,
+      numeric_[k].den
     );
 
   // a source with internal resistance Rs: the magnitude as transducer
@@ -150,13 +162,16 @@ bool SchematicEditor::accept(WorkPlane& workplane, const QString& output)
     }
   }
   double rl = 0.;
-  const QString outName = QString::fromStdString(solver_.outputName(k));
+  const QString outName = QString::fromStdString(numeric_[k].name);
   foreach(Item* item, scene_->activeItems())
     if(SchematicScene::itemType(item) == SchematicScene::OutItemType) {
       const Component* c = dynamic_cast<Component*>(item);
       if(SchematicScene::outputName(c) == outName)
         rl = SchematicScene::outputLoad(c);
     }
+  // the Smith chart reads the output as an impedance
+  workplane.setImpedance(impedanceOutput());
+
   if(sources == 1 && rs > 0.) {
     const bool assumed = !(rl > 0.);
     if(assumed)
@@ -166,6 +181,21 @@ bool SchematicEditor::accept(WorkPlane& workplane, const QString& output)
     workplane.setGainScale(1., false, false);
 
   return true;
+}
+
+
+bool SchematicEditor::impedanceOutput() const
+{
+  int current = 0, voltage = 0;
+  foreach(Item* item, scene_->activeItems()) {
+    const SchematicScene::SupportedItemType t = SchematicScene::itemType(item);
+    if(t == SchematicScene::CurrentSourceItemType)
+      ++current;
+    else if(t == SchematicScene::VoltageSourceItemType
+        || t == SchematicScene::SingleVoltageSourceItemType)
+      ++voltage;
+  }
+  return current > 0 && voltage == 0;
 }
 
 
@@ -410,11 +440,52 @@ bool SchematicEditor::loadFile(const QString& fileName)
 }
 
 
+SchematicEditor::SymbolicMode SchematicEditor::symbolicMode()
+{
+  const int mode = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/symbolicResult"), int(SymbolicAsk))
+    .toInt();
+  return (mode == SymbolicAlways || mode == SymbolicNever)
+    ? SymbolicMode(mode) : SymbolicAsk;
+}
+
+
+double SchematicEditor::symbolicSeconds() const
+{
+  // trees per second and core, as fast as the last symbolic solve here
+  // (a guess before the first)
+  const double rate = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/solverRate"), 150000.).toDouble();
+  const int cores = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+    .value(QStringLiteral("Application/solverThreads"),
+      QThread::idealThreadCount()).toInt();
+  if(!(rate > 0.) || lastResult_.trees <= 0.)
+    return 0.;
+  // several cores do not quite add up: 90 % for each one more
+  const double speed = rate * (1. + 0.9 * std::max(0, cores - 1));
+  return lastResult_.trees / speed;
+}
+
+
 void SchematicEditor::solve()
 {
   if(solved_) {
-    emit solved();   // up to date: just show the result again
+    // up to date: show the result again, or get the symbolic part now
+    if(hasResult_ && !isRunning()
+        && lastResult_.symbolic != SolveResult::SymbolicDone
+        && symbolicMode() != SymbolicNever)
+      continueSymbolic(true);
+    else
+      emit solved();
     return;
+  }
+  if(solver_.isRunning()) {
+    // the symbolic phase of an older circuit: stop it first (its finish,
+    // still to come, is not this solve's: see finished())
+    solver_.cancel();
+    solver_.wait();
+    if(lastResult_.symbolic == SolveResult::SymbolicRunning)
+      lastResult_.symbolic = SolveResult::SymbolicStopped;
   }
 
   view_->setInteractive(false);
@@ -434,8 +505,78 @@ void SchematicEditor::solve()
   solver_.setMaxThreads(QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
     .value(QStringLiteral("Application/solverThreads"),
       QThread::idealThreadCount()).toInt());
+  solver_.setPhase(MetaCircuit_Thread::Quick);
+  solver_.setNumericOnly(symbolicMode() == SymbolicNever);
+  expectFinish_ = true;
   solver_.start();
   emit solvingStarted();
+}
+
+
+void SchematicEditor::computeSymbolic()
+{
+  if(!solved_) {
+    solve();   // a new circuit: from the start (the setting decides)
+    return;
+  }
+  if(hasResult_ && !isRunning()
+      && lastResult_.symbolic != SolveResult::SymbolicDone)
+    startSymbolic();
+}
+
+
+void SchematicEditor::continueSymbolic(bool ask)
+{
+  const SymbolicMode mode = symbolicMode();
+  if(mode == SymbolicNever) {
+    lastResult_.symbolic = SolveResult::SymbolicOff;
+    return;
+  }
+  const double seconds = symbolicSeconds();
+  lastResult_.seconds = seconds;
+  if(mode == SymbolicAsk && ask && seconds > 10.) {
+    // over the window Resolve was pressed in (the Plots window too: the
+    // main window is not brought to the front for it)
+    QWidget* over = QApplication::activeWindow();
+    QMessageBox box(QMessageBox::Question, tr("Symbolic result"),
+      tr("The numeric result and the plots are ready."), QMessageBox::NoButton,
+      over ? over : this);
+    box.setInformativeText(tr("The symbolic result (Result, Raw) of this "
+        "circuit takes an estimated %1 on this computer. It is worked out in "
+        "the background; editing the circuit or Stop (Shift+F8) ends it.\n\n"
+        "Compute it now?")
+      .arg(ResultPanel::shortTime(seconds)));
+    QPushButton* compute = box.addButton(tr("&Compute"), QMessageBox::AcceptRole);
+    box.addButton(tr("&Not now"), QMessageBox::RejectRole);
+    box.setDefaultButton(compute);
+    box.exec();
+    // the focus back to the window it came over (the Plots window stays
+    // in front)
+    if(over) {
+      over->raise();
+      over->activateWindow();
+    }
+    if(box.clickedButton() != compute) {
+      lastResult_.symbolic = SolveResult::SymbolicSkipped;
+      emit solved();
+      return;
+    }
+  }
+  startSymbolic();
+}
+
+
+void SchematicEditor::startSymbolic()
+{
+  lastResult_.symbolic = SolveResult::SymbolicRunning;
+  lastResult_.seconds = symbolicSeconds();
+  QLogger::info(QObject::tr("Solving symbolically..."));
+  stopped_ = false;
+  solver_.setPhase(MetaCircuit_Thread::Symbolic);
+  expectFinish_ = true;
+  solver_.start();
+  emit solvingStarted();
+  emit solved();   // the Result panel says it is running
 }
 
 
@@ -460,9 +601,38 @@ void SchematicEditor::fileNameChanged(const QString& fileName)
 
 void SchematicEditor::finished()
 {
+  // a run stopped and followed at once by a new one: its finish comes
+  // late (the new run is going on, or was handled already)
+  if(solver_.isRunning() || !expectFinish_)
+    return;
+  expectFinish_ = false;
+
 //   QApplication::restoreOverrideCursor();
   setCursor(Qt::ArrowCursor);
   view_->setInteractive(true);
+
+  if(solver_.phase() == MetaCircuit_Thread::Symbolic) {
+    if(solver_.cancelled()) {
+      // the numeric result stays; Result and Raw say it was stopped
+      stopped_ = true;
+      if(lastResult_.symbolic == SolveResult::SymbolicRunning)
+        lastResult_.symbolic = SolveResult::SymbolicStopped;
+      QLogger::info(QObject::tr("Symbolic result stopped."));
+      emit solvingStopped();
+      emit solved();
+      return;
+    }
+    // this computer's speed, for the next estimate
+    const double seconds = solver_.elapsed();
+    if(seconds > 5. && solver_.treesFound() > 0)
+      QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        .setValue(QStringLiteral("Application/solverRate"),
+          double(solver_.treesFound())
+            / (seconds * (1. + 0.9 * std::max(0, solver_.threads() - 1))));
+    showResult();
+    return;
+  }
+
   if(solver_.cancelled()) {
     // nothing to show: the last result (if any) stays, out of date
     stopped_ = true;
@@ -473,6 +643,8 @@ void SchematicEditor::finished()
   solved_ = true;
   dirtyNotified_ = false;
   showResult();
+  if(!solver_.symbolicDone())
+    continueSymbolic(true);
 }
 
 
@@ -531,6 +703,9 @@ void SchematicEditor::closeEvent(QCloseEvent *event)
 
 void SchematicEditor::setDirty()
 {
+  // the symbolic result being worked out is of the old circuit: stop it
+  if(isSymbolicRunning())
+    solver_.cancel();
   // once: every edit after a solve came here, and each one re-rendered
   // the whole Result panel
   if(!solved_ && dirtyNotified_)
@@ -549,20 +724,41 @@ void SchematicEditor::showResult()
   std::set<std::string> sources;
   foreach(const QString& name, scene_->sourceNames())
     sources.insert(name.toStdString());
+  // the whole result, or the numeric one (the symbolic part to come)
+  const bool symbolic = solver_.phase() == MetaCircuit_Thread::Symbolic
+    || solver_.symbolicDone();
   lastResult_.outputs.clear();
+  numeric_.clear();
   bool singular = false;
   for(int k = 0; k < solver_.outputCount(); ++k) {
     OutputResult out;
     out.name = QString::fromStdString(solver_.outputName(k));
-    out.mixed = formula::simplified(
-      solver_.mixed_numerator(k), solver_.mixed_denominator(k), sources);
-    out.raw = formula::simplified(
-      solver_.raw_numerator(k), solver_.raw_denominator(k), sources);
+    if(symbolic) {
+      out.mixed = formula::simplified(
+        solver_.mixed_numerator(k), solver_.mixed_denominator(k), sources);
+      out.raw = formula::simplified(
+        solver_.raw_numerator(k), solver_.raw_denominator(k), sources);
+    }
     out.digit = formula::simplified(
       solver_.digit_numerator(k), solver_.digit_denominator(k));
     out.singular = solver_.singular(k);
     singular = singular || out.singular;
     lastResult_.outputs.append(out);
+
+    NumericOutput n;
+    n.name = solver_.outputName(k);
+    n.num = solver_.digit_numerator(k);
+    n.den = solver_.digit_denominator(k);
+    n.singular = out.singular;
+    numeric_.push_back(n);
+  }
+  lastResult_.trees = solver_.estimatedTrees();
+  if(symbolic) {
+    lastResult_.symbolic = SolveResult::SymbolicDone;
+  } else {
+    lastResult_.symbolic = symbolicMode() == SymbolicNever
+      ? SolveResult::SymbolicOff : SolveResult::SymbolicSkipped;
+    lastResult_.seconds = symbolicSeconds();
   }
   if(singular)
     QLogger::warning(QObject::tr("The circuit has no unique solution (its "

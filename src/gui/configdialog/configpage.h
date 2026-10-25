@@ -73,6 +73,7 @@ private slots:
 private:
   QCheckBox* splash_;
   QSpinBox* threads_;
+  QComboBox* symbolic_;
   QComboBox* logLevel_;
 
   QSignalMapper* colorMapper_;

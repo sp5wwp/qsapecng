@@ -76,7 +76,19 @@ public:
   expression;
 
   static std::string as_string(const expression& e);
+  // the whole result: raw, digit and mixed (lists the trees; can take
+  // hours for a big circuit)
   void operator()(const circuit& circ);
+  // the numeric result (digit) alone, without listing the trees: fast
+  // whatever the size; raw and mixed stay empty
+  void numeric(const circuit& circ);
+  // the number of trees operator() would list (and so of its terms before
+  // they are added up): counted when there are up to 100,000 (*exact
+  // true: the symbolic result takes a moment), otherwise estimated by
+  // random paths down the search, for `seconds` at most (within a few per
+  // cent); 0 when there are none
+  static double estimate_trees(const circuit& circ, double seconds = 0.3,
+    bool* exact = nullptr);
 
   inline std::pair<metacircuit::expression, metacircuit::expression>
     raw() const { return raw_; }
@@ -105,6 +117,10 @@ private:
   bool has_candidate(const expression& e, const std::string& c);
   void remove_candidate(expression& e, const std::string& c);
   double find_div(const expression& e);
+  // every coefficient of both divided by div is a fair double; the power
+  // of ten in the middle of their range
+  static bool fits(const std::pair<expression, expression>& p, double div);
+  static double middle(const std::pair<expression, expression>& p);
   void normalize(expression& e, double div);
 
   static std::string stringify(double x);

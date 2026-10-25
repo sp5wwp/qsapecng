@@ -57,6 +57,19 @@ struct SolveResult
   QString file;
   QList<OutputResult> outputs;
 
+  // the symbolic part (Result, Raw): there, or why it is not
+  enum Symbolic
+  {
+    SymbolicDone,      // there
+    SymbolicRunning,   // being worked out in the background
+    SymbolicSkipped,   // the user said not now (it would take long)
+    SymbolicStopped,   // stopped (Stop, or the circuit was changed)
+    SymbolicOff        // Settings: numeric only
+  };
+  Symbolic symbolic = SymbolicDone;
+  double trees = 0.;     // the terms it adds up (estimated)
+  double seconds = 0.;   // the time it takes, roughly (0: not known)
+
   bool anySingular() const
     {
       for(const OutputResult& o : outputs)
@@ -78,6 +91,13 @@ public:
   explicit ResultPanel(QWidget* parent = 0);
 
   void showResult(const SolveResult& result, bool outOfDate);
+
+  // a time, the same way wherever one is shown: "3h 50min", "50min", "40s"
+  static QString shortTime(double seconds);
+
+  // while the symbolic result is worked out: the time left, as shown
+  // under Result ("Calculating... 3h 50min left.")
+  void setTimeLeft(double seconds);
   // the "changed since solved" notice only (redrawn when it changes)
   void setOutOfDate(bool outOfDate);
 private:
@@ -94,6 +114,8 @@ signals:
   void plotRequested(int function);
   // right-click > Clear
   void clearRequested();
+  // a "Compute it" link (the symbolic result) was clicked
+  void symbolicRequested();
 
 protected:
   void changeEvent(QEvent* event) override;
@@ -115,6 +137,7 @@ private:
   // long sections shown in full ("output/section"), kept across results
   QSet<QString> expanded_;
   SolveResult result_;
+  QString timeLeft_;   // see setTimeLeft()
   bool hasResult_;
   bool outOfDate_;
 

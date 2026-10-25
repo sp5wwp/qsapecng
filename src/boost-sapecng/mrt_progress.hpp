@@ -33,6 +33,8 @@ struct mrt_progress
   // [ QSapecNG ] multi-core (all optional)
   mrt_pool* pool = nullptr;               // where to hand work on
   std::atomic<long long>* total = nullptr;   // done by all, in 1 / unit
+  std::atomic<long long>* trees = nullptr;   // trees found by all
+  long long found = 0;                       // by this thread, not yet in
   unsigned ticks = 0;
 
   static constexpr double unit = 1099511627776.;   // 2^40
@@ -41,6 +43,8 @@ struct mrt_progress
   inline void advanced()
   {
     if(!total) {
+      if(trees && (++ticks & 63) == 0)
+        flush();
       if(permille)
         permille->store(int(done * 1000.), std::memory_order_relaxed);
     } else if((++ticks & 63) == 0) {
@@ -51,6 +55,10 @@ struct mrt_progress
   // passes this thread's part on to the total
   inline void flush()
   {
+    if(trees && found) {
+      trees->fetch_add(found, std::memory_order_relaxed);
+      found = 0;
+    }
     if(!total)
       return;
     const long long add = std::llround(done * unit);

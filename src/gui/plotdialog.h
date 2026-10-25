@@ -59,6 +59,10 @@ public:
   // the outputs of the circuit; the choice is shown when there are two or
   // more (no changed())
   void setOutputs(const QStringList& names);
+  // the Smith chart only when the output is an impedance (a current
+  // source drives the circuit): otherwise its button is greyed out, and
+  // with moveAway a Smith chart chosen becomes a Bode plot (no changed())
+  void setSmithAllowed(bool allowed, bool moveAway);
 
 signals:
   // an edit (typing is reported when it ends; spin steps a moment later)
@@ -110,6 +114,7 @@ public:
 
   PlotSettings settings() const { return form_->settings(); }
   void setOutputs(const QStringList& names, const QString& current);
+  void setSmithAllowed(bool allowed) { form_->setSmithAllowed(allowed, true); }
 
 private:
   PlotSettingsWidget* form_;

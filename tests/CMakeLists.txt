@@ -4,6 +4,7 @@
 set(ENGINE_SRCS
   ${PROJECT_SOURCE_DIR}/src/model/circuit.cpp
   ${PROJECT_SOURCE_DIR}/src/model/metacircuit.cpp
+  ${PROJECT_SOURCE_DIR}/src/model/numericsolve.cpp
   ${PROJECT_SOURCE_DIR}/src/parser/crc_circuit.cpp
   ${PROJECT_SOURCE_DIR}/src/parser/spice_circuit.cpp
   ${PROJECT_SOURCE_DIR}/src/parser/ir_circuit.cpp
@@ -94,6 +95,27 @@ file(GLOB reference_circuits
   ${CMAKE_CURRENT_SOURCE_DIR}/data/*.crc)
 add_test(NAME reference_files
   COMMAND mna_check reference-file ${reference_circuits})
+# the numeric result without the trees (metacircuit::numeric) against the
+# digit result from the trees
+add_test(NAME numeric_fuzz_basic COMMAND mna_check numeric 300 21)
+add_test(NAME numeric_fuzz_extended COMMAND mna_check numeric 300 22 ext)
+add_test(NAME numeric_files
+  COMMAND mna_check numeric-file ${reference_circuits})
+# a circuit too big for the tree solve (4 billion trees; kept in data/big,
+# out of the lists above): the numeric solve against MNA
+add_test(NAME numeric_big_ladder
+  COMMAND mna_check file-numeric ${CMAKE_CURRENT_SOURCE_DIR}/data/big/ladder7-real-lc.info)
+# the same ladder bridged by capacitors (elliptic-like, about 1e12 trees):
+# its coefficients span 320 decades, beyond what a double holds once the
+# result is made monic; the plots' root finder hung on it
+add_test(NAME numeric_big_bridged
+  COMMAND mna_check file-numeric ${CMAKE_CURRENT_SOURCE_DIR}/data/big/ladder7-bridged.info)
+add_test(NAME roots_big_ladder
+  COMMAND mna_check roots-file ${CMAKE_CURRENT_SOURCE_DIR}/data/big/ladder7-real-lc.info)
+add_test(NAME roots_big_bridged
+  COMMAND mna_check roots-file ${CMAKE_CURRENT_SOURCE_DIR}/data/big/ladder7-bridged.info)
+set_tests_properties(roots_big_ladder roots_big_bridged numeric_big_bridged
+  PROPERTIES TIMEOUT 120)
 foreach(circuit
     data/issue6-active-bandpass.info data/opamp-finite-gain.info
     data/real-passives.info data/single-pin-source.info

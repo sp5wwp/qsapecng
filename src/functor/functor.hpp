@@ -23,8 +23,10 @@
 
 #include "model/metacircuit.h"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
+#include <initializer_list>
 #include <map>
 
 
@@ -115,8 +117,7 @@ private:
           if(f > range_.second)
             f = range_.second;
           plot.first.push_back(f);
-          plot.second.push_back(
-            apply(compute(num, f) / compute(den, f)) );
+          plot.second.push_back(apply(ratio(num, den, f)));
         }
       }
       return plot;
@@ -125,20 +126,68 @@ private:
     {
       for(double cnt = range_.first; cnt < range_.second; cnt += step_)
       {
-        std::complex<double> cnum = compute(num, cnt);
-        std::complex<double> cden = compute(den, cnt);
-
         plot.first.push_back(cnt);
-        plot.second.push_back( apply(cnum / cden) );
+        plot.second.push_back(apply(ratio(num, den, cnt)));
       }
     }
 
     return plot;
   }
 
+  // num / den at s = j 2 pi f. A big circuit gives high powers of s with
+  // huge coefficients (s^28, 1e118): a term alone can pass 1e308 (an
+  // infinity, then NaN for the ratio), so every term of both is scaled by
+  // the largest one first (by logarithms), which leaves the ratio as it is
+  std::complex<double>
+  ratio(
+      const std::map< int, double >& num,
+      const std::map< int, double >& den,
+      double f
+    )
+  {
+    const double w = 2. * 4.0 * std::atan(1.0) * f;
+    if(!(w > 0.) || !std::isfinite(w))
+      return compute(num, f) / compute(den, f);
+    const double lw = std::log(w);
+    double top = -HUGE_VAL;
+    for(const std::map< int, double >* e : { &num, &den })
+      for(std::map< int, double >::const_iterator it = e->begin();
+          it != e->end(); ++it)
+        if(it->second != 0.)
+          top = std::max(top, std::log(std::fabs(it->second)) + it->first * lw);
+    if(!std::isfinite(top))
+      return compute(num, f) / compute(den, f);
+    return scaled(num, lw, top) / scaled(den, lw, top);
+  }
+
+  // sum of c (j w)^n / e^top, w = e^lw
+  static std::complex<double>
+  scaled(const std::map< int, double >& expr, double lw, double top)
+  {
+    std::complex<double> v(0., 0.);
+    for(std::map< int, double >::const_iterator it = expr.begin();
+        it != expr.end(); ++it)
+    {
+      if(it->second == 0.)
+        continue;
+      const int n = it->first;
+      double x = std::exp(std::log(std::fabs(it->second)) + n * lw - top);
+      if(it->second < 0.)
+        x = -x;
+      // j^n: 1, j, -1, -j
+      switch(((n % 4) + 4) % 4) {
+      case 0: v += std::complex<double>(x, 0.); break;
+      case 1: v += std::complex<double>(0., x); break;
+      case 2: v += std::complex<double>(-x, 0.); break;
+      default: v += std::complex<double>(0., -x); break;
+      }
+    }
+    return v;
+  }
+
   std::complex<double>
   compute(
-      std::map< int, double > expr,
+      const std::map< int, double >& expr,
       double step
     )
   {

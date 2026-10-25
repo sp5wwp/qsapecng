@@ -22,6 +22,8 @@
 #include "gui/theme.h"
 #include <QToolButton>
 #include <QButtonGroup>
+#include <QSignalBlocker>
+#include <QAbstractButton>
 #include <tuple>
 #include <QDoubleValidator>
 
@@ -334,6 +336,28 @@ PlotSettings PlotSettingsWidget::settings() const
   s.phaseMin = phaseMin_->text().toDouble();
   s.phaseMax = phaseMax_->text().toDouble();
   return s;
+}
+
+
+void PlotSettingsWidget::setSmithAllowed(bool allowed, bool moveAway)
+{
+  QAbstractButton* smith = kind_->button(WorkPlane::SmithKind);
+  if(!smith)
+    return;
+  smith->setEnabled(allowed);
+  smith->setToolTip(allowed
+    ? tr("Smith chart: the output read as an impedance (drive the port with "
+         "a 1 A current source and put the Out marker on it)")
+    : tr("Smith chart: not for this circuit. It reads the output as an "
+         "impedance, which it is only when a 1 A current source drives the "
+         "circuit; here a voltage source does (or no source), so the output "
+         "is a voltage ratio"));
+  if(!allowed && moveAway && smith->isChecked()) {
+    const QSignalBlocker block(kind_);
+    if(QAbstractButton* bode = kind_->button(WorkPlane::BodeKind))
+      bode->setChecked(true);
+    update();
+  }
 }
 
 

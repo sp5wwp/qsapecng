@@ -20,9 +20,12 @@
 #include "model/metacircuit.h"
 
 #include "model/exactsum.h"
+#include "model/numericsolve.h"
 #include "model/treesearch.h"
 
 #include <algorithm>
+#include <cmath>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
@@ -387,6 +390,36 @@ private:
 }
 
 
+namespace
+{
+
+// the two graphs by edge number, and the edges every tree must have
+bool tree_problem(const circuit& circuit, tree_graphs& graphs,
+  std::vector<bool>& forcedIn)
+{
+  const Graph& iG = circuit.iGraph();
+  const Graph& vG = circuit.vGraph();
+  if(num_edges(vG) != num_edges(iG) || num_vertices(vG) != num_vertices(iG))
+    return false;
+  const std::vector<circuit::edge_descriptor>& iO = circuit.iGraph_order();
+  const std::vector<circuit::edge_descriptor>& vO = circuit.vGraph_order();
+  graphs.vertices = int(num_vertices(iG));
+  graphs.edges = int(num_edges(iG));
+  forcedIn.assign(graphs.edges, false);
+  for(int j = 0; j < graphs.edges; ++j) {
+    graphs.iu.push_back(int(source(iO[j], iG)));
+    graphs.iv.push_back(int(target(iO[j], iG)));
+    graphs.vu.push_back(int(source(vO[j], vG)));
+    graphs.vv.push_back(int(target(vO[j], vG)));
+    if(get(boost::edge_type, iG)[ iO[j] ] == sapecng::F)
+      forcedIn[j] = true;
+  }
+  return true;
+}
+
+}
+
+
 void metacircuit::operator()(const circuit& circuit)
 {
   // clear data
@@ -398,84 +431,143 @@ void metacircuit::operator()(const circuit& circuit)
   mixed_.first.clear();
   mixed_.second.clear();
 
-  // use circuit
-  if(num_edges(circuit.vGraph()) == num_edges(circuit.iGraph())
-      && num_vertices(circuit.vGraph()) == num_vertices(circuit.iGraph())
-    )
-  {
+  tree_graphs graphs;
+  std::vector<bool> forcedIn;
+  if(!tree_problem(circuit, graphs, forcedIn))
+    return;
 
-    const Graph& refG = circuit.iGraph();
-    const std::vector<circuit::edge_descriptor>& refO = circuit.iGraph_order();
+  const Graph& refG = circuit.iGraph();
+  const std::vector<circuit::edge_descriptor>& refO = circuit.iGraph_order();
 
-    std::vector< bool > forcedIn(num_edges(refG), false);
-    // put in forced edges
-    typedef
-    boost::property_map<sapecng::Graph, boost::edge_type_t>::const_type
-    FM_type;
+  // what each edge adds to a term
+  std::vector<std::string> names;
+  for(int j = 0; j < graphs.edges; ++j)
+    if(get(boost::edge_name, refG)[ refO[j] ].size())
+      names.push_back(get(boost::edge_name, refG)[ refO[j] ]);
+  std::sort(names.begin(), names.end());
+  names.erase(std::unique(names.begin(), names.end()), names.end());
 
-    FM_type FM = get(boost::edge_type, refG);
-
-    for(std::vector<bool>::size_type i = 0; i < forcedIn.size(); ++i) {
-      if(FM[ refO[i] ] == sapecng::F)
-        forcedIn[i] = true;
-    }
-
-    // the two graphs by edge number, and what each edge adds to a term
-    const Graph& iG = circuit.iGraph();
-    const Graph& vG = circuit.vGraph();
-    const std::vector<circuit::edge_descriptor>& iO = circuit.iGraph_order();
-    const std::vector<circuit::edge_descriptor>& vO = circuit.vGraph_order();
-    tree_graphs graphs;
-    graphs.vertices = int(num_vertices(iG));
-    graphs.edges = int(num_edges(iG));
-    for(int j = 0; j < graphs.edges; ++j) {
-      graphs.iu.push_back(int(source(iO[j], iG)));
-      graphs.iv.push_back(int(target(iO[j], iG)));
-      graphs.vu.push_back(int(source(vO[j], vG)));
-      graphs.vv.push_back(int(target(vO[j], vG)));
-    }
-
-    std::vector<std::string> names;
-    for(int j = 0; j < graphs.edges; ++j)
-      if(get(boost::edge_name, refG)[ refO[j] ].size())
-        names.push_back(get(boost::edge_name, refG)[ refO[j] ]);
-    std::sort(names.begin(), names.end());
-    names.erase(std::unique(names.begin(), names.end()), names.end());
-
-    std::vector<edge_info> edges(graphs.edges);
-    for(int j = 0; j < graphs.edges; ++j) {
-      edge_info& e = edges[j];
-      e.type = FM[ refO[j] ];
-      e.weight = get(boost::edge_weight, refG)[ refO[j] ];
-      e.degree = get(boost::edge_degree, refG)[ refO[j] ];
-      e.symbolic = get(boost::edge_symbolic, refG)[ refO[j] ];
-      const std::string& name = get(boost::edge_name, refG)[ refO[j] ];
-      if(name.size())
-        e.name = int(std::lower_bound(names.begin(), names.end(), name)
-          - names.begin());
-    }
-
-    // every tree adds its terms as it is found (none is kept: a big
-    // circuit has billions); the sums are exact, so neither the number of
-    // threads nor the order they work in changes the result
-    term_sink terms(graphs, edges);
-    tree_search<term_sink> search(graphs);
-    search.run(forcedIn, terms, boost::mrt_current_progress());
-
-    terms.result(0, raw_.first, names);
-    terms.result(1, digit_.first, names);
-    terms.result(2, mixed_.first, names);
-    terms.result(3, raw_.second, names);
-    terms.result(4, digit_.second, names);
-    terms.result(5, mixed_.second, names);
-
-    const bool rawOk = simplify(raw_);
-    const bool digitOk = simplify(digit_);
-    simplify(mixed_);
-    // structurally (raw) or for these values (digit)
-    singular_ = !rawOk || !digitOk;
+  std::vector<edge_info> edges(graphs.edges);
+  for(int j = 0; j < graphs.edges; ++j) {
+    edge_info& e = edges[j];
+    e.type = get(boost::edge_type, refG)[ refO[j] ];
+    e.weight = get(boost::edge_weight, refG)[ refO[j] ];
+    e.degree = get(boost::edge_degree, refG)[ refO[j] ];
+    e.symbolic = get(boost::edge_symbolic, refG)[ refO[j] ];
+    const std::string& name = get(boost::edge_name, refG)[ refO[j] ];
+    if(name.size())
+      e.name = int(std::lower_bound(names.begin(), names.end(), name)
+        - names.begin());
   }
 
+  // every tree adds its terms as it is found (none is kept: a big
+  // circuit has billions); the sums are exact, so neither the number of
+  // threads nor the order they work in changes the result
+  term_sink terms(graphs, edges);
+  tree_search<term_sink> search(graphs);
+  search.run(forcedIn, terms, boost::mrt_current_progress());
+
+  terms.result(0, raw_.first, names);
+  terms.result(1, digit_.first, names);
+  terms.result(2, mixed_.first, names);
+  terms.result(3, raw_.second, names);
+  terms.result(4, digit_.second, names);
+  terms.result(5, mixed_.second, names);
+
+  const bool rawOk = simplify(raw_);
+  const bool digitOk = simplify(digit_);
+  simplify(mixed_);
+  // structurally (raw) or for these values (digit)
+  singular_ = !rawOk || !digitOk;
+}
+
+
+void metacircuit::numeric(const circuit& circuit)
+{
+  singular_ = false;
+  raw_.first.clear();
+  raw_.second.clear();
+  digit_.first.clear();
+  digit_.second.clear();
+  mixed_.first.clear();
+  mixed_.second.clear();
+
+  tree_graphs graphs;
+  std::vector<bool> forcedIn;
+  if(!tree_problem(circuit, graphs, forcedIn))
+    return;
+
+  const Graph& refG = circuit.iGraph();
+  const std::vector<circuit::edge_descriptor>& refO = circuit.iGraph_order();
+  std::vector<numeric_edge> edges(graphs.edges);
+  for(int j = 0; j < graphs.edges; ++j) {
+    edges[j].type = get(boost::edge_type, refG)[ refO[j] ];
+    edges[j].weight = get(boost::edge_weight, refG)[ refO[j] ];
+    edges[j].degree = get(boost::edge_degree, refG)[ refO[j] ];
+  }
+
+  std::map<int, double> num, den;
+  if(!numeric_transfer(graphs, edges, num, den, boost::mrt_current_progress()))
+    throw boost::mrt_cancelled();
+  for(const auto& c : num)
+    digit_.first[c.first].push_back(basic_expression(c.second,
+      std::list<std::string>()));
+  for(const auto& c : den)
+    digit_.second[c.first].push_back(basic_expression(c.second,
+      std::list<std::string>()));
+
+  // as operator(): the denominator is zero when the circuit has no unique
+  // solution (with no trees at all the raw result would be empty too)
+  singular_ = !simplify(digit_);
+}
+
+
+double metacircuit::estimate_trees(const circuit& circuit, double seconds,
+  bool* exact)
+{
+  if(exact)
+    *exact = true;
+  tree_graphs graphs;
+  std::vector<bool> forcedIn;
+  if(!tree_problem(circuit, graphs, forcedIn))
+    return 0.;
+
+  // a small circuit (up to 100,000 trees: a moment to solve): counted
+  // (the time limit only guards against a slow search, not the count)
+  // (one thread: its parts all count into `trees`)
+  struct counter
+  {
+    struct enough { };
+    long long* trees = nullptr;
+    std::chrono::steady_clock::time_point until;
+    counter part() const { return *this; }
+    void merge(counter&&) { }
+    void tree(const std::vector<bool>&, const tree_position&)
+    {
+      if((++*trees & 1023) == 0 && (*trees > 100000
+          || std::chrono::steady_clock::now() > until))
+        throw enough();
+    }
+  };
+  long long trees = 0;
+  counter count;
+  count.trees = &trees;
+  count.until = std::chrono::steady_clock::now()
+    + std::chrono::microseconds((long long)(1e6 * std::max(3., seconds)));
+  try {
+    tree_search<counter> search(graphs);
+    search.run(forcedIn, count, nullptr);
+    return double(trees);
+  } catch(const counter::enough&) {
+  }
+
+  // a big one: estimated
+  if(exact)
+    *exact = false;
+  tree_search<counter> search(graphs);
+  boost::mrt_progress* progress = boost::mrt_current_progress();
+  return search.estimate(forcedIn, seconds,
+    progress ? progress->pool : nullptr);
 }
 
 
@@ -544,6 +636,12 @@ bool metacircuit::simplify(std::pair<expression, expression>& p)
     }
 
     double div = find_div(p.first);
+    // the numerator's highest coefficient made 1, unless that takes a
+    // coefficient beyond what a double holds (a big circuit's span 300
+    // decades and more): then the middle of their range is made 1 (a
+    // power of ten), which keeps them all
+    if(div != 0 && div != 1 && !fits(p, div))
+      div = middle(p);
     if(div != 0 && div != 1) {
       normalize(p.first, div);
       normalize(p.second, div);
@@ -662,6 +760,42 @@ void metacircuit::remove_candidate(expression& e, const std::string& c)
         dit->second.erase(f);
     }
   }
+}
+
+
+bool metacircuit::fits(const std::pair<expression, expression>& p,
+  double div)
+{
+  for(const expression* e : { &p.first, &p.second })
+    for(expression::const_iterator it = e->begin(); it != e->end(); ++it)
+      for(degree_expression::const_iterator
+          dit = it->second.begin(); dit != it->second.end(); ++dit)
+      {
+        if(dit->first == 0.)
+          continue;
+        const double q = std::fabs(dit->first / div);
+        if(!std::isfinite(q) || q < 1e-300 || q > 1e300)
+          return false;
+      }
+  return true;
+}
+
+
+double metacircuit::middle(const std::pair<expression, expression>& p)
+{
+  double low = HUGE_VAL, high = -HUGE_VAL;
+  for(const expression* e : { &p.first, &p.second })
+    for(expression::const_iterator it = e->begin(); it != e->end(); ++it)
+      for(degree_expression::const_iterator
+          dit = it->second.begin(); dit != it->second.end(); ++dit)
+        if(dit->first != 0. && std::isfinite(dit->first)) {
+          const double l = std::log10(std::fabs(dit->first));
+          low = std::min(low, l);
+          high = std::max(high, l);
+        }
+  if(!(high >= low))
+    return 1.;
+  return std::pow(10., std::round((low + high) / 2));
 }
 
 

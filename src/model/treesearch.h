@@ -36,6 +36,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -125,6 +127,86 @@ public:
     merged_.reset();
   }
 
+  // the number of trees run() would find, estimated by random paths down
+  // the search (Knuth's estimator: each path weighs the product of the
+  // choices it passed). Paths for `seconds`, on every thread of the pool
+  // (longer when that gave few, up to four times), or until the estimate
+  // is within 0.3 %.
+  // Returns the mean; *error: its standard error
+  double estimate(const std::vector<bool>& forced, double seconds,
+    boost::mrt_pool* pool = nullptr, double* error = nullptr)
+  {
+    if(error)
+      *error = 0.;
+    {
+      walker w(*this, nullptr);
+      for(int j = 0; j < g_.edges; ++j)
+        w.inL[j] = forced[j] ? 1 : 0;
+      w.count();
+      if(!w.start())
+        return 0.;
+    }
+    std::mutex mutex;
+    double sum = 0., squares = 0.;
+    long long paths = 0;
+    bool done = false;
+    const auto begin = std::chrono::steady_clock::now();
+    auto work = [&](std::uint64_t seed) {
+        walker w(*this, nullptr);
+        for(int j = 0; j < g_.edges; ++j)
+          w.inL[j] = forced[j] ? 1 : 0;
+        w.count();
+        w.start();
+        const std::vector<char> inL = w.inL, del = w.del;
+        const int in = w.in;
+        for(;;) {
+          double s = 0., q = 0.;
+          for(int k = 0; k < 64; ++k) {
+            w.inL = inL;
+            w.del = del;
+            w.in = in;
+            const double x = w.probe(seed);
+            s += x;
+            q += x * x;
+          }
+          std::lock_guard<std::mutex> lock(mutex);
+          sum += s;
+          squares += q;
+          paths += 64;
+          if(done)
+            return;
+          const double mean = sum / paths;
+          const double se = std::sqrt(std::max(0.,
+            squares / paths - mean * mean) / paths);
+          // enough: precise, or the time is up (with paths enough on a
+          // slow computer, up to four times the time)
+          const double spent = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - begin).count();
+          if((paths >= 2048 && se <= 0.003 * mean) || paths >= 50000000
+              || (spent > seconds && paths >= 16384) || spent > 4 * seconds)
+          {
+            done = true;
+            return;
+          }
+        }
+      };
+    if(pool && pool->size() > 1) {
+      boost::mrt_pool::group group;
+      for(unsigned i = 1; i < pool->size(); ++i)
+        pool->submit(group, [&work, i]() {
+            work(0x9e3779b97f4a7c15ull * (i + 1));
+          });
+      work(0x9e3779b97f4a7c15ull);
+      pool->wait(group);
+    } else {
+      work(0x9e3779b97f4a7c15ull);
+    }
+    const double mean = sum / paths;
+    if(error)
+      *error = std::sqrt(std::max(0., squares / paths - mean * mean) / paths);
+    return mean;
+  }
+
 private:
   boost::mrt_pool* pool() const
     { return progress_ ? progress_->pool : nullptr; }
@@ -165,6 +247,7 @@ private:
         p.permille = progress->permille;
         p.pool = progress->pool;
         p.total = progress->total;
+        p.trees = progress->trees;
         if(!s.progress_)
           s.progress_ = progress;
       }
@@ -353,6 +436,7 @@ private:
             tree[j] = inL[j] != 0;
           clear_from(depth);
           sink->tree(tree, position);
+          ++p.found;
         }
         p.done += weight;
         p.advanced();
@@ -430,6 +514,73 @@ private:
       p.advanced();
     }
 
+    // one random path down from here (the state is spoilt): the number
+    // of trees it stands for
+    double probe(std::uint64_t& seed)
+    {
+      double weight = 1.;
+      for(int depth = 0; ; ++depth) {
+        const int left = g.vertices - 1 - in;
+        if(left < 0)
+          return 0.;
+        if(left == 0)
+          return weight;
+        int* pi = di.data() + std::size_t(depth + 1) * g.vertices;
+        int* pv = dv.data() + std::size_t(depth + 1) * g.vertices;
+        build(pi, g.iu, g.iv);
+        build(pv, g.vu, g.vv);
+        int m = -1;
+        for(int j = 0; j < g.edges && m < 0; ++j)
+          if(!inL[j] && !del[j] && !closes(pi, pv, j))
+            m = j;
+        if(m < 0)
+          return 0.;
+        // can m be left out? (its bridges must go in without a cycle)
+        del[m] = 1;
+        bridgeList.clear();
+        bridges(g.iu, g.iv);
+        bridges(g.vu, g.vv);
+        int* qi = di.data();   // the start's slot: free now
+        int* qv = dv.data();
+        std::copy(pi, pi + g.vertices, qi);
+        std::copy(pv, pv + g.vertices, qv);
+        bool dead = false;
+        added.clear();
+        for(int e : bridgeList) {
+          if(inL[e] || std::find(added.begin(), added.end(), e) != added.end())
+            continue;
+          if(!join(qi, qv, e)) {
+            dead = true;
+            break;
+          }
+          added.push_back(e);
+        }
+        del[m] = 0;
+        // xorshift: a random bit
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        const bool out = !dead && (seed & 1);
+        if(!dead)
+          weight *= 2.;
+        if(!out) {
+          inL[m] = 1;
+          ++in;
+          join(pi, pv, m);
+          for(int j = 0; j < g.edges; ++j)
+            if(!inL[j] && !del[j] && closes(pi, pv, j))
+              del[j] = 1;
+        } else {
+          del[m] = 1;
+          for(int e : added) {
+            inL[e] = 1;
+            ++in;
+          }
+        }
+      }
+    }
+    std::vector<int> added;
+
     // on this thread, or another if one is idle and enough is left
     void child(double weight, int depth)
     {
@@ -440,6 +591,7 @@ private:
         std::shared_ptr<walker> w(new walker(s, nullptr));
         w->p = p;
         w->p.done = 0.;
+        w->p.found = 0;
         w->p.ticks = 0;
         w->sink.reset(new Sink(sink->part()));
         w->inL = inL;

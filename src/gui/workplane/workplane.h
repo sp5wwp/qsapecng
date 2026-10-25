@@ -243,6 +243,10 @@ public:
   // a source with internal resistance: the magnitude as transducer gain,
   // |H| times k = 2 sqrt(Rs / RL)
   void setGainScale(double k, bool transducer, bool assumedLoad);
+  // the output is an impedance (a current source drives the circuit, no
+  // voltage source): the Smith chart means something; otherwise it says
+  // so in its title
+  void setImpedance(bool impedance) { impedance_ = impedance; }
   void setData(const std::map<std::string, double>& values,
       const sapecng::metacircuit::expression& numerator,
       const sapecng::metacircuit::expression& denominator
@@ -318,6 +322,7 @@ private:
   sapecng::metacircuit::expression num_;
   sapecng::metacircuit::expression rawNum_;   // as solved (num_ may be scaled)
   double gainScale_ = 1.;
+  bool impedance_ = true;   // see setImpedance()
   bool transducer_ = false;    // magnitude = transducer gain
   bool assumedLoad_ = false;   // ... with RL = Rs, the output has no load
   sapecng::metacircuit::expression den_;

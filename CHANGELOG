@@ -425,6 +425,54 @@ QSapecNG CHANGELOG
       different order, the values are the same
     o New tests compare the solver with the previous one term by term on
       the examples and on 600 random circuits
+    o Resolve gives the numeric result (Digit) and the plots at once,
+      whatever the size of the circuit: the transfer function is worked
+      out as a determinant (exactly, modulo many primes), without listing
+      the trees. A 7-section LC ladder with real L and C: about a second,
+      where the symbolic result takes hours
+    o The symbolic result (Result, Raw) of a big circuit is then worked out
+      in the background, with the schematic free to edit (an edit stops
+      it). Settings > General > Solver > Symbolic result: Always, Ask when
+      it takes long (the default: asks when it would take more than about
+      10 s, with the estimated time), or Never (numeric
+      only). A small circuit gets it at once, as before. The Result panel
+      says what is going on ("Calculating... 3h 50min left.") and offers
+      to compute it when skipped or stopped
+    o The time the symbolic result takes is estimated before it starts:
+      its work is counted (small circuits) or sampled within a few per cent
+      (random paths down the search), at the speed of the last symbolic
+      solve on the computer
+    o The progress bar is 1.5 times as wide and shows the time left of the
+      symbolic result (from the terms found so far). Times are shown the
+      same way everywhere: 3h 50min, 50min, 40s
+    o Plots of high-order transfer functions: a term with a high power of
+      s overflowed (infinity, then NaN), which drew nonsense and froze the
+      window; the terms are now scaled before they are added
+    o Big circuits whose coefficients span more than 300 decades (an LC
+      ladder bridged by capacitors: 1 to 1e320): some were stored as
+      infinities, and opening the plot froze the program (the root finder
+      for the frequency range never returned). The numerator and the
+      denominator are now scaled together to keep every coefficient a
+      finite number (the transfer function is the same), and made monic
+      only when that fits
+    o Poles and zeros: the polynomial is scaled to roots of like size
+      before the root finder (rpoly), which gives up instead of looping
+      when it cannot cope; then the Aberth-Ehrlich method finds them
+      (roots spread over many decades)
+    o Markers: "< Peak" and "Peak >" from a marker already on a peak or a
+      dip stayed there; they move on to the next one
+    o Smith chart: offered only when the output is an impedance (a 1 A
+      current source drives the circuit, no voltage source does): greyed
+      out otherwise, in New Plot and in Plot Settings, saying why. A Smith
+      chart of such a circuit (from a file) says it in its title. It drew
+      the voltage ratio as an impedance: curves off the chart
+    o Resolve no longer leaves the Plots window behind the main window:
+      pressed there, it stays in front (also with the question about the
+      symbolic result, which now opens over it); pressed in the main
+      window, the Plots window comes back over it once the result is in
+    o A crash (heap corruption) at exit with schematics open: closing them
+      reached the main window after its parts were freed. A schematic
+      still solving in the background is stopped when it is closed
     o Plots window: the size it had last time is kept. It no longer grows
       to most of the screen when the Markers tab is in front
     o Components: a column of tool buttons on the left edge, as in

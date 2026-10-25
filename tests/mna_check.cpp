@@ -8,11 +8,19 @@
 //
 // usage:
 //   mna_check file <circuit.info|circuit.crc>   one circuit
+//   mna_check file-numeric <circuit>             the same, the numeric
+//                                                solve (any size)
+//   mna_check roots-file <circuit.info>          the numeric result's
+//                                                poles and zeros
 //   mna_check fuzz <count> [seed]                random circuits
 //   mna_check bench                              solve time vs. size
 //   mna_check reference <count> [seed] [ext]     random circuits, the
 //                                                solver against the old one
 //   mna_check reference-file <circuit>...        the same, on files
+//   mna_check numeric <count> [seed] [ext]       random circuits, the
+//                                                numeric solve against the
+//                                                tree solve's digit result
+//   mna_check numeric-file <circuit>...          the same, on files
 
 #include <algorithm>
 #include <chrono>
@@ -520,7 +528,8 @@ struct EngineResult
   std::string text;
 };
 
-EngineResult solveEngine(const Netlist& net, int output = -1)
+EngineResult solveEngine(const Netlist& net, int output = -1,
+  bool numeric = false)
 {
   EngineResult r;
   sapecng::circuit circ;
@@ -528,7 +537,10 @@ EngineResult solveEngine(const Netlist& net, int output = -1)
     output < 0 ? net.engineOutput() : unsigned(output));
   net.replay(builder);
   sapecng::metacircuit meta;
-  meta(circ);
+  if(numeric)
+    meta.numeric(circ);   // no trees listed: fast on any circuit
+  else
+    meta(circ);
   r.singular = meta.singular();
   r.num = meta.digit().first;
   r.den = meta.digit().second;
@@ -567,9 +579,10 @@ bool evalEngine(const EngineResult& r, double f, cplx* h)
 enum Verdict { Match, Mismatch, Singular, EngineZero, FalseSingular,
                BothSingular };
 
-Verdict compare(const Netlist& net, const Signs& sg, std::string* detail)
+Verdict compare(const Netlist& net, const Signs& sg, std::string* detail,
+  bool numeric = false)
 {
-  EngineResult er = solveEngine(net);
+  EngineResult er = solveEngine(net, -1, numeric);
   Mna mna(net, sg);
   static const double freqs[] = { 3.7, 159.2, 12345., 7.7e5 };
   if(er.singular) {
@@ -962,13 +975,16 @@ int main(int argc, char** argv)
   const std::string mode = argc > 1 ? argv[1] : "fuzz";
 
   // the solver against the one it replaced (tests/reference_solver.h)
-  if(mode == "reference" || mode == "reference-file") {
+  if(mode == "numeric" || mode == "numeric-file"
+      || mode == "reference" || mode == "reference-file") {
+    const bool numeric = mode.compare(0, 7, "numeric") == 0;
     int bad = 0, same = 0, total = 0;
     long long trees = 0;
     auto one = [&](const sapecng::circuit& circ, const std::string& what) {
         bool text = false;
         long long n = 0;
-        const std::string d = reference::check(circ, &text, &n);
+        const std::string d = numeric ? reference::check_numeric(circ, &text)
+                                      : reference::check(circ, &text, &n);
         ++total;
         trees += n;
         if(!d.empty()) {
@@ -979,7 +995,7 @@ int main(int argc, char** argv)
           ++same;
         }
       };
-    if(mode == "reference-file") {
+    if(mode == "reference-file" || mode == "numeric-file") {
       for(int a = 2; a < argc; ++a) {
         const std::string file(argv[a]);
         std::ifstream in(file.c_str());
@@ -1007,7 +1023,8 @@ int main(int argc, char** argv)
       }
     }
     std::cout << total << " circuits (" << trees << " trees): "
-      << total - bad << " the same as the old solver (" << same
+      << total - bad << (numeric ? " the same as the tree solve's digit ("
+                                  : " the same as the old solver (") << same
       << " printed identically), " << bad << " different\n";
     return bad ? 1 : 0;
   }
@@ -1208,7 +1225,72 @@ int main(int argc, char** argv)
     return mismatch ? 1 : 0;
   }
 
-  if(mode == "file" && argc > 2) {
+  // the numeric result of a circuit, its poles and zeros: every coefficient
+  // a finite double, as many roots as the degree, each one a root (the
+  // polynomial there small against its terms). Big circuits: coefficients
+  // spanning 300 decades and more overflowed, and the root finder hung
+  if(mode == "roots-file" && argc > 2) {
+    std::ifstream in(argv[2]);
+    sapecng::circuit circ;
+    sapecng::circuit_builder builder(circ);
+    sapecng::info_parser parser(in);
+    parser.parse(builder);
+    sapecng::metacircuit meta;
+    meta.numeric(circ);
+    const auto digit = meta.digit();
+    bool ok = true;
+    int pi = 0;
+    for(const sapecng::metacircuit::expression* e : { &digit.first, &digit.second }) {
+      const char* what = pi++ ? "denominator" : "numerator";
+      std::map<int, double> c;
+      for(const auto& d : *e)
+        for(const auto& t : d.second)
+          c[d.first] += t.first;
+      for(const auto& kv : c)
+        if(!std::isfinite(kv.second)) {
+          std::cout << what << ": coefficient of s^" << kv.first << " not finite\n";
+          ok = false;
+        }
+      int low = c.empty() ? 0 : c.begin()->first;
+      for(const auto& kv : c)
+        if(kv.second != 0.) { low = kv.first; break; }
+      const int degree = c.empty() ? 0 : c.rbegin()->first;
+      const auto roots = sapecng::rpoly_adapter(c);
+      std::cout << what << ": degree " << degree << ", " << roots.size() << " roots\n";
+      if(int(roots.size()) != degree)
+        ok = false;
+      // |P(r)| against the sum of |terms|, both scaled by the largest
+      double worst = 0.;
+      for(const auto& r : roots) {
+        const std::complex<long double> z((long double)r.first, (long double)r.second);
+        if(std::abs(z) == 0.L)
+          continue;   // a root at the origin (a power of s)
+        const long double lz = std::log(std::abs(z)), az = std::arg(z);
+        long double top = -HUGE_VALL;
+        for(const auto& kv : c)
+          if(kv.second != 0.)
+            top = std::max(top, std::log(std::fabs((long double)kv.second)) + kv.first * lz);
+        std::complex<long double> v = 0;
+        long double sum = 0;
+        for(const auto& kv : c) {
+          if(kv.second == 0.)
+            continue;
+          const long double m = std::exp(std::log(std::fabs((long double)kv.second)) + kv.first * lz - top);
+          v += std::polar(kv.second < 0 ? -m : m, kv.first * az);
+          sum += m;
+        }
+        worst = std::max(worst, double(std::abs(v) / sum));
+      }
+      (void)low;
+      std::cout << "  largest residual " << worst << "\n";
+      if(!(worst < 1e-6))
+        ok = false;
+    }
+    std::cout << (ok ? "ok\n" : "FAILED\n");
+    return ok ? 0 : 1;
+  }
+
+  if((mode == "file" || mode == "file-numeric") && argc > 2) {
     std::ifstream in(argv[2]);
     const std::string file(argv[2]);
     std::unique_ptr<sapecng::abstract_parser> parser;
@@ -1225,7 +1307,7 @@ int main(int argc, char** argv)
       return 0;
     }
     std::string detail;
-    const Verdict v = compare(rec.net, sg, &detail);
+    const Verdict v = compare(rec.net, sg, &detail, mode == "file-numeric");
     static const char* names[] = { "match", "MISMATCH", "singular (MNA only)",
       "ENGINE WITHOUT RESULT", "WRONGLY SINGULAR", "singular (both)" };
     std::cout << file << ": " << names[v] << "\n";

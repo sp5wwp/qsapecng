@@ -1040,9 +1040,17 @@ void WorkPlane::relabel(F f)
       // keep the title's font and colour: only the text (rich: Z0 with a
       // subscript) changes
       QwtText title = plot_->title();
-      title.setText(tr("Smith chart, Z<sub>0</sub> = %1")
-        .arg(units::format(QString::number(z0_, 'g', 6), QStringLiteral("Ω"))),
-        QwtText::RichText);
+      QString text = tr("Smith chart, Z<sub>0</sub> = %1")
+        .arg(units::format(QString::number(z0_, 'g', 6), QStringLiteral("Ω")));
+      // the output read as an impedance means something only when a 1 A
+      // current source drives the circuit; a voltage source makes it a
+      // voltage ratio (a gain), which the chart would show as ohms
+      if(!impedance_)
+        text += QStringLiteral("<br><span style='font-size: small; "
+            "font-weight: normal; color: #c0392b;'>%1</span>")
+          .arg(tr("The output is not an impedance: drive the circuit with "
+                  "a 1 A current source, not a voltage source"));
+      title.setText(text, QwtText::RichText);
       plot_->setTitle(title);
       plot_->setAxisScale(QwtPlot::xBottom, -1.15, 1.15);
       plot_->setAxisScale(QwtPlot::yLeft, -1.15, 1.15);
@@ -1922,39 +1930,47 @@ void WorkPlane::markerToPeak(int direction)
       return (g[i].y() > g[i - 1].y() && g[i].y() >= g[i + 1].y())
           || (g[i].y() < g[i - 1].y() && g[i].y() <= g[i + 1].y());
     };
-  int found = -1;
-  if(direction > 0) {
-    for(int i = 1; i + 1 < g.size(); ++i)
-      if(g[i].x() > l0 + 1e-6 && extremum(i)) {
-        found = i;
-        break;
+  // the peak or dip around grid point i, refined between its neighbours
+  // (golden section on log f)
+  auto refine = [&](int i) {
+      const double sign = g[i].y() > g[i - 1].y() ? 1. : -1.;   // dip: -1
+      double lo = g[i - 1].x(), hi = g[i + 1].x();
+      const double phi = (std::sqrt(5.) - 1) / 2;
+      for(int k = 0; k < 60; ++k) {
+        const double c = hi - phi * (hi - lo), d = lo + phi * (hi - lo);
+        if(sign * magnitudeAt(std::pow(10., c)) > sign * magnitudeAt(std::pow(10., d)))
+          hi = d;
+        else
+          lo = c;
       }
-  } else {
-    for(int i = g.size() - 2; i >= 1; --i)
-      if(g[i].x() < l0 - 1e-6 && extremum(i)) {
-        found = i;
-        break;
-      }
+      return QString::number(std::pow(10., (lo + hi) / 2), 'g', 9).toDouble();
+    };
+
+  // the first one beyond the marker; a marker already on a peak finds a
+  // grid point next to it that refines to that same peak: skipped, so it
+  // moves on to the next one
+  double hz = 0.;
+  const int first = direction > 0 ? 1 : g.size() - 2;
+  for(int i = first; i >= 1 && i + 1 < g.size(); i += direction > 0 ? 1 : -1) {
+    if(direction > 0 ? g[i].x() <= l0 + 1e-6 : g[i].x() >= l0 - 1e-6)
+      continue;
+    if(!extremum(i))
+      continue;
+    const double at = refine(i);
+    if(std::fabs(at - f0) <= 1e-6 * f0)
+      continue;   // the peak the marker is on
+    if(direction > 0 ? at < f0 : at > f0)
+      continue;   // refined back past the marker
+    hz = at;
+    break;
   }
-  if(found < 0) {
+  if(!(hz > 0.)) {
     markerNote_->setText(direction > 0
       ? tr("No peak or dip to the right in the plotted range.")
       : tr("No peak or dip to the left in the plotted range."));
     return;
   }
 
-  // refine between the neighbours (golden section on log f)
-  const double sign = g[found].y() > g[found - 1].y() ? 1. : -1.;   // dip: -1
-  double lo = g[found - 1].x(), hi = g[found + 1].x();
-  const double phi = (std::sqrt(5.) - 1) / 2;
-  for(int k = 0; k < 60; ++k) {
-    const double c = hi - phi * (hi - lo), d = lo + phi * (hi - lo);
-    if(sign * magnitudeAt(std::pow(10., c)) > sign * magnitudeAt(std::pow(10., d)))
-      hi = d;
-    else
-      lo = c;
-  }
-  const double hz = QString::number(std::pow(10., (lo + hi) / 2), 'g', 9).toDouble();
   setMarker(row, hz);
   markerNote_->clear();
   refreshMarkers();

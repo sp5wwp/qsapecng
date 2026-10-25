@@ -88,6 +88,9 @@ class QSapecNGWindow: public QMainWindow
 
 public:
   QSapecNGWindow();
+  // the sub-windows are closed while this is torn down: their signals
+  // must not reach it any more (see the destructor)
+  ~QSapecNGWindow() override;
   
   friend QSapecNGWindow& operator<<(
       QSapecNGWindow& window,
@@ -199,6 +202,12 @@ private:
 
 private:
   QProgressBar* progressBar_;
+  // where Resolve was pressed last (the Plots window is kept in front
+  // once the result is in, not when a background solve ends later)
+  enum ResolvedFrom { FromNowhere, FromMain, FromPlots };
+  ResolvedFrom resolvedFrom_ = FromNowhere;
+  void keepPlotsInFront();
+  void updateSmithAllowed();
   QTimer* progressTimer_ = nullptr;
   QLabel* statusLabel_;
   QLabel* countLabel_;

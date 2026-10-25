@@ -33,6 +33,7 @@
 #include <QMenu>
 #include <QTextBrowser>
 #include <QLabel>
+#include <QLocale>
 #include <cmath>
 #include <QTimer>
 #include <QTextDocument>
@@ -235,6 +236,14 @@ ResultPanel::ResultPanel(QWidget* parent)
 
 void ResultPanel::showResult(const SolveResult& result, bool outOfDate)
 {
+  // while the symbolic part runs: the estimate made before it started,
+  // until the main window gives the time left at the speed so far
+  if(result.symbolic == SolveResult::SymbolicRunning) {
+    if(result_.symbolic != SolveResult::SymbolicRunning || timeLeft_.isEmpty())
+      timeLeft_ = result.seconds > 0. ? shortTime(result.seconds) : QString();
+  } else {
+    timeLeft_.clear();
+  }
   result_ = result;
   hasResult_ = true;
   outOfDate_ = outOfDate;
@@ -332,8 +341,39 @@ void ResultPanel::changeEvent(QEvent* event)
 }
 
 
+QString ResultPanel::shortTime(double seconds)
+{
+  if(!(seconds >= 0.) || !std::isfinite(seconds))
+    return QString();
+  const long long s = std::llround(seconds);
+  if(s < 60)
+    return tr("%1s").arg(s);
+  const long long minutes = std::llround(seconds / 60.);
+  if(minutes < 60)
+    return tr("%1min").arg(minutes);
+  return tr("%1h %2min").arg(minutes / 60).arg(minutes % 60);
+}
+
+
+void ResultPanel::setTimeLeft(double seconds)
+{
+  if(!hasResult_ || result_.symbolic != SolveResult::SymbolicRunning)
+    return;
+  const QString text = seconds > 0. ? shortTime(seconds) : QString();
+  if(text == timeLeft_)
+    return;   // drawn again only when the text changes (once a minute)
+  timeLeft_ = text;
+  render();
+}
+
+
 void ResultPanel::linkClicked(const QUrl& url)
 {
+  if(url.scheme() == QLatin1String("symbolic")) {
+    emit symbolicRequested();
+    return;
+  }
+
   if(url.scheme() == QLatin1String("plot")) {
     emit plotRequested(url.path().toInt());
     return;
@@ -470,10 +510,71 @@ void ResultPanel::render()
       return int(std::ceil(doc.idealWidth()));
     };
 
+  // Result and Raw when the symbolic result is not there: why, and a link
+  // to compute it where that makes sense
+  const bool symbolic = result_.symbolic == SolveResult::SymbolicDone;
+  QString missing;
+  if(!symbolic) {
+    // the time it would take, as estimated (nothing when not known)
+    const QString what = result_.seconds > 0.
+      ? QStringLiteral(" (") + tr("an estimated %1 on this computer")
+          .arg(shortTime(result_.seconds)) + QStringLiteral(")")
+      : QString();
+    const QString compute = QStringLiteral(
+        "<a href='symbolic:' style='color:%1;'>%2</a>")
+      .arg(link.name());
+    switch(result_.symbolic) {
+    case SolveResult::SymbolicRunning:
+      // "Calculating... 3h 50min left." (the time left as the solve goes)
+      missing = tr("Calculating...");
+      if(!timeLeft_.isEmpty())
+        missing += QStringLiteral(" ") + tr("%1 left.").arg(timeLeft_);
+      missing += QStringLiteral(" ") + tr("Editing the circuit stops it.");
+      break;
+    case SolveResult::SymbolicSkipped:
+      missing = tr("Not computed%1.").arg(what) + QStringLiteral(" ")
+        + compute.arg(tr("Compute it now"));
+      break;
+    case SolveResult::SymbolicStopped:
+      missing = tr("Stopped before it was done%1.").arg(what)
+        + QStringLiteral(" ") + compute.arg(tr("Compute it again"));
+      break;
+    case SolveResult::SymbolicOff:
+      missing = tr("Not computed: Settings > General > Solver asks for the "
+        "numeric result only%1.").arg(what) + QStringLiteral(" ")
+        + compute.arg(tr("Compute it now"));
+      break;
+    default:
+      break;
+    }
+    missing = QStringLiteral("<p style='margin: 6px 0 0 0; color:%1;'>%2</p>")
+      .arg(dimCss, missing);
+  }
+  auto plainHeading = [&](const Section& s) {
+      return QStringLiteral(
+          "<p style='margin: 12px 0 0 0;'><b>%1</b> "
+          "<span style='color:%2;'>&nbsp;%3</span></p>")
+        .arg(s.title, dimCss, s.note);
+    };
+
   QStringList blocks;
   QList<int> widths;           // the whole section (side by side or not)
   QList<int> fractionWidths;   // the formula alone (cut short or not)
-  for(const Section& s : sections) {
+  QList<bool> absent;          // no formula (the symbolic part is not there)
+  for(int i = 0; i < 3; ++i) {
+    const Section& s = sections[i];
+    const bool none = !symbolic && i < 2;
+    absent << none;
+    if(none) {
+      // the note (once, under Result) wraps
+      const QString block = plainHeading(s) + (i == 0 ? missing
+        : QStringLiteral("<p style='margin: 6px 0 0 0; color:%1;'>%2</p>")
+            .arg(dimCss, tr("Comes with Result.")));
+      widths << qMin(idealWidth(block), 360);
+      fractionWidths << 0;
+      blocks << block;
+      continue;
+    }
     const QString fraction = fractionHtml(s.f, text);
     QString block = heading(s, QString()) + fraction;
     widths << idealWidth(block);
@@ -496,7 +597,7 @@ void ResultPanel::render()
   if(!sideBySide_) {
     const QString prefix = out->name + QLatin1Char('/');
     for(int i = 0; i < 3; ++i) {
-      if(fractionWidths.at(i) <= available)
+      if(absent.at(i) || fractionWidths.at(i) <= available)
         continue;
       const Section& s = sections[i];
       if(expanded_.contains(prefix + s.key)) {
@@ -514,9 +615,10 @@ void ResultPanel::render()
   }
   if(sideBySide_) {
     html += QStringLiteral("<table cellspacing='0' cellpadding='0'><tr>");
-    for(const QString& block : blocks)
-      html += QStringLiteral("<td valign='top' style='padding-right: %1px;'>%2</td>")
-        .arg(gap).arg(block);
+    for(int i = 0; i < blocks.size(); ++i)
+      html += QStringLiteral("<td valign='top' style='padding-right: %1px;%3'>%2</td>")
+        .arg(gap).arg(blocks.at(i))
+        .arg(absent.at(i) ? QStringLiteral(" width: 360px;") : QString());
     html += QStringLiteral("</tr></table>");
   } else {
     html += blocks.join(QString());

@@ -37,6 +37,7 @@
  */
 
 #include "math.h"
+#include <cmath>
 
 void quad(double a,double b1,double c,double *sr,double *si,
         double *lr,double *li);
@@ -157,7 +158,11 @@ _110:
         if (xm < x)  x = xm;
     }
 /*  Chop the interval (0,x) until ff <= 0 */
-    while (1) {
+/*  [ QSapecNG ] coefficients too far apart overflow in the scaling above
+ *  (x infinite): that looped for ever. Give up instead (no zeros found);
+ *  rpoly_adapter scales the variable first, so this should not happen */
+    for (jj = 0; ; jj++) {
+        if (!std::isfinite(x) || jj > 2000) goto _99;
         xm = x*0.1;
         ff = pt[0];
         for (i=1;i<=n;i++) 
@@ -169,7 +174,8 @@ _110:
 /*  Do Newton interation until x converges to two 
  *  decimal places. 
  */
-    while (fabs(dx/x) > 0.005) {
+    for (jj = 0; fabs(dx/x) > 0.005; jj++) {
+        if (!std::isfinite(x) || jj > 1000) goto _99;   /* [ QSapecNG ] */
         ff = pt[0];
         df = ff;
         for (i=1;i<n;i++) { 

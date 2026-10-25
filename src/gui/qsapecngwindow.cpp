@@ -40,6 +40,7 @@
 
 
 #include <QProgressBar>
+#include <QLocale>
 
 #include <QMdiArea>
 #include <QMdiSubWindow>
@@ -328,6 +329,7 @@ void QSapecNGWindow::wave()
   // the output shown in the Result panel, unless the schematic changed
   // its outputs since
   dialog.setOutputs(editor->scene().outputNames(), resultPanel_->currentOutput());
+  dialog.setSmithAllowed(editor->impedanceOutput());
   if(dialog.exec() != QDialog::Accepted)
     return;
   const PlotSettings settings = dialog.settings();
@@ -416,6 +418,7 @@ void QSapecNGWindow::createPlotWindow()
         plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
         fitPlotSettingsWidth();
         plotSettingsForm_->setSettings(currentPlot_->settings());
+        updateSmithAllowed();
         fitPlotWindowHeight(false);
       }
       updateMenus();
@@ -433,6 +436,8 @@ void QSapecNGWindow::createPlotWindow()
     plotWindow_);
   plotResolve->setToolTip(tr("Resolve the schematic of this plot again (F8)"));
   connect(plotResolve, &QAction::triggered, this, [this]() {
+      // the plots stay in front (see keepPlotsInFront)
+      resolvedFrom_ = FromPlots;
       for(const PlotEntry& e : plots_)
         if(e.plane == currentPlot_ && e.editor) {
           e.editor->solve();
@@ -751,6 +756,22 @@ void QSapecNGWindow::refreshPlots(SchematicEditor* editor)
 }
 
 
+// the Plot Settings panel: the Smith chart for the plot shown only when
+// its schematic's output is an impedance (an existing Smith chart stays,
+// with a note in its title)
+void QSapecNGWindow::updateSmithAllowed()
+{
+  if(!plotSettingsForm_)
+    return;
+  SchematicEditor* editor = nullptr;
+  for(const PlotEntry& e : plots_)
+    if(e.plane == currentPlot_ && e.editor)
+      editor = e.editor;
+  plotSettingsForm_->setSmithAllowed(!editor || editor->impedanceOutput(),
+    false);
+}
+
+
 void QSapecNGWindow::editPlotSettings()
 {
   createPlotWindow();
@@ -758,6 +779,7 @@ void QSapecNGWindow::editPlotSettings()
     plotSettingsForm_->setOutputs(plotOutputs(currentPlot_));
     fitPlotSettingsWidth();
     plotSettingsForm_->setSettings(currentPlot_->settings());
+    updateSmithAllowed();
   }
   plotSettingsDock_->raise();
   showPlotWindow();
@@ -774,10 +796,43 @@ void QSapecNGWindow::assignNodes()
 }
 
 
+// after a Resolve: the Plots window, if open, is not left behind the main
+// window. Resolved there: it stays in front with the focus; resolved in
+// the main window: it comes back over it, the focus staying there
+void QSapecNGWindow::keepPlotsInFront()
+{
+  const ResolvedFrom from = resolvedFrom_;
+  resolvedFrom_ = FromNowhere;
+  if(from == FromNowhere || !plotWindow_ || !plotWindow_->isVisible()
+      || plotWindow_->isMinimized())
+    return;
+  plotWindow_->raise();
+  if(from == FromPlots)
+    plotWindow_->activateWindow();
+}
+
+
+QSapecNGWindow::~QSapecNGWindow()
+{
+  // The schematics go first, while this window's members are still there:
+  // left to the base class destructors, a schematic being destroyed told
+  // this window (QObject::destroyed: the plots of it go too), whose lists
+  // were freed already - heap corruption at exit. And the MDI area is not
+  // to tell about sub-windows activated meanwhile
+  if(mdiArea_) {
+    disconnect(mdiArea_, nullptr, this, nullptr);
+    delete mdiArea_;
+    mdiArea_ = nullptr;
+  }
+}
+
+
 void QSapecNGWindow::resolve()
 {
   SchematicEditor* editor = activeEditor();
   if(editor) {
+    if(resolvedFrom_ != FromPlots)
+      resolvedFrom_ = FromMain;
     editor->solve();
     mdiArea_->setActiveSubWindow(0);
     mdiArea_->setActiveSubWindow(editor);
@@ -817,14 +872,51 @@ void QSapecNGWindow::updateSolveProgress()
     return;
   }
 
-  const int value = running->solveProgress();
-  if(progressBar_->isVisible())
-    progressBar_->setValue(value);
+  if(running->isSymbolicRunning()) {
+    // the symbolic result, in the background: the trees found of those
+    // estimated, and the time left at the speed so far
+    const double toFind = running->treesToFind();
+    const double found = double(running->treesFound());
+    const double seconds = running->solveTime();
+    const int value = running->solveProgress();
+    // a decimal while under 10 % (a long solve stays there for a while)
+    QString format = tr("Symbolic %1 %").arg(value < 100
+      ? QLocale().toString(value / 10., 'f', 1) : QString::number(value / 10));
+    // the time left: at the speed so far, or (the first seconds) as
+    // estimated before it started
+    double left = running->hasResult() && running->lastResult().seconds > 0.
+      ? std::max(0., running->lastResult().seconds - seconds) : 0.;
+    if(toFind > 0. && found > 0.) {
+      const double share = found / toFind;
+      if(share >= 0.99) {
+        format += QStringLiteral(" · ") + tr("almost done");
+        left = 0.;
+      } else if(seconds > 5.) {
+        left = seconds * (1. - share) / share;
+        format += QStringLiteral(" · ")
+          + tr("%1 left").arg(ResultPanel::shortTime(left));
+      }
+    }
+    if(running == activeEditor())
+      resultPanel_->setTimeLeft(left);
+    if(progressBar_->isVisible()) {
+      progressBar_->setRange(0, 1000);
+      progressBar_->setValue(value);
+      progressBar_->setFormat(format);
+    }
+    return;
+  }
+
+  // the quick phase: counting the trees, then the numeric result (a
+  // second or so; no share of it to show)
+  if(progressBar_->isVisible()) {
+    progressBar_->setRange(0, 0);
+    progressBar_->setFormat(QString());
+  }
   const int total = running->outputsToSolve();
-  QString text = tr("Solving... %1 %").arg(value / 10);
+  QString text = tr("Solving...");
   if(total > 1)
-    text += tr(" - %1 of %2 outputs done").arg(running->outputsSolved())
-      .arg(total);
+    text += tr(" - %1 outputs").arg(total);
   text += tr(" - Shift+F8 stops");
   if(running == qobject_cast<SchematicEditor*>(mdiArea_->currentSubWindow()))
     statusLabel_->setText(text);
@@ -1891,6 +1983,10 @@ void QSapecNGWindow::createDockWidgets()
       resultPanel_->showPlaceholder();
       updateStatus();
     });
+  connect(resultPanel_, &ResultPanel::symbolicRequested, this, [this]() {
+      if(SchematicEditor* editor = activeEditor())
+        editor->computeSymbolic();
+    });
   resultDock_->setWidget(resultPanel_);
 
   // object names identify the docks in the saved layout
@@ -2227,7 +2323,8 @@ void QSapecNGWindow::createStatusBar()
   progressBar_ = new QProgressBar;
   statusBar()->insertPermanentWidget(0, progressBar_, 0);
   progressBar_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
-  progressBar_->setMaximumWidth(160);
+  progressBar_->setMaximumWidth(240);
+  progressBar_->setMinimumWidth(240);
   progressBar_->reset();
   progressBar_->hide();   // only while a Resolve is running
   progressBar_->setFormat(QStringLiteral("%p %"));
@@ -2351,7 +2448,7 @@ SchematicEditor* QSapecNGWindow::activeEditor()
   if(mdiArea_->currentSubWindow()) {
     SchematicEditor* editor =
       qobject_cast<SchematicEditor*>(mdiArea_->currentSubWindow());
-    if(editor && !editor->isRunning())
+    if(editor && !editor->isBusy())
       return editor;
   }
 
@@ -2422,6 +2519,7 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     });
   connect(editor, &SchematicEditor::solvingStopped, this, [this, editor]() {
       updateSolveProgress();
+      keepPlotsInFront();
       if(editor == activeEditor()) {
         editor->scene().undoRedoStack()->setActive(true);
         progressBar_->setRange(0, 1);
@@ -2441,10 +2539,13 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
       editor->scene().undoRedoStack()->setActive(true);
       updateMenus();
       // the solver is done: no more progress bar (it was hidden only when
-      // another window got active, e.g. the Plots window)
-      progressBar_->setRange(0, 1);
-      progressBar_->reset();
-      progressBar_->hide();
+      // another window got active, e.g. the Plots window); it stays while
+      // the symbolic result is worked out in the background
+      if(!editor->isRunning()) {
+        progressBar_->setRange(0, 1);
+        progressBar_->reset();
+        progressBar_->hide();
+      }
     }
 
     // plots of this schematic follow its result; one asked for before
@@ -2456,6 +2557,9 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
       resultDock_->show();
       resultDock_->raise();
     }
+
+    keepPlotsInFront();
+    updateSmithAllowed();   // the circuit may have changed its sources
 
     // a new plot comes to the front
     bool hasPlot = false;
@@ -2745,7 +2849,7 @@ void QSapecNGWindow::updateStatus()
   if(!editor) {
     status = tr("No schematic open - File > New (Ctrl+N), File > Open, or "
                 "pick a component to start one");
-  } else if(editor->isRunning()) {
+  } else if(editor->isBusy()) {
     status = tr("Solving...");
   } else {
     SchematicScene& scene = editor->scene();
@@ -2812,7 +2916,8 @@ void QSapecNGWindow::subWindowActivated(QMdiSubWindow* window)
       progressBar_->setRange(0, 1000);
       progressBar_->show();
       updateSolveProgress();
-      undoRedoGroup_->setActiveStack(0);
+      if(editor->isBusy())
+        undoRedoGroup_->setActiveStack(0);
     }
   }
 }
