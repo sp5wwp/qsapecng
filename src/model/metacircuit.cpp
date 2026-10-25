@@ -19,10 +19,19 @@
 
 #include "model/metacircuit.h"
 
+#include "model/exactsum.h"
+#include "model/treesearch.h"
+
 #include <algorithm>
-#include <atomic>
+#include <cstdint>
+#include <cstring>
 #include <iterator>
-#include "boost-sapecng/mrt.hpp"
+#include <list>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 
 namespace sapecng
@@ -123,6 +132,261 @@ std::string metacircuit::as_string(const basic_expression& e)
 }
 
 
+namespace
+{
+
+
+// what an edge adds to a term when it counts (Y in the tree, Z out of it)
+struct edge_info
+{
+  EdgeType type = Z;
+  double weight = 1.;
+  int degree = 0;
+  int name = -1;            // its name's number, -1: no name
+  bool symbolic = false;
+};
+
+
+// det of the incidence matrix of a spanning tree (rows: the vertices,
+// columns: its edges in order) without the last vertex's row: +-1. The
+// elimination it replaces (get_sign) worked out the same: its row swaps
+// and the zero sum of every column make up for whichever row it dropped.
+// Each vertex but the last pairs with the edge towards the last one; the
+// sign is the parity of that pairing times the entries met (+1 where the
+// edge ends, -1 where it starts).
+class tree_sign
+{
+
+public:
+  int operator()(const tree_graphs& g, const std::vector<int>& u,
+    const std::vector<int>& v, const std::vector<bool>& tree)
+  {
+    const int V = g.vertices;
+    if(V < 2)
+      return 1;
+    if(int(head_.size()) != V) {
+      head_.assign(V, -1);
+      seen_.assign(V, 0);
+      perm_.assign(V, 0);
+      stack_.assign(V, 0);
+      cu_.assign(V, 0);
+      cv_.assign(V, 0);
+      next_.assign(2 * V, 0);
+      to_.assign(2 * V, 0);
+      col_.assign(2 * V, 0);
+    }
+    const int root = V - 1;
+    int n = 0;
+    for(int j = 0; j < g.edges; ++j)
+      if(tree[j]) {
+        cu_[n] = u[j];
+        cv_[n] = v[j];
+        ++n;
+      }
+    for(int x = 0; x < V; ++x) {
+      head_[x] = -1;
+      seen_[x] = 0;
+    }
+    for(int k = 0; k < n; ++k) {
+      to_[2 * k] = cv_[k];
+      col_[2 * k] = k;
+      next_[2 * k] = head_[cu_[k]];
+      head_[cu_[k]] = 2 * k;
+      to_[2 * k + 1] = cu_[k];
+      col_[2 * k + 1] = k;
+      next_[2 * k + 1] = head_[cv_[k]];
+      head_[cv_[k]] = 2 * k + 1;
+    }
+    int sign = 1, top = 0;
+    stack_[top++] = root;
+    seen_[root] = 1;
+    while(top) {
+      const int x = stack_[--top];
+      for(int a = head_[x]; a >= 0; a = next_[a]) {
+        const int y = to_[a];
+        if(seen_[y])
+          continue;
+        seen_[y] = 1;
+        stack_[top++] = y;
+        const int k = col_[a];
+        perm_[y] = k;   // y < root: its row is row y
+        if(cv_[k] != y)
+          sign = -sign;
+      }
+    }
+    // the parity of the pairing (rows 0 .. V-2 to columns 0 .. V-2)
+    for(int x = 0; x < root; ++x)
+      seen_[x] = 0;
+    for(int x = 0; x < root; ++x) {
+      if(seen_[x])
+        continue;
+      int length = 0;
+      for(int y = x; !seen_[y]; y = perm_[y]) {
+        seen_[y] = 1;
+        ++length;
+      }
+      if(!(length & 1))
+        sign = -sign;
+    }
+    return sign;
+  }
+
+private:
+  std::vector<int> head_, seen_, perm_, stack_, cu_, cv_, next_, to_, col_;
+
+};
+
+
+// a term of a sum and where it first came from (to keep the order of the
+// terms as found by a single thread)
+struct term_entry
+{
+  exact_sum sum;
+  tree_position first;
+};
+
+typedef std::unordered_map<std::string, term_entry> term_table;
+
+
+// the terms of the trees: raw, digit, mixed of the numerator (0 - 2) and
+// of the denominator (3 - 5)
+class term_sink
+{
+
+public:
+  term_sink(const tree_graphs& g, const std::vector<edge_info>& edges)
+    : g_(&g), edges_(&edges) { }
+
+  term_sink part() const
+    { return term_sink(*g_, *edges_); }
+
+  void merge(term_sink&& other)
+  {
+    for(int k = 0; k < 6; ++k) {
+      for(auto& kv : other.tables_[k]) {
+        term_table::iterator it = tables_[k].find(kv.first);
+        if(it == tables_[k].end()) {
+          tables_[k].emplace(kv.first, std::move(kv.second));
+        } else {
+          it->second.sum.add(kv.second.sum);
+          if(tree_before(kv.second.first, it->second.first))
+            it->second.first = std::move(kv.second.first);
+        }
+      }
+      other.tables_[k].clear();
+    }
+  }
+
+  void tree(const std::vector<bool>& inL, const tree_position& position)
+  {
+    const std::vector<edge_info>& edges = *edges_;
+    int sign = 1;
+    sign *= sign_(*g_, g_->iu, g_->iv, inL);
+    sign *= sign_(*g_, g_->vu, g_->vv, inL);
+
+    double raw = 1., digit = 1., mixed = 1.;
+    raw *= sign;
+    digit *= sign;
+    mixed *= sign;
+
+    bool numerator_part = false;
+    bool denominator_part = false;
+    int degree = 0;
+    raw_.clear();
+    mixed_.clear();
+    for(std::size_t j = 0; j < edges.size(); ++j) {
+      const edge_info& e = edges[j];
+      if(inL[j] && e.type == sapecng::GREF)
+        numerator_part = true;
+      if(inL[j] && e.type == sapecng::YREF)
+        denominator_part = true;
+      if((inL[j] && e.type == sapecng::Y) || (!inL[j] && e.type == sapecng::Z)) {
+        if(e.symbolic) {
+          if(e.name >= 0)
+            mixed_.push_back(e.name);
+        } else {
+          mixed *= e.weight;
+        }
+        digit *= e.weight;
+        if(e.name >= 0)
+          raw_.push_back(e.name);
+        else
+          raw *= e.weight;
+        degree += e.degree;
+      }
+    }
+    if(!numerator_part && !denominator_part)
+      return;
+
+    // the names are numbered in alphabetical order: sorted numbers are
+    // sorted names
+    std::sort(raw_.begin(), raw_.end());
+    std::sort(mixed_.begin(), mixed_.end());
+    const int base = numerator_part ? 0 : 3;
+    add(tables_[base], degree, raw_, raw, position);
+    none_.clear();
+    add(tables_[base + 1], degree, none_, digit, position);
+    add(tables_[base + 2], degree, mixed_, mixed, position);
+  }
+
+  // the sums, the terms in the order a single thread finds them
+  void result(int k, metacircuit::expression& e,
+    const std::vector<std::string>& names) const
+  {
+    std::vector<const term_table::value_type*> terms;
+    terms.reserve(tables_[k].size());
+    for(const auto& kv : tables_[k])
+      terms.push_back(&kv);
+    std::sort(terms.begin(), terms.end(),
+      [](const term_table::value_type* a, const term_table::value_type* b) {
+        return tree_before(a->second.first, b->second.first);
+      });
+    for(const term_table::value_type* t : terms) {
+      int degree = 0;
+      std::memcpy(&degree, t->first.data(), sizeof(int));
+      std::list<std::string> symbols;
+      for(std::size_t at = sizeof(int); at < t->first.size();
+          at += sizeof(int))
+      {
+        int id = 0;
+        std::memcpy(&id, t->first.data() + at, sizeof(int));
+        symbols.push_back(names[id]);
+      }
+      e[degree].push_back(
+        metacircuit::basic_expression(t->second.sum.value(), symbols));
+    }
+  }
+
+private:
+  void add(term_table& table, int degree, const std::vector<int>& ids,
+    double value, const tree_position& position)
+  {
+    key_.assign(reinterpret_cast<const char*>(&degree), sizeof(int));
+    for(int id : ids)
+      key_.append(reinterpret_cast<const char*>(&id), sizeof(int));
+    term_table::iterator it = table.find(key_);
+    if(it == table.end()) {
+      // the trees of one part come in order: this is its first
+      term_entry entry;
+      entry.first = position;
+      it = table.emplace(key_, std::move(entry)).first;
+    }
+    it->second.sum.add(value);
+  }
+
+  const tree_graphs* g_;
+  const std::vector<edge_info>* edges_;
+  term_table tables_[6];
+  tree_sign sign_;
+  std::vector<int> raw_, mixed_, none_;
+  std::string key_;
+
+};
+
+
+}
+
+
 void metacircuit::operator()(const circuit& circuit)
 {
   // clear data
@@ -155,132 +419,55 @@ void metacircuit::operator()(const circuit& circuit)
       if(FM[ refO[i] ] == sapecng::F)
         forcedIn[i] = true;
     }
-    //
-    typedef std::vector<bool> Seq;
 
-    // the trees, in the same order however many threads look for them
-    boost::tree_segment<Seq> found;
-    boost::mrt_two_graphs_common_spanning_trees
-        <
-          sapecng::Graph,
-          std::vector< sapecng::circuit::edge_descriptor >,
-          boost::segment_collector<Seq>,
-          std::vector< bool >
-        >
-      (
-        circuit.iGraph(),
-        circuit.iGraph_order(),
-        circuit.vGraph(),
-        circuit.vGraph_order(),
-        boost::segment_collector<Seq>(found),
-        forcedIn
-      );
-
-    std::vector<Seq> coll;
-    auto take = [&coll](Seq&& tree) { coll.push_back(std::move(tree)); };
-    found.drain(take);
-
-    boost::mrt_progress* progress = boost::mrt_current_progress();
-    std::atomic<bool>* cancel = progress ? progress->cancel : nullptr;
-    boost::mrt_pool* pool = progress ? progress->pool : nullptr;
-
-    // what a tree adds: worked out in parallel (the signs take most of the
-    // time), then summed up in order so the result does not depend on the
-    // number of threads
-    struct term
-    {
-      int degree = 0;
-      int part = 0;   // 1: numerator, 2: denominator, 0: neither
-      basic_expression raw, digit, mixed;
-    };
+    // the two graphs by edge number, and what each edge adds to a term
     const Graph& iG = circuit.iGraph();
     const Graph& vG = circuit.vGraph();
     const std::vector<circuit::edge_descriptor>& iO = circuit.iGraph_order();
     const std::vector<circuit::edge_descriptor>& vO = circuit.vGraph_order();
-    auto make_term = [&](const Seq& inL, term& t) {
-      t.degree = 0;
-      t.raw = basic_expression(1., std::list<std::string>());
-      t.digit = basic_expression(1., std::list<std::string>());
-      t.mixed = basic_expression(1., std::list<std::string>());
-
-      int sign = 1;
-      sign *= get_sign(num_vertices(iG), iG, iO, inL);
-      sign *= get_sign(num_vertices(vG), vG, vO, inL);
-
-      t.raw.first *= sign;
-      t.digit.first *= sign;
-      t.mixed.first *= sign;
-
-      bool numerator_part = false;
-      bool denominator_part = false;
-      for(Seq::size_type j = 0; j < inL.size(); ++j) {
-        if(inL[j] && (FM[ refO[j] ] == sapecng::GREF))
-          numerator_part = true;
-
-        if(inL[j] && (FM[ refO[j] ] == sapecng::YREF))
-          denominator_part = true;
-
-        if((inL[j] && FM[ refO[j] ] == sapecng::Y)
-            || (!inL[j] && FM[ refO[j] ] == sapecng::Z)
-          )
-        {
-          // read all data, creating complex expressions
-          if(get(boost::edge_symbolic, refG)[ refO[j] ]) {
-            if(get(boost::edge_name, refG)[ refO[j] ].size())
-              t.mixed.second.push_back(get(boost::edge_name, refG)[ refO[j] ]);
-          } else {
-            t.mixed.first *= get(boost::edge_weight, refG)[ refO[j] ];
-          }
-
-          t.digit.first *= get(boost::edge_weight, refG)[ refO[j] ];
-          if(get(boost::edge_name, refG)[ refO[j] ].size())
-            t.raw.second.push_back(get(boost::edge_name, refG)[ refO[j] ]);
-          else
-            t.raw.first *= get(boost::edge_weight, refG)[ refO[j] ];
-
-          t.degree += get(boost::edge_degree, refG)[ refO[j] ];
-        }
-
-      }
-
-      t.raw.second.sort();
-      t.digit.second.sort();
-      t.mixed.second.sort();
-
-      t.part = numerator_part ? 1 : (denominator_part ? 2 : 0);
-    };
-
-    term_index rawNum, rawDen, digitNum, digitDen, mixedNum, mixedDen;
-    const std::size_t block = std::size_t(1) << 14;
-    std::vector<term> terms;
-    for(std::size_t base = 0; base < coll.size(); base += block) {
-      if(cancel && cancel->load(std::memory_order_relaxed))
-        throw boost::mrt_cancelled();
-
-      const std::size_t n = std::min(block, coll.size() - base);
-      terms.assign(n, term());
-      boost::mrt_pool::for_each(pool, n, 256,
-        [&](std::size_t i) {
-          if((i & 255) == 0 && cancel
-              && cancel->load(std::memory_order_relaxed))
-            throw boost::mrt_cancelled();
-          make_term(coll[base + i], terms[i]);
-        });
-
-      for(const term& t : terms) {
-        if(t.part == 1) {
-          append(t.degree, raw_.first, t.raw, rawNum);
-          append(t.degree, digit_.first, t.digit, digitNum);
-          append(t.degree, mixed_.first, t.mixed, mixedNum);
-        } else if(t.part == 2) {
-          append(t.degree, raw_.second, t.raw, rawDen);
-          append(t.degree, digit_.second, t.digit, digitDen);
-          append(t.degree, mixed_.second, t.mixed, mixedDen);
-        }
-      }
+    tree_graphs graphs;
+    graphs.vertices = int(num_vertices(iG));
+    graphs.edges = int(num_edges(iG));
+    for(int j = 0; j < graphs.edges; ++j) {
+      graphs.iu.push_back(int(source(iO[j], iG)));
+      graphs.iv.push_back(int(target(iO[j], iG)));
+      graphs.vu.push_back(int(source(vO[j], vG)));
+      graphs.vv.push_back(int(target(vO[j], vG)));
     }
-    coll.clear();
-    coll.shrink_to_fit();
+
+    std::vector<std::string> names;
+    for(int j = 0; j < graphs.edges; ++j)
+      if(get(boost::edge_name, refG)[ refO[j] ].size())
+        names.push_back(get(boost::edge_name, refG)[ refO[j] ]);
+    std::sort(names.begin(), names.end());
+    names.erase(std::unique(names.begin(), names.end()), names.end());
+
+    std::vector<edge_info> edges(graphs.edges);
+    for(int j = 0; j < graphs.edges; ++j) {
+      edge_info& e = edges[j];
+      e.type = FM[ refO[j] ];
+      e.weight = get(boost::edge_weight, refG)[ refO[j] ];
+      e.degree = get(boost::edge_degree, refG)[ refO[j] ];
+      e.symbolic = get(boost::edge_symbolic, refG)[ refO[j] ];
+      const std::string& name = get(boost::edge_name, refG)[ refO[j] ];
+      if(name.size())
+        e.name = int(std::lower_bound(names.begin(), names.end(), name)
+          - names.begin());
+    }
+
+    // every tree adds its terms as it is found (none is kept: a big
+    // circuit has billions); the sums are exact, so neither the number of
+    // threads nor the order they work in changes the result
+    term_sink terms(graphs, edges);
+    tree_search<term_sink> search(graphs);
+    search.run(forcedIn, terms, boost::mrt_current_progress());
+
+    terms.result(0, raw_.first, names);
+    terms.result(1, digit_.first, names);
+    terms.result(2, mixed_.first, names);
+    terms.result(3, raw_.second, names);
+    terms.result(4, digit_.second, names);
+    terms.result(5, mixed_.second, names);
 
     const bool rawOk = simplify(raw_);
     const bool digitOk = simplify(digit_);
@@ -289,21 +476,6 @@ void metacircuit::operator()(const circuit& circuit)
     singular_ = !rawOk || !digitOk;
   }
 
-}
-
-
-void metacircuit::append(int deg, expression& e, const basic_expression& be,
-    term_index& index)
-{
-  const term_index::key_type key(deg, be.second);
-  term_index::iterator found = index.find(key);
-  if(found != index.end()) {
-    found->second->first += be.first;
-  } else {
-    degree_expression& terms = e[deg];
-    terms.push_back(be);
-    index.insert(std::make_pair(key, std::prev(terms.end())));
-  }
 }
 
 
@@ -521,61 +693,6 @@ void metacircuit::normalize(expression& e, double div)
   }
 }
 
-
-int metacircuit::get_sign(
-    size_t vertices,
-    const Graph& graph,
-    const std::vector< circuit::edge_descriptor >& order,
-    const std::vector<bool>& inL
-  )
-{
-  size_t row = vertices;
-  size_t col = vertices - 1;
-
-  int* matrix = new int[row * col];
-  for(size_t i = 0; i < row; ++i)
-    for(size_t j = 0; j < col; ++j)
-      matrix[col * i + j] = 0;
-
-  for(std::vector<bool>::size_type i = 0, j = 0; i < inL.size(); ++i) {
-    if(inL[i]) {
-      matrix[col * source(order[i], graph) + j] = -1;
-      matrix[col * target(order[i], graph) + j] = +1;
-      ++j;
-    }
-  }
-
-  int det = 1;
-  for(size_t ofs = 0; ofs < col; ++ofs) {
-    for(size_t iter = ofs; iter < row; ++iter) {
-      if(matrix[iter * col + ofs] != 0) {
-        if(iter != ofs) {
-          for(size_t cnt = ofs; cnt < col; ++cnt) {
-            int swap = matrix[iter * col + cnt];
-            matrix[iter * col + cnt] = matrix[ofs * col + cnt];
-            matrix[ofs * col + cnt] = swap;
-          }
-          det *= -1;
-        }
-        for(iter = ofs + 1; iter < row; ++iter) {
-          if(matrix[iter * col + ofs] != 0) {
-            int weight = -1 * matrix[ofs * col + ofs] / matrix[iter * col + ofs];
-            for(size_t cnt = ofs; cnt < col; ++cnt)
-              matrix[iter * col + cnt] += matrix[ofs * col + cnt] * weight;
-          }
-        }
-        iter = row;
-      }
-    }
-  }
-
-  for(size_t iter = 0; iter < col; ++iter)
-    det *= matrix[iter * col + iter];
-
-  delete [] matrix;
-
-  return det;
-}
 
 
 }

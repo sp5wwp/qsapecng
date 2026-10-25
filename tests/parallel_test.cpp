@@ -4,13 +4,16 @@
 //
 // usage: parallel_test <circuit.info|circuit.crc>...
 //        parallel_test grid <n>     (an n x n RC grid, timed)
+//        parallel_test exactsum     (the exact sums of the coefficients)
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -18,6 +21,7 @@
 #include "boost-sapecng/mrt_pool.hpp"
 #include "boost-sapecng/mrt_progress.hpp"
 #include "model/circuit.h"
+#include "model/exactsum.h"
 #include "model/metacircuit.h"
 #include "parser/crc_circuit.h"
 #include "parser/ir_circuit.h"
@@ -142,8 +146,46 @@ std::string grid(int n)
 }
 
 
+// the exact sum: rounded once, whatever the order of the terms
+bool exact_sums()
+{
+  bool ok = true;
+  auto sum = [](const std::vector<double>& v) {
+      sapecng::exact_sum s;
+      for(double x : v)
+        s.add(x);
+      return s.value();
+    };
+  ok = ok && sum({ 1e16, 1., -1e16 }) == 1.;
+  ok = ok && sum(std::vector<double>(10, 0.1)) == 1.;
+  ok = ok && sum({ 1e308, 1e308, -1e308 }) != 0.;   // overflow: no crash
+  std::mt19937 rng(5);
+  std::uniform_real_distribution<double> mantissa(-1., 1.);
+  std::uniform_int_distribution<int> exponent(-30, 30);
+  for(int round = 0; round < 200 && ok; ++round) {
+    std::vector<double> v(1 + round * 7);
+    for(double& x : v)
+      x = std::ldexp(mantissa(rng), exponent(rng));
+    const double a = sum(v);
+    std::shuffle(v.begin(), v.end(), rng);
+    const double b = sum(v);
+    // two halves summed apart, then together (as parts of a solve)
+    sapecng::exact_sum h1, h2;
+    for(std::size_t i = 0; i < v.size(); ++i)
+      (i % 2 ? h1 : h2).add(v[i]);
+    h1.add(h2);
+    ok = a == b && a == h1.value();
+  }
+  std::cout << "exact sums: " << (ok ? "ok" : "FAILED") << "\n";
+  return ok;
+}
+
+
 int main(int argc, char** argv)
 {
+  if(argc == 2 && std::string(argv[1]) == "exactsum")
+    return exact_sums() ? 0 : 1;
+
   if(argc == 3 && std::string(argv[1]) == "grid") {
     const std::string data = grid(std::atoi(argv[2]));
     double t0 = 0.;

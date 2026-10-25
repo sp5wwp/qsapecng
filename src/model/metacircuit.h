@@ -92,15 +92,10 @@ public:
   inline bool singular() const { return singular_; }
 
 private:
-  // test hook: tests/metacircuit_compress_test.cpp calls simplify()
+  // test hook: the tests (metacircuit_compress_test.cpp, reference_solver.h)
+  // call simplify()
   friend struct metacircuit_test_access;
 
-  // finds equal terms through an index: a linear search made collecting
-  // T terms cost T^2 (minutes for a 12-section ladder)
-  typedef std::map< std::pair< int, std::list<std::string> >,
-    degree_expression::iterator > term_index;
-  void append(int deg, expression& e, const basic_expression& be,
-    term_index& index);
   // returns false when the denominator is zero
   bool simplify(std::pair<expression, expression>& p);
 
@@ -116,12 +111,6 @@ private:
   static std::string as_string(const degree_expression& e);
   static std::string as_string(const basic_expression& e);
 
-  static int get_sign(
-      size_t vertices,
-      const Graph& graph,
-      const std::vector< circuit::edge_descriptor >& order,
-      const std::vector<bool>& inL
-    );
 
 private:
   std::pair<metacircuit::expression, metacircuit::expression> raw_;

@@ -10,6 +10,9 @@
 //   mna_check file <circuit.info|circuit.crc>   one circuit
 //   mna_check fuzz <count> [seed]                random circuits
 //   mna_check bench                              solve time vs. size
+//   mna_check reference <count> [seed] [ext]     random circuits, the
+//                                                solver against the old one
+//   mna_check reference-file <circuit>...        the same, on files
 
 #include <algorithm>
 #include <chrono>
@@ -32,6 +35,7 @@
 #include "parser/ir_circuit.h"
 #include "parser/spice_circuit.h"
 #include "functor/functor.hpp"
+#include "reference_solver.h"
 
 namespace sapecng {
 std::list< std::pair< double, double > > rpoly_adapter(const std::map< int, double >& p);
@@ -956,6 +960,57 @@ std::vector<cplx> runSpice(const Netlist& net, double f, std::string* text,
 int main(int argc, char** argv)
 {
   const std::string mode = argc > 1 ? argv[1] : "fuzz";
+
+  // the solver against the one it replaced (tests/reference_solver.h)
+  if(mode == "reference" || mode == "reference-file") {
+    int bad = 0, same = 0, total = 0;
+    long long trees = 0;
+    auto one = [&](const sapecng::circuit& circ, const std::string& what) {
+        bool text = false;
+        long long n = 0;
+        const std::string d = reference::check(circ, &text, &n);
+        ++total;
+        trees += n;
+        if(!d.empty()) {
+          ++bad;
+          if(bad <= 5)
+            std::cout << what << ": " << d << "\n";
+        } else if(text) {
+          ++same;
+        }
+      };
+    if(mode == "reference-file") {
+      for(int a = 2; a < argc; ++a) {
+        const std::string file(argv[a]);
+        std::ifstream in(file.c_str());
+        sapecng::circuit circ;
+        sapecng::circuit_builder builder(circ);
+        if(file.size() > 4 && file.substr(file.size() - 4) == ".crc") {
+          sapecng::crc_parser parser(in);
+          parser.parse(builder);
+        } else {
+          sapecng::info_parser parser(in);
+          parser.parse(builder);
+        }
+        one(circ, file);
+      }
+    } else {
+      const int count = argc > 2 ? std::atoi(argv[2]) : 200;
+      Gen g(argc > 3 ? unsigned(std::atoi(argv[3])) : 1u);
+      const bool ext = argc > 4;
+      for(int i = 0; i < count; ++i) {
+        const Netlist net = randomCircuit(g, i % 2 == 1, ext);
+        sapecng::circuit circ;
+        sapecng::circuit_builder builder(circ, net.engineOutput());
+        net.replay(builder);
+        one(circ, "case " + std::to_string(i) + "\n" + net.describe());
+      }
+    }
+    std::cout << total << " circuits (" << trees << " trees): "
+      << total - bad << " the same as the old solver (" << same
+      << " printed identically), " << bad << " different\n";
+    return bad ? 1 : 0;
+  }
 
   if(mode == "bench") {
     const int maxSections = argc > 2 ? std::atoi(argv[2]) : 12;

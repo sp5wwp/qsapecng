@@ -409,6 +409,22 @@ QSapecNG CHANGELOG
       output is split among the cores too. Settings > General > Solver
       sets the maximum number of cores used in all. The result does not
       depend on the number of cores
+    o Much faster solver: the common spanning trees are searched on plain
+      arrays with union-find cycle tests (the same Minty-Read-Tarjan
+      choices, in the same order), the sign of a tree takes one walk over
+      it instead of an elimination, and each tree's terms are added up as
+      it is found instead of keeping every tree in memory. A 7-section
+      LC ladder with real L and C (32 nodes, about 4 billion trees) goes
+      from about 3,300 to 220,000 trees per second on one core and needs
+      some 50 MB instead of hundreds of GB; small circuits solve 10 - 30
+      times faster
+    o Coefficients are summed exactly (rounded once), so they no longer
+      depend on the order the terms are found in. The search no longer
+      produces sets that are not trees (they added nothing, but could
+      move a term's place): in some results the terms come in a slightly
+      different order, the values are the same
+    o New tests compare the solver with the previous one term by term on
+      the examples and on 600 random circuits
     o Plots window: the size it had last time is kept. It no longer grows
       to most of the screen when the Markers tab is in front
     o Components: a column of tool buttons on the left edge, as in

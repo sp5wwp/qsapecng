@@ -90,40 +90,6 @@ public:
   std::exception_ptr wait_all(group& g)
     { return wait(g, true); }
 
-  // f(i) for i in [0, n), in pieces of `grain` spread over the pool
-  // (inline without a pool); rethrows what a piece threw
-  template <class F>
-  static void for_each(mrt_pool* pool, std::size_t n, std::size_t grain,
-    const F& f)
-  {
-    grain = std::max<std::size_t>(1, grain);
-    if(!pool || pool->size() < 2 || n <= grain) {
-      for(std::size_t i = 0; i < n; ++i)
-        f(i);
-      return;
-    }
-    group g;
-    for(std::size_t from = grain; from < n; from += grain) {
-      const std::size_t to = std::min(n, from + grain);
-      pool->submit(g, [&f, from, to]() {
-          for(std::size_t i = from; i < to; ++i)
-            f(i);
-        });
-    }
-    std::exception_ptr error;
-    try {
-      for(std::size_t i = 0; i < grain; ++i)
-        f(i);
-    } catch(...) {
-      error = std::current_exception();
-    }
-    std::exception_ptr other = pool->wait(g);
-    if(!error)
-      error = other;
-    if(error)
-      std::rethrow_exception(error);
-  }
-
 private:
   struct task
   {

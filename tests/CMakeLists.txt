@@ -70,6 +70,7 @@ add_test(NAME parallel_files
     ${CMAKE_CURRENT_SOURCE_DIR}/../examples/twin-t-notch.info
     ${CMAKE_CURRENT_SOURCE_DIR}/../examples/sallen-key-lowpass.info)
 add_test(NAME parallel_grid COMMAND parallel_test grid 3)
+add_test(NAME exact_sums COMMAND parallel_test exactsum)
 
 # the symbolic engine against an independent numeric (MNA) solver
 qsapecng_test(mna_check mna_check.cpp
@@ -82,6 +83,17 @@ add_test(NAME mna_fuzz_basic COMMAND mna_check fuzz 400 11)
 add_test(NAME mna_fuzz_extended COMMAND mna_check fuzz2 400 12)
 # the SPICE export against ngspice (passes with a note when ngspice is missing)
 add_test(NAME spice_export COMMAND mna_check spice 120 7)
+# the solver against the one it replaced (tests/reference_solver.h): the
+# same trees in the same order on one and three threads, the same terms
+# with the same coefficients and the same printed result
+add_test(NAME reference_fuzz_basic COMMAND mna_check reference 300 11)
+add_test(NAME reference_fuzz_extended COMMAND mna_check reference 300 12 ext)
+file(GLOB reference_circuits
+  ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.info
+  ${CMAKE_CURRENT_SOURCE_DIR}/data/*.info
+  ${CMAKE_CURRENT_SOURCE_DIR}/data/*.crc)
+add_test(NAME reference_files
+  COMMAND mna_check reference-file ${reference_circuits})
 foreach(circuit
     data/issue6-active-bandpass.info data/opamp-finite-gain.info
     data/real-passives.info data/single-pin-source.info

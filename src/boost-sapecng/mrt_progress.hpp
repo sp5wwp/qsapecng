@@ -32,7 +32,6 @@ struct mrt_progress
 
   // [ QSapecNG ] multi-core (all optional)
   mrt_pool* pool = nullptr;               // where to hand work on
-  mrt_pool::group* group = nullptr;       // the running search's tasks
   std::atomic<long long>* total = nullptr;   // done by all, in 1 / unit
   unsigned ticks = 0;
 
