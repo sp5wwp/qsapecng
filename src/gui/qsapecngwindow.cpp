@@ -306,7 +306,15 @@ void QSapecNGWindow::showPlots()
     if(e.editor == editor && e.plane)
       last = e.plane;
   if(!last) {
-    wave();
+    // none yet: a Bode plot (or what the file asks for) at once; New Plot
+    // asks for the kind
+    if(editor->isSolved()) {
+      createPlot(editor, firstPlot(editor));
+    } else {
+      // solve first; the plot opens when the result is in
+      editor->setProperty("plotOnSolve", true);
+      resolve();
+    }
     return;
   }
   plotTabs_->setCurrentWidget(last);
@@ -578,6 +586,30 @@ bool QSapecNGWindow::hasFrequencyResponse(SchematicEditor* editor) const
         && formula::isConstant(o.digit.den)))
       return true;
   return false;
+}
+
+
+bool QSapecNGWindow::fileAsksForPlot(SchematicEditor* editor) const
+{
+  const QString kind = editor->scene().circuitProperties()
+    .value(QStringLiteral("plot.kind")).toLower();
+  return kind == QLatin1String("magnitude") || kind == QLatin1String("phase")
+    || kind == QLatin1String("polezero") || kind == QLatin1String("bode")
+    || kind == QLatin1String("smith");
+}
+
+
+PlotSettings QSapecNGWindow::firstPlot(SchematicEditor* editor) const
+{
+  PlotSettings s = plotDefaults(editor, true);
+  if(!fileAsksForPlot(editor))
+    s.kind = WorkPlane::BodeKind;
+  for(const OutputResult& o : editor->lastResult().outputs)
+    if(!o.singular) {
+      s.output = o.name;
+      break;
+    }
+  return s;
 }
 
 
@@ -1748,11 +1780,11 @@ void QSapecNGWindow::createActions()
   connect(waveAct_, SIGNAL(triggered()), this, SLOT(wave()));
 
   // the main window's way to the plots: the ones of this schematic, or a
-  // new one when it has none
+  // Bode plot when it has none
   plotsAct_ = new QAction(theme::icon("wave"), tr("&Plots"), this);
   plotsAct_->setShortcut(tr("F9"));
   plotsAct_->setStatusTip(tr("Show the plots of this schematic; with none "
-                             "yet, make one (F9)"));
+                             "yet, a Bode plot (F9)"));
   connect(plotsAct_, &QAction::triggered, this, &QSapecNGWindow::showPlots);
 
   toggleScreenModeAct_ = new QAction(tr("F&ull Screen Mode"), this);
@@ -2549,7 +2581,7 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     }
 
     // plots of this schematic follow its result; one asked for before
-    // solving opens now, and a first result opens a Bode plot
+    // solving opens now
     refreshPlots(editor);
     if(editor == activeEditor()) {
       updateResultPanel();
@@ -2561,29 +2593,32 @@ void QSapecNGWindow::setupSchematicEditor(SchematicEditor* editor)
     keepPlotsInFront();
     updateSmithAllowed();   // the circuit may have changed its sources
 
-    // a new plot comes to the front
+    // a new plot comes to the front: one asked for (New Plot, or Plots
+    // before the circuit was solved), or the one its file asks for (the
+    // examples), once. Otherwise no plot opens by itself: the status bar
+    // says where it is
     bool hasPlot = false;
     for(const PlotEntry& e : plots_)
       hasPlot = hasPlot || e.editor == editor;
-    if(pendingPlots_.contains(editor))
+    const bool asked = editor->property("plotOnSolve").toBool();
+    editor->setProperty("plotOnSolve", QVariant());
+    if(pendingPlots_.contains(editor)) {
       createPlot(editor, pendingPlots_.take(editor));
-    else if(!hasPlot && !hasFrequencyResponse(editor))
-      // a circuit of resistors and sources: the same at every frequency,
-      // nothing worth a plot (New Plot still makes one)
+    } else if(hasPlot) {
+      // they follow the result
+    } else if(asked) {
+      createPlot(editor, firstPlot(editor));
+    } else if(!hasFrequencyResponse(editor)) {
+      // a circuit of resistors and sources: the same at every frequency
       statusBar()->showMessage(tr("Solved - the result does not depend on "
-        "frequency, so no plot is opened"), 5000);
-    else if(!hasPlot) {
-      // a Bode plot, unless the file asks for another kind
-      PlotSettings bode = plotDefaults(editor, true);
-      if(!editor->scene().circuitProperties().contains(QStringLiteral("plot.kind")))
-        bode.kind = WorkPlane::BodeKind;
-      // the first output with a transfer function
-      for(const OutputResult& o : editor->lastResult().outputs)
-        if(!o.singular) {
-          bode.output = o.name;
-          break;
-        }
-      createPlot(editor, bode);
+        "frequency"), 5000);
+    } else if(fileAsksForPlot(editor)
+        && !editor->property("filePlotShown").toBool()) {
+      editor->setProperty("filePlotShown", true);
+      createPlot(editor, firstPlot(editor));
+    } else {
+      statusBar()->showMessage(tr("Solved - Plots (F9) shows the frequency "
+        "response"), 5000);
     }
   });
   connect(editor, &SchematicEditor::dirtyChanged, this, [this, editor]() {

@@ -128,9 +128,9 @@ markers is read.
    W draws wires, mark the output with Out (O). Several Out markers,
    voltmeters or ammeters give one result each.
 2. Press F8 (Run > Resolve): the transfer function appears in the Result
-   panel and a Bode plot opens.
-3. Run > Plots (F9) shows the plots; Plot > New Plot (Ctrl+F9) adds
-   others. Click a plot to place markers.
+   panel.
+3. Run > Plots (F9) opens a Bode plot (then shows the plots); Plot > New
+   Plot (Ctrl+F9) adds others. Click a plot to place markers.
 
 
 ## Installation

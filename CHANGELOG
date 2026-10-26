@@ -64,8 +64,8 @@ QSapecNG CHANGELOG
     o Plots in a window of their own (Plots, one tab per plot) instead of
       the Editor / Workplane tabs: Run > New Plot (F9) asks for the kind,
       frequency range and axes; several plots at once, with the Plot menu
-      and a toolbar in that window. Plots follow every Resolve (F8), the
-      first Resolve opens a Bode plot; Plot > Plot Settings changes the
+      and a toolbar in that window. Plots follow every Resolve (F8);
+      Plot > Plot Settings changes the
       current one, Window > Plots Window (Ctrl+Shift+P) brings it back;
       size and place are remembered
     o Plot Settings is a panel beside the plots (Plot > Plot Settings):
@@ -257,9 +257,13 @@ QSapecNG CHANGELOG
     o Fixed: a meter's output could be lost when the netlist numbered a
       node after it (the solver moved the meter's internal node but kept
       the output on the old one)
-    o Run > Plots (F9) brings up the plots of the schematic, or asks for a
-      new one when it has none; New Plot moves to Ctrl+F9 (Plot menu and
-      the plot window)
+    o Run > Plots (F9) brings up the plots of the schematic, or opens a
+      Bode plot when it has none (solving first if need be); New Plot
+      (Ctrl+F9, Plot menu and the plot window) asks for the kind
+    o Resolve no longer opens a plot by itself: the Plots window stays
+      shut until asked for (F9), and the status bar points to it. A file
+      naming a kind of plot (plot.kind, as some examples) still opens it
+      with its first result
     o Automatic vertical range of the plots: one major step of margin
       above and below the curves
     o Grid dots are stronger at medium and strong strength

@@ -267,6 +267,12 @@ private:
   PlotSettings plotDefaults(SchematicEditor* editor, bool kind) const;
   // the result of the schematic changes with frequency (s appears in it)
   bool hasFrequencyResponse(SchematicEditor* editor) const;
+  // the schematic's file names a kind of plot (plot.kind): its plot opens
+  // with the first result (the examples)
+  bool fileAsksForPlot(SchematicEditor* editor) const;
+  // a schematic's first plot: the kind its file asks for, or a Bode plot,
+  // of the first output with a transfer function
+  PlotSettings firstPlot(SchematicEditor* editor) const;
   // the Plots window made taller (within the screen) when the Plot
   // Settings panel would need a vertical scroll bar
   // natural: the size it opens with, once a session (it may shrink):
