@@ -79,6 +79,8 @@ public:
   // the time the symbolic result would take, roughly (from the speed of
   // the last one on this computer); 0 when not known
   double symbolicSeconds() const;
+  // the most distinct terms a symbolic result may have here (the memory)
+  static long long termLimit();
   // a running solve: 0 - 1000, and outputs finished of all
   inline int solveProgress() const { return solver_.progress(); }
   inline int outputsSolved() const { return solver_.outputsDone(); }

@@ -96,7 +96,7 @@ inline int get_sign(size_t vertices, const sapecng::Graph& graph,
   return det;
 }
 
-typedef std::map< std::pair< int, std::list<std::string> >,
+typedef std::map< std::pair< int, sapecng::symbol_list >,
   degree_expression::iterator > term_index;
 
 inline void append(int deg, expression& e, const basic_expression& be,
@@ -142,9 +142,9 @@ inline result solve(const sapecng::circuit& circuit, bool skipInvalid)
   term_index rawNum, rawDen, digitNum, digitDen, mixedNum, mixedDen;
   for(Coll::size_type i = 0; i < coll.size(); ++i) {
     int degree = 0;
-    basic_expression raw_rep(1., std::list<std::string>());
-    basic_expression digit_rep(1., std::list<std::string>());
-    basic_expression mixed_rep(1., std::list<std::string>());
+    basic_expression raw_rep(1., sapecng::symbol_list());
+    basic_expression digit_rep(1., sapecng::symbol_list());
+    basic_expression mixed_rep(1., sapecng::symbol_list());
     Seq inL = coll[i];
 
     int sign = 1;

@@ -74,9 +74,15 @@ Several bugs gave wrong answers rather than crashes:
 
 **Faster**
 
-* Larger circuits solve much faster: a 25-part circuit takes 9 s instead of
-  65 s. Symbolic analysis still grows quickly with the number of parts, so
-  very large circuits remain slow.
+* Resolve gives the numeric result and the plots at once, even for big
+  circuits: a 101-part ladder takes 8 s.
+* The symbolic result is hundreds of times as fast as in 2.1.1, even on one
+  processor core (a 25-part ladder: 0.3 s instead of 138 s on the same
+  computer), uses all the cores, and needs far less memory (a 33-part
+  ladder: 1.4 GB). Its size still grows quickly with the circuit, so a big
+  circuit's symbolic result is worked out in the background, with the time
+  it will take shown first. Symbolic solver for a circuit too large for the
+  computer's memory is stopped, with the numeric result and the plots complete.
 
 **Drawing circuits**
 

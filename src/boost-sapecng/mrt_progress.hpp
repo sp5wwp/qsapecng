@@ -34,6 +34,7 @@ struct mrt_progress
   mrt_pool* pool = nullptr;               // where to hand work on
   std::atomic<long long>* total = nullptr;   // done by all, in 1 / unit
   std::atomic<long long>* trees = nullptr;   // trees found by all
+  long long term_limit = 0;   // the most distinct terms kept (0: no limit)
   long long found = 0;                       // by this thread, not yet in
   unsigned ticks = 0;
 

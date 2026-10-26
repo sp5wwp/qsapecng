@@ -23,7 +23,9 @@
 
 #include "model/circuit.h"
 
+#include <exception>
 #include <list>
+#include "model/symbols.h"
 #include <map>
 
 
@@ -39,7 +41,7 @@ namespace detail
 struct basic_checker
 {
 
-bool operator()(const std::pair< double, std::list<std::string> >& e) const
+bool operator()(const std::pair< double, symbol_list >& e) const
   { return (e.first == 0); }
 
 };
@@ -49,7 +51,7 @@ struct degree_checker
 {
 
 bool operator()(const std::pair< int, std::list<
-    std::pair< double, std::list<std::string> > > >& e) const
+    std::pair< double, symbol_list > > >& e) const
   { return (e.second.size() == 0); }
 
 };
@@ -64,7 +66,8 @@ class metacircuit
 
 public:
   typedef
-  std::pair< double, std::list<std::string> >
+  // a number times component names (symbol_list: a compact list of names)
+  std::pair< double, symbol_list >
   basic_expression;
 
   typedef
@@ -74,6 +77,16 @@ public:
   typedef
   std::map< int, degree_expression >
   expression;
+
+  // the symbolic result would take more memory than allowed (see
+  // boost::mrt_progress::term_limit): `terms`, the distinct terms counted
+  // when it was given up
+  struct too_large: public std::exception
+  {
+    explicit too_large(long long n): terms(n) { }
+    const char* what() const noexcept { return "too many terms"; }
+    long long terms;
+  };
 
   static std::string as_string(const expression& e);
   // the whole result: raw, digit and mixed (lists the trees; can take

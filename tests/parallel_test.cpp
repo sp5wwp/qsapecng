@@ -181,10 +181,53 @@ bool exact_sums()
 }
 
 
+// a symbolic result over the term limit: given up with too_large (one
+// thread and four), and solved under a limit it fits in
+bool term_limit()
+{
+  const std::string data = grid(3);
+  bool ok = true;
+  for(unsigned threads : { 0u, 4u }) {
+    for(long long limit : { 50LL, 1000000LL }) {
+      sapecng::circuit circ;
+      load("grid.crc", data, circ);
+      sapecng::metacircuit meta;
+      std::unique_ptr<boost::mrt_pool> pool;
+      if(threads)
+        pool.reset(new boost::mrt_pool{ threads });
+      std::atomic<bool> cancel(false);
+      std::atomic<long long> total(0);
+      boost::mrt_progress progress;
+      progress.cancel = &cancel;
+      progress.pool = pool.get();
+      progress.total = threads ? &total : nullptr;
+      progress.term_limit = limit;
+      bool tooLarge = false;
+      long long counted = 0;
+      try {
+        boost::mrt_progress_scope scope(&progress);
+        meta(circ);
+      } catch(const sapecng::metacircuit::too_large& e) {
+        tooLarge = true;
+        counted = e.terms;
+      }
+      const bool want = limit < 1000;
+      std::cout << "limit " << limit << ", " << threads << " threads: "
+        << (tooLarge ? "too large (" + std::to_string(counted) + " terms)"
+                     : "solved") << "\n";
+      ok = ok && tooLarge == want && (!tooLarge || counted > limit);
+    }
+  }
+  return ok;
+}
+
+
 int main(int argc, char** argv)
 {
   if(argc == 2 && std::string(argv[1]) == "exactsum")
     return exact_sums() ? 0 : 1;
+  if(argc == 2 && std::string(argv[1]) == "limit")
+    return term_limit() ? 0 : 1;
 
   if(argc == 3 && std::string(argv[1]) == "grid") {
     const std::string data = grid(std::atoi(argv[2]));

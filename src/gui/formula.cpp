@@ -61,7 +61,7 @@ Expr withoutZeros(const Expr& e)
 Expr constant(double v)
 {
   Expr e;
-  e[0].push_back(Term(v, std::list<std::string>()));
+  e[0].push_back(Term(v, sapecng::symbol_list()));
   return e;
 }
 

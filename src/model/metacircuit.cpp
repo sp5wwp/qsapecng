@@ -28,6 +28,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <iterator>
 #include <list>
 #include <sstream>
@@ -120,7 +121,7 @@ std::string metacircuit::as_string(const basic_expression& e)
     has_num_part = true;
   }
 
-  std::list<std::string>::const_iterator it = e.second.begin();
+  symbol_list::const_iterator it = e.second.begin();
 
   if(!has_num_part)
     e_str += *(it++);
@@ -242,13 +243,50 @@ private:
 
 // a term of a sum and where it first came from (to keep the order of the
 // terms as found by a single thread)
+// a term: its coefficient so far, and where its first tree lies (the
+// first two words of its tree_position in place: a circuit of up to 126
+// edges; the rest on the heap). A big result has millions of them
 struct term_entry
 {
   exact_sum sum;
-  tree_position first;
+  std::uint64_t at[2] = { 0, 0 };
+  std::unique_ptr<std::uint64_t[]> rest;
+
+  void set(const tree_position& p)
+  {
+    at[0] = p.size() > 0 ? p[0] : 0;
+    at[1] = p.size() > 1 ? p[1] : 0;
+    if(p.size() > 2) {
+      rest.reset(new std::uint64_t[p.size() - 2]);
+      std::copy(p.begin() + 2, p.end(), rest.get());
+    }
+  }
+  std::uint64_t word(std::size_t i) const
+    { return i < 2 ? at[i] : rest[i - 2]; }
 };
 
+// found earlier in the search (as tree_before)
+inline bool before(const term_entry& a, const term_entry& b,
+  std::size_t words)
+{
+  for(std::size_t i = 0; i < words; ++i)
+    if(a.word(i) != b.word(i))
+      return a.word(i) < b.word(i);
+  return false;
+}
+
 typedef std::unordered_map<std::string, term_entry> term_table;
+
+
+// More terms than the memory allows: the symbolic result is given up
+// (metacircuit::operator() throws metacircuit::too_large)
+struct term_count
+{
+  std::atomic<long long> terms{0};
+  long long limit = 0;              // 0: none
+  std::atomic<bool> exceeded{false};
+  std::atomic<bool>* cancel = nullptr;   // the search's: the others stop
+};
 
 
 // the terms of the trees: raw, digit, mixed of the numerator (0 - 2) and
@@ -257,11 +295,21 @@ class term_sink
 {
 
 public:
-  term_sink(const tree_graphs& g, const std::vector<edge_info>& edges)
-    : g_(&g), edges_(&edges) { }
+  term_sink(const tree_graphs& g, const std::vector<edge_info>& edges,
+      term_count* count)
+    : g_(&g), edges_(&edges), count_(count)
+    { words_ = std::size_t(g.edges + 2) / 64 + 1; }
 
   term_sink part() const
-    { return term_sink(*g_, *edges_); }
+  {
+    term_sink t(*g_, *edges_, count_);
+    t.mixedIsRaw_ = mixedIsRaw_;
+    return t;
+  }
+
+  // every mixed term is the raw one (no named component is given by
+  // value, no symbolic one is nameless): one set of tables, not two
+  void setMixedIsRaw(bool same) { mixedIsRaw_ = same; }
 
   void merge(term_sink&& other)
   {
@@ -272,8 +320,11 @@ public:
           tables_[k].emplace(kv.first, std::move(kv.second));
         } else {
           it->second.sum.add(kv.second.sum);
-          if(tree_before(kv.second.first, it->second.first))
-            it->second.first = std::move(kv.second.first);
+          if(before(kv.second, it->second, words_)) {
+            it->second.at[0] = kv.second.at[0];
+            it->second.at[1] = kv.second.at[1];
+            it->second.rest = std::move(kv.second.rest);
+          }
         }
       }
       other.tables_[k].clear();
@@ -329,56 +380,117 @@ public:
     add(tables_[base], degree, raw_, raw, position);
     none_.clear();
     add(tables_[base + 1], degree, none_, digit, position);
-    add(tables_[base + 2], degree, mixed_, mixed, position);
+    if(!mixedIsRaw_)
+      add(tables_[base + 2], degree, mixed_, mixed, position);
   }
 
-  // the sums, the terms in the order a single thread finds them
-  void result(int k, metacircuit::expression& e,
-    const std::vector<std::string>& names) const
+  // the distinct terms kept
+  long long size() const
   {
-    std::vector<const term_table::value_type*> terms;
-    terms.reserve(tables_[k].size());
-    for(const auto& kv : tables_[k])
-      terms.push_back(&kv);
-    std::sort(terms.begin(), terms.end(),
-      [](const term_table::value_type* a, const term_table::value_type* b) {
-        return tree_before(a->second.first, b->second.first);
-      });
-    for(const term_table::value_type* t : terms) {
-      int degree = 0;
-      std::memcpy(&degree, t->first.data(), sizeof(int));
-      std::list<std::string> symbols;
-      for(std::size_t at = sizeof(int); at < t->first.size();
-          at += sizeof(int))
-      {
-        int id = 0;
-        std::memcpy(&id, t->first.data() + at, sizeof(int));
-        symbols.push_back(names[id]);
+    long long n = 0;
+    for(const term_table& t : tables_)
+      n += (long long)t.size();
+    return n;
+  }
+
+  // The sums, the terms in the order a single thread finds them; each
+  // table is let go once used. Raw and mixed terms with the same names (all
+  // of them when every component is symbolic) share one list of names
+  void results(metacircuit::expression* out[6],
+    const std::vector<std::string>& names)
+  {
+    std::vector<const std::string*> interned;
+    for(const std::string& n : names)
+      interned.push_back(symbol_list::intern(n));
+    std::unordered_map<std::string, symbol_list> shared;   // by names
+    for(int k : { 0, 3, 1, 4, 2, 5 }) {
+      if(mixedIsRaw_ && (k == 2 || k == 5)) {
+        // the raw terms again; a copy shares their lists of names
+        *out[k] = *out[k == 2 ? 0 : 3];
+        continue;
       }
-      e[degree].push_back(
-        metacircuit::basic_expression(t->second.sum.value(), symbols));
+      const bool raw = (k == 0 || k == 3), mixed = (k == 2 || k == 5);
+      std::vector<term_table::value_type*> terms;
+      terms.reserve(tables_[k].size());
+      for(auto& kv : tables_[k])
+        terms.push_back(&kv);
+      const std::size_t words = words_;
+      std::sort(terms.begin(), terms.end(),
+        [words](const term_table::value_type* a,
+                const term_table::value_type* b) {
+          return before(a->second, b->second, words);
+        });
+      metacircuit::expression& e = *out[k];
+      for(term_table::value_type* t : terms) {
+        std::int16_t degree = 0;
+        std::memcpy(&degree, t->first.data(), sizeof degree);
+        const std::string ids = t->first.substr(sizeof degree);
+        symbol_list symbols;
+        std::unordered_map<std::string, symbol_list>::iterator found =
+          mixed ? shared.find(ids) : shared.end();
+        if(found != shared.end()) {
+          symbols = found->second;
+        } else {
+          symbols.reserve(ids.size() / sizeof(std::uint16_t));
+          for(std::size_t at = 0; at < ids.size(); at += sizeof(std::uint16_t)) {
+            std::uint16_t id = 0;
+            std::memcpy(&id, ids.data() + at, sizeof id);
+            symbols.push_back_interned(interned[id]);
+          }
+          if(raw && !mixedIsRaw_)
+            shared.emplace(ids, symbols);
+        }
+        e[degree].push_back(
+          metacircuit::basic_expression(t->second.sum.value(), symbols));
+      }
+      term_table().swap(tables_[k]);   // its memory back now
     }
   }
 
 private:
+  // the key: the power of s and the names' numbers, 16 bits each
   void add(term_table& table, int degree, const std::vector<int>& ids,
     double value, const tree_position& position)
   {
-    key_.assign(reinterpret_cast<const char*>(&degree), sizeof(int));
-    for(int id : ids)
-      key_.append(reinterpret_cast<const char*>(&id), sizeof(int));
+    const std::int16_t d = std::int16_t(degree);
+    key_.assign(reinterpret_cast<const char*>(&d), sizeof d);
+    for(int id : ids) {
+      const std::uint16_t u = std::uint16_t(id);
+      key_.append(reinterpret_cast<const char*>(&u), sizeof u);
+    }
     term_table::iterator it = table.find(key_);
     if(it == table.end()) {
       // the trees of one part come in order: this is its first
       term_entry entry;
-      entry.first = position;
+      entry.set(position);
       it = table.emplace(key_, std::move(entry)).first;
+      if(count_ && ++fresh_ >= 1024)
+        flush();
     }
     it->second.sum.add(value);
   }
 
+  // new terms to the count; over the limit: the search stops
+  void flush()
+  {
+    if(!count_ || !fresh_)
+      return;
+    const long long n = count_->terms.fetch_add(fresh_) + fresh_;
+    fresh_ = 0;
+    if(count_->limit > 0 && n > count_->limit) {
+      count_->exceeded.store(true);
+      if(count_->cancel)
+        count_->cancel->store(true);
+      throw boost::mrt_cancelled();   // see metacircuit::operator()
+    }
+  }
+
   const tree_graphs* g_;
   const std::vector<edge_info>* edges_;
+  term_count* count_ = nullptr;
+  long long fresh_ = 0;   // new terms not counted yet
+  bool mixedIsRaw_ = false;
+  std::size_t words_ = 1;
   term_table tables_[6];
   tree_sign sign_;
   std::vector<int> raw_, mixed_, none_;
@@ -462,17 +574,37 @@ void metacircuit::operator()(const circuit& circuit)
 
   // every tree adds its terms as it is found (none is kept: a big
   // circuit has billions); the sums are exact, so neither the number of
-  // threads nor the order they work in changes the result
-  term_sink terms(graphs, edges);
-  tree_search<term_sink> search(graphs);
-  search.run(forcedIn, terms, boost::mrt_current_progress());
+  // threads nor the order they work in changes the result. Distinct terms
+  // are counted: more than the progress allows (the memory) and the
+  // symbolic result is given up
+  boost::mrt_progress* progress = boost::mrt_current_progress();
+  term_count count;
+  count.limit = progress ? progress->term_limit : 0;
+  count.cancel = progress ? progress->cancel : nullptr;
+  {
+    term_sink terms(graphs, edges, &count);
+    bool same = true;
+    for(const edge_info& e : edges)
+      if((e.type == sapecng::Y || e.type == sapecng::Z)   // the others add nothing
+          && ((e.name >= 0 && !e.symbolic) || (e.name < 0 && e.symbolic)))
+        same = false;
+    terms.setMixedIsRaw(same);
+    tree_search<term_sink> search(graphs);
+    try {
+      search.run(forcedIn, terms, progress);
+    } catch(const boost::mrt_cancelled&) {
+      if(count.exceeded.load())
+        throw too_large(count.terms.load());
+      throw;
+    }
+    // the parts count as they go, in steps: the whole is checked too
+    if(count.limit > 0 && terms.size() > count.limit)
+      throw too_large(terms.size());
 
-  terms.result(0, raw_.first, names);
-  terms.result(1, digit_.first, names);
-  terms.result(2, mixed_.first, names);
-  terms.result(3, raw_.second, names);
-  terms.result(4, digit_.second, names);
-  terms.result(5, mixed_.second, names);
+    metacircuit::expression* out[6] = { &raw_.first, &digit_.first,
+      &mixed_.first, &raw_.second, &digit_.second, &mixed_.second };
+    terms.results(out, names);
+  }
 
   const bool rawOk = simplify(raw_);
   const bool digitOk = simplify(digit_);
@@ -511,10 +643,10 @@ void metacircuit::numeric(const circuit& circuit)
     throw boost::mrt_cancelled();
   for(const auto& c : num)
     digit_.first[c.first].push_back(basic_expression(c.second,
-      std::list<std::string>()));
+      symbol_list()));
   for(const auto& c : den)
     digit_.second[c.first].push_back(basic_expression(c.second,
-      std::list<std::string>()));
+      symbol_list()));
 
   // as operator(): the denominator is zero when the circuit has no unique
   // solution (with no trees at all the raw result would be empty too)
@@ -581,13 +713,13 @@ bool metacircuit::simplify(std::pair<expression, expression>& p)
 
     expression en;
     degree_expression den;
-    basic_expression ben = std::make_pair(0., std::list<std::string>());
+    basic_expression ben = std::make_pair(0., symbol_list());
     den.push_back(ben);
     en[0] = den;
 
     expression ed;
     degree_expression ded;
-    basic_expression bed = std::make_pair(1., std::list<std::string>());
+    basic_expression bed = std::make_pair(1., symbol_list());
     ded.push_back(bed);
     ed[0] = ded;
 
@@ -598,13 +730,13 @@ bool metacircuit::simplify(std::pair<expression, expression>& p)
 
     expression en;
     degree_expression den;
-    basic_expression ben = std::make_pair(1., std::list<std::string>());
+    basic_expression ben = std::make_pair(1., symbol_list());
     den.push_back(ben);
     en[0] = den;
 
     expression ed;
     degree_expression ded;
-    basic_expression bed = std::make_pair(0., std::list<std::string>());
+    basic_expression bed = std::make_pair(0., symbol_list());
     ded.push_back(bed);
     ed[0] = ded;
 
@@ -647,8 +779,8 @@ bool metacircuit::simplify(std::pair<expression, expression>& p)
       normalize(p.second, div);
     }
 
-    std::list<std::string> candidates = p.first.begin()->second.front().second;
-    for(std::list<std::string>::const_iterator
+    const symbol_list candidates = p.first.begin()->second.front().second;
+    for(symbol_list::const_iterator
         it = candidates.begin(); it != candidates.end(); ++it)
     {
       if(has_candidate(p.first, *it)
@@ -663,13 +795,13 @@ bool metacircuit::simplify(std::pair<expression, expression>& p)
 
       expression en;
       degree_expression den;
-      basic_expression ben = std::make_pair(1., std::list<std::string>());
+      basic_expression ben = std::make_pair(1., symbol_list());
       den.push_back(ben);
       en[0] = den;
 
       expression ed;
       degree_expression ded;
-      basic_expression bed = std::make_pair(1., std::list<std::string>());
+      basic_expression bed = std::make_pair(1., symbol_list());
       ded.push_back(bed);
       ed[0] = ded;
 
@@ -754,7 +886,7 @@ void metacircuit::remove_candidate(expression& e, const std::string& c)
     for(degree_expression::iterator
         dit = it->second.begin(); dit != it->second.end(); ++dit)
     {
-      std::list<std::string>::iterator f =
+      symbol_list::const_iterator f =
         std::find(dit->second.begin(), dit->second.end(), c);
       if(f != dit->second.end())
         dit->second.erase(f);

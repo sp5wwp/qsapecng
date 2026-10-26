@@ -473,18 +473,61 @@ void ResultPanel::render()
     return;
   }
 
+  // A big circuit's symbolic result has up to millions of terms: laid out
+  // whole it took minutes and gigabytes. Shown: the first ones (highest
+  // power of s first, as it reads), and how many there are; Copy and Copy
+  // LaTeX still give all of it
+  const int shownTerms = 200, longFrom = 500;
+  auto count = [](const formula::Expr& e) {
+      long long n = 0;
+      for(const auto& g : e)
+        n += (long long)g.second.size();
+      return n;
+    };
+  auto firstTerms = [](const formula::Expr& e, int keep) {
+      formula::Expr cut;
+      int n = 0;
+      for(auto it = e.rbegin(); it != e.rend() && n < keep; ++it)
+        for(const auto& t : it->second) {
+          if(n++ >= keep)
+            break;
+          cut[it->first].push_back(t);
+        }
+      return cut;
+    };
+  long long allTerms[3] = { 0, 0, 0 };
+  auto shown = [&](const formula::Fraction& f, int i) {
+      allTerms[i] = count(f.num) + count(f.den);
+      if(allTerms[i] < longFrom)
+        return f;
+      formula::Fraction g = f;
+      if(count(g.num) > shownTerms)
+        g.num = firstTerms(f.num, shownTerms);
+      if(count(g.den) > shownTerms)
+        g.den = firstTerms(f.den, shownTerms);
+      return g;
+    };
+
   struct Section { QString key, title, note; formula::Fraction f; };
   const Section sections[] = {
     { QStringLiteral("result"), tr("Result"),
       tr("symbolic components by name, the others by value"),
-      out->mixed },
+      shown(out->mixed, 0) },
     { QStringLiteral("raw"), tr("Raw"),
       tr("every component by name"),
-      out->raw },
+      shown(out->raw, 1) },
     { QStringLiteral("digit"), tr("Digit"),
       tr("numeric"),
-      out->digit }
+      shown(out->digit, 2) }
   };
+  // under a formula cut short: what is shown of it
+  auto cutNote = [&](int i) {
+      if(allTerms[i] < longFrom)
+        return QString();
+      return QStringLiteral("<p style='margin: 2px 0 0 22px; color:%1;'>%2</p>")
+        .arg(dimCss, tr("Too long to show in full: only its beginning is "
+          "shown. Copy and Copy LaTeX give the whole of it."));
+    };
 
   // a section's heading with its links (Expand / Collapse for a long one)
   auto heading = [&](const Section& s, const QString& toggle) {
@@ -539,6 +582,10 @@ void ResultPanel::render()
       missing = tr("Stopped before it was done%1.").arg(what)
         + QStringLiteral(" ") + compute.arg(tr("Compute it again"));
       break;
+    case SolveResult::SymbolicTooLarge:
+      missing = tr("Too large for this computer's memory. The numeric "
+        "result (Digit) and the plots are complete.");
+      break;
     case SolveResult::SymbolicOff:
       missing = tr("Not computed: Settings > General > Solver asks for the "
         "numeric result only%1.").arg(what) + QStringLiteral(" ")
@@ -575,7 +622,7 @@ void ResultPanel::render()
       blocks << block;
       continue;
     }
-    const QString fraction = fractionHtml(s.f, text);
+    const QString fraction = fractionHtml(s.f, text) + cutNote(i);
     QString block = heading(s, QString()) + fraction;
     widths << idealWidth(block);
     fractionWidths << idealWidth(fraction);
@@ -602,14 +649,14 @@ void ResultPanel::render()
       const Section& s = sections[i];
       if(expanded_.contains(prefix + s.key)) {
         blocks[i] = heading(s, QStringLiteral("collapse"))
-          + fractionHtml(s.f, text);
+          + fractionHtml(s.f, text) + cutNote(i);
       } else {
         // room for the sign, the input factor and the cell padding
         const int factor = htmlWidth(formula::renderFactor(s.f,
           formula::Style::Html), view_->font());
         const int width = qMax(120, available - factor - 80);
         blocks[i] = heading(s, QStringLiteral("expand"))
-          + fractionHtml(s.f, text, width, view_->font());
+          + fractionHtml(s.f, text, width, view_->font()) + cutNote(i);
       }
     }
   }

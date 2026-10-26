@@ -74,6 +74,11 @@ public:
 
   // the most cores (threads) a solve uses, for all its outputs together
   inline void setMaxThreads(int n) { maxThreads_ = std::max(1, n); }
+  // the most distinct terms a symbolic result may keep (the memory it
+  // takes); 0: no limit. Over it the symbolic phase stops, tooLarge()
+  inline void setTermLimit(long long n) { termLimit_ = std::max(0LL, n); }
+  inline bool tooLarge() const { return tooLarge_.load(); }
+  inline long long tooLargeTerms() const { return tooLargeTerms_.load(); }
 
   // Symbolic phase, while it runs: the trees found so far and the time
   // since it started (the progress bar and the time left come from them)
@@ -159,6 +164,8 @@ protected:
     QMutexLocker locker(&mutex_);
     cancel_.store(false);
     cancelled_.store(false);
+    tooLarge_.store(false);
+    tooLargeTerms_.store(0);
     done_.store(0);
     found_.store(0);
     started_.store(std::chrono::duration<double>(
@@ -227,12 +234,19 @@ private:
     progress.pool = &pool;
     progress.total = &total;
     progress.trees = &found_;
+    progress.term_limit = termLimit_;
     try {
       boost::mrt_progress_scope scope(&progress);
       if(numeric)
         outputs_[k].meta->numeric(*outputs_[k].circuit);
       else
         (*outputs_[k].meta)(*outputs_[k].circuit);
+    } catch(const sapecng::metacircuit::too_large& e) {
+      // more terms than the memory holds: the other outputs stop too
+      tooLargeTerms_.store(e.terms);
+      tooLarge_.store(true);
+      cancelled_.store(true);
+      cancel_.store(true);
     } catch(const boost::mrt_cancelled&) {
       cancelled_.store(true);
       cancel_.store(true);   // the other outputs stop too
@@ -263,6 +277,9 @@ private:
   std::atomic<bool> cancelled_{false};
   std::atomic<int> done_{0};
   std::atomic<long long> found_{0};
+  std::atomic<bool> tooLarge_{false};
+  std::atomic<long long> tooLargeTerms_{0};
+  long long termLimit_ = 0;
   std::atomic<double> started_{0.};   // steady clock, seconds
   Phase phase_ = Quick;
   bool numericOnly_ = false;

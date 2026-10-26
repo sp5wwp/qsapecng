@@ -73,7 +73,7 @@ private:
         eit->second.begin(); dit != eit->second.end(); ++dit)
       {
         double sub_value = dit->first;
-        for(std::list<std::string>::const_iterator
+        for(symbol_list::const_iterator
             it = dit->second.begin(); it != dit->second.end(); ++it)
           sub_value *= values[*it]; // 0-default drives from standard C++
 

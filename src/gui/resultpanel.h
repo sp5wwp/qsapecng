@@ -64,11 +64,13 @@ struct SolveResult
     SymbolicRunning,   // being worked out in the background
     SymbolicSkipped,   // the user said not now (it would take long)
     SymbolicStopped,   // stopped (Stop, or the circuit was changed)
-    SymbolicOff        // Settings: numeric only
+    SymbolicOff,       // Settings: numeric only
+    SymbolicTooLarge   // more terms than the memory holds
   };
   Symbolic symbolic = SymbolicDone;
   double trees = 0.;     // the terms it adds up (estimated)
   double seconds = 0.;   // the time it takes, roughly (0: not known)
+  long long terms = 0;   // SymbolicTooLarge: the terms when it stopped
 
   bool anySingular() const
     {

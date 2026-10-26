@@ -50,6 +50,22 @@
 
 #include "parser/spice_circuit.h"
 
+#include <QtGlobal>
+#if defined(Q_OS_WIN)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(Q_OS_MACOS)
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#else
+#include <unistd.h>
+#endif
+#include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <map>
@@ -450,6 +466,43 @@ SchematicEditor::SymbolicMode SchematicEditor::symbolicMode()
 }
 
 
+namespace
+{
+
+// the computer's memory, in bytes (0: not known)
+double physicalMemory()
+{
+#if defined(Q_OS_WIN)
+  MEMORYSTATUSEX m;
+  m.dwLength = sizeof m;
+  return GlobalMemoryStatusEx(&m) ? double(m.ullTotalPhys) : 0.;
+#elif defined(Q_OS_MACOS)
+  std::uint64_t bytes = 0;
+  size_t size = sizeof bytes;
+  return sysctlbyname("hw.memsize", &bytes, &size, nullptr, 0) == 0
+    ? double(bytes) : 0.;
+#elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
+  const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGESIZE);
+  return pages > 0 && page > 0 ? double(pages) * double(page) : 0.;
+#else
+  return 0.;
+#endif
+}
+
+}
+
+
+long long SchematicEditor::termLimit()
+{
+  // half the memory, at about 700 bytes a term (the solver's tables, the
+  // result, the copies shown); unknown memory: 8 GB taken
+  double memory = physicalMemory();
+  if(!(memory > 0.))
+    memory = 8e9;
+  return (long long)(0.5 * memory / 700.);
+}
+
+
 double SchematicEditor::symbolicSeconds() const
 {
   // trees per second and core, as fast as the last symbolic solve here
@@ -507,6 +560,7 @@ void SchematicEditor::solve()
       QThread::idealThreadCount()).toInt());
   solver_.setPhase(MetaCircuit_Thread::Quick);
   solver_.setNumericOnly(symbolicMode() == SymbolicNever);
+  solver_.setTermLimit(termLimit());
   expectFinish_ = true;
   solver_.start();
   emit solvingStarted();
@@ -573,6 +627,7 @@ void SchematicEditor::startSymbolic()
   QLogger::info(QObject::tr("Solving symbolically..."));
   stopped_ = false;
   solver_.setPhase(MetaCircuit_Thread::Symbolic);
+  solver_.setTermLimit(termLimit());
   expectFinish_ = true;
   solver_.start();
   emit solvingStarted();
@@ -612,6 +667,17 @@ void SchematicEditor::finished()
   view_->setInteractive(true);
 
   if(solver_.phase() == MetaCircuit_Thread::Symbolic) {
+    if(solver_.tooLarge()) {
+      // the numeric result stays; Result and Raw say why there is none
+      lastResult_.symbolic = SolveResult::SymbolicTooLarge;
+      lastResult_.terms = solver_.tooLargeTerms();
+      QLogger::warning(QObject::tr("The symbolic result is too large for "
+        "this computer's memory: stopped. The numeric result and the "
+        "plots are complete."));
+      emit solvingStopped();
+      emit solved();
+      return;
+    }
     if(solver_.cancelled()) {
       // the numeric result stays; Result and Raw say it was stopped
       stopped_ = true;
