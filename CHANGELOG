@@ -488,6 +488,13 @@ QSapecNG CHANGELOG
     o Result panel: a formula of thousands of terms or more shows its first
       200; Copy and Copy LaTeX give all of it.
       Laying out millions of terms took minutes and gigabytes
+    o Resolve after changing only values (or which parts are symbolic):
+      the symbolic result comes at once, made from the terms of the last
+      one instead of listing the trees again, and without the question
+      about the time it takes. It takes time by the size of the result,
+      not by the number of trees: an RC ladder of 33 parts, 2 s instead
+      of 26 s. A changed circuit, or a new value of a part's internals
+      (ESR, GBW...), is solved anew
     o Plots window: the size it had last time is kept. It no longer grows
       to most of the screen when the Markers tab is in front
     o Components: a column of tool buttons on the left edge, as in

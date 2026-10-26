@@ -5,9 +5,12 @@
 // usage: parallel_test <circuit.info|circuit.crc>...
 //        parallel_test grid <n>     (an n x n RC grid, timed)
 //        parallel_test exactsum     (the exact sums of the coefficients)
+//        parallel_test limit        (too many terms: given up)
+//        parallel_test reuse <data dir>  (a new value: the terms kept)
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -222,8 +225,163 @@ bool term_limit()
 }
 
 
+namespace
+{
+
+// an RC grid as grid(), its values and which parts are symbolic drawn at
+// random (seed 0: all symbolic, as grid())
+std::string grid_values(int n, unsigned seed)
+{
+  std::mt19937 random(seed);
+  std::uniform_real_distribution<double> scale(0.1, 10.);
+  auto symbolic = [&]() { return seed == 0 || random() % 2 ? 1 : 0; };
+  std::ostringstream out;
+  out.precision(17);
+  auto node = [n](int r, int c) { return 1 + r * n + c; };
+  out << "V1 " << node(0, 0) << " 0 1 " << symbolic() << "\n";
+  int k = 0;
+  for(int r = 0; r < n; ++r)
+    for(int c = 0; c < n; ++c) {
+      if(c + 1 < n)
+        out << "R" << ++k << " " << node(r, c) << " " << node(r, c + 1)
+          << " " << 1000 * scale(random) << " " << symbolic() << "\n";
+      if(r + 1 < n)
+        out << "R" << ++k << " " << node(r, c) << " " << node(r + 1, c)
+          << " " << 1000 * scale(random) << " " << symbolic() << "\n";
+      if(r + c > 0)
+        out << "C" << node(r, c) << " " << node(r, c) << " 0 "
+          << 1e-6 * scale(random) << " " << symbolic() << "\n";
+    }
+  out << ".OUT " << node(n - 1, n - 1) << "\n.END\n";
+  return out.str();
+}
+
+// a component's line `field` (value, symbolic) in an .info file, or a
+// property of it (`field` "prop:<name>")
+std::string set_info(std::string data, const std::string& part,
+  const std::string& field, const std::string& to)
+{
+  std::size_t at = data.find("\n            name " + part + "\n");
+  if(at == std::string::npos)
+    return data;
+  std::string line = "\n            " + field + " ";
+  if(field.compare(0, 5, "prop:") == 0) {
+    at = data.find("\n                    name " + field.substr(5) + "\n", at);
+    if(at == std::string::npos)
+      return data;
+    line = "\n                    value ";
+  }
+  at = data.find(line, at);
+  if(at == std::string::npos)
+    return data;
+  const std::size_t from = at + line.size();
+  const std::size_t end = data.find('\n', from);
+  return data.replace(from, end - from, to);
+}
+
+// two results alike: raw the same, digit and mixed to rounding
+bool alike(const sapecng::metacircuit& a, const sapecng::metacircuit& b)
+{
+  using M = sapecng::metacircuit;
+  auto close = [](const M::expression& x, const M::expression& y) {
+      if(x.size() != y.size())
+        return false;
+      for(auto i = x.begin(), j = y.begin(); i != x.end(); ++i, ++j) {
+        if(i->first != j->first || i->second.size() != j->second.size())
+          return false;
+        for(auto u = i->second.begin(), v = j->second.begin();
+            u != i->second.end(); ++u, ++v) {
+          const double scale = std::max(std::fabs(u->first),
+            std::fabs(v->first));
+          if(u->second != v->second
+              || std::fabs(u->first - v->first) > 1e-9 * scale)
+            return false;
+        }
+      }
+      return true;
+    };
+  return a.singular() == b.singular()
+    && M::as_string(a.raw().first) == M::as_string(b.raw().first)
+    && M::as_string(a.raw().second) == M::as_string(b.raw().second)
+    && close(a.digit().first, b.digit().first)
+    && close(a.digit().second, b.digit().second)
+    && close(a.mixed().first, b.mixed().first)
+    && close(a.mixed().second, b.mixed().second);
+}
+
+// solved from the terms of `before` when it fits (as `fits` says it
+// should), and then as a whole solve gives it
+bool reuses(const std::string& what, const std::string& name,
+  const std::string& before, const std::string& after, bool fits)
+{
+  sapecng::circuit c0, c1;
+  load(name, before, c0);
+  load(name, after, c1);
+  sapecng::metacircuit first, again, whole;
+  first.keep_terms(true);
+  first(c0);
+  const bool reused = again.reuse(c1, first.terms());
+  bool ok = reused == fits;
+  if(reused) {
+    whole(c1);
+    ok = ok && alike(again, whole) && again.terms() == first.terms();
+  }
+  std::cout << what << ": " << (reused ? "reused" : "solved again")
+    << (ok ? "" : "  WRONG") << "\n";
+  return ok;
+}
+
+bool reuse(const std::string& dir)
+{
+  std::cout.precision(17);
+  bool ok = true;
+  // values and symbolic parts changed (seed 1, 2: none symbolic at all
+  // is not drawn)
+  for(unsigned seed = 1; seed <= 4; ++seed)
+    ok = reuses("grid 3, values " + std::to_string(seed), "grid.crc",
+      grid_values(3, 0), grid_values(3, seed), true) && ok;
+  ok = reuses("grid 3 back to all symbolic", "grid.crc",
+    grid_values(3, 3), grid_values(3, 0), true) && ok;
+  // another circuit: not reused
+  ok = reuses("grid 3 to 2", "grid.crc", grid_values(3, 0),
+    grid_values(2, 0), false) && ok;
+
+  auto read = [&dir](const std::string& file) {
+      std::ifstream in((dir + "/" + file).c_str());
+      std::ostringstream data;
+      data << in.rdbuf();
+      return data.str();
+    };
+  const std::string real = read("real-passives.info");
+  ok = reuses("real parts, R1 and C1", "x.info", real,
+    set_info(set_info(real, "R1", "value", "2200"), "C1", "value", "4.7e-08"),
+    true) && ok;
+  ok = reuses("real parts, R1 not symbolic", "x.info", real,
+    set_info(real, "R1", "symbolic", "0"), true) && ok;
+  // the unnamed series resistance of C1 changed: solved again
+  ok = reuses("real parts, ESR", "x.info", real,
+    set_info(real, "C1", "prop:esr", "22"), false) && ok;
+
+  const std::string opamp = read("opamp-finite-gain.info");
+  ok = reuses("op-amp, R2", "x.info", opamp,
+    set_info(opamp, "R2", "value", "47000"), true) && ok;
+  // A0 sets the unnamed pole too (with a GBW): solved again
+  ok = reuses("op-amp, A0", "x.info", opamp,
+    set_info(opamp, "A1", "value", "100000"), false) && ok;
+
+  const std::string bandpass = read("issue6-active-bandpass.info");
+  ok = reuses("band-pass, symbolic as is", "x.info", bandpass, bandpass,
+    true) && ok;
+  return ok;
+}
+
+}
+
+
 int main(int argc, char** argv)
 {
+  if(argc == 3 && std::string(argv[1]) == "reuse")
+    return reuse(argv[2]) ? 0 : 1;
   if(argc == 2 && std::string(argv[1]) == "exactsum")
     return exact_sums() ? 0 : 1;
   if(argc == 2 && std::string(argv[1]) == "limit")

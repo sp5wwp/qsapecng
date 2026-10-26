@@ -83,6 +83,9 @@ Several bugs gave wrong answers rather than crashes:
   circuit's symbolic result is worked out in the background, with the time
   it will take shown first. Symbolic solver for a circuit too large for the
   computer's memory is stopped, with the numeric result and the plots complete.
+* Changing only values keeps the symbolic result quick: it is made from the
+  last one's terms instead of being worked out again (a 33-part ladder: 2 s
+  instead of 26 s).
 
 **Drawing circuits**
 

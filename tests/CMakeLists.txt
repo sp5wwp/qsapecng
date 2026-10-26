@@ -73,6 +73,8 @@ add_test(NAME parallel_files
 add_test(NAME parallel_grid COMMAND parallel_test grid 3)
 add_test(NAME exact_sums COMMAND parallel_test exactsum)
 add_test(NAME term_limit COMMAND parallel_test limit)
+add_test(NAME term_reuse
+  COMMAND parallel_test reuse ${CMAKE_CURRENT_SOURCE_DIR}/data)
 
 # the symbolic engine against an independent numeric (MNA) solver
 qsapecng_test(mna_check mna_check.cpp

@@ -122,6 +122,7 @@ public:
         Output out;
         out.circuit.reset(new sapecng::circuit);
         out.meta.reset(new sapecng::metacircuit);
+        out.meta->keep_terms(true);   // for the next solve: see cache_
         sapecng::circuit_builder builder(*out.circuit, k);
         parser.parse(builder);
         if(k == 0)
@@ -180,9 +181,19 @@ protected:
       // the trees of every output: counted, or estimated
       trees_ = 0.;
       counted_ = true;
-      for(Output& out : outputs_) {
+      for(std::size_t k = 0; k < outputs_.size(); ++k) {
+        Output& out = outputs_[k];
         if(cancel_.load())
           break;
+        // only values changed since its last symbolic result: it takes
+        // no time. Otherwise the terms kept are of no more use
+        if(k < cache_.size() && cache_[k]) {
+          if(sapecng::metacircuit::fits(*out.circuit, *cache_[k])) {
+            out.trees = 0.;
+            continue;
+          }
+          cache_[k].reset();
+        }
         boost::mrt_progress progress;
         progress.cancel = &cancel_;
         progress.pool = &pool;
@@ -205,6 +216,7 @@ protected:
       if(counted_ && !numericOnly_) {
         symbolicDone_ = true;
         solveAll(pool, false);
+        keepTerms();
         return;
       }
       solveAll(pool, true);
@@ -212,6 +224,7 @@ protected:
     }
 
     solveAll(pool, false);
+    keepTerms();
   }
 
 private:
@@ -239,7 +252,8 @@ private:
       boost::mrt_progress_scope scope(&progress);
       if(numeric)
         outputs_[k].meta->numeric(*outputs_[k].circuit);
-      else
+      else if(k >= cache_.size()
+          || !outputs_[k].meta->reuse(*outputs_[k].circuit, cache_[k]))
         (*outputs_[k].meta)(*outputs_[k].circuit);
     } catch(const sapecng::metacircuit::too_large& e) {
       // more terms than the memory holds: the other outputs stop too
@@ -257,6 +271,15 @@ private:
     done_.fetch_add(1);
   }
 
+  // the terms of each output's symbolic result, for the next solve
+  void keepTerms()
+  {
+    cache_.resize(outputs_.size());
+    for(std::size_t k = 0; k < outputs_.size(); ++k)
+      if(outputs_[k].meta->terms())
+        cache_[k] = outputs_[k].meta->terms();
+  }
+
 private:
   struct Output
   {
@@ -272,6 +295,12 @@ private:
     { return sapecng::metacircuit::expression(); }
 
   std::vector<Output> outputs_;
+  // Each output's symbolic terms (raw) from the last solve that had them.
+  // A new value of a part (or a part made symbolic or not) leaves them the
+  // same: the symbolic result is then made from them at once, instead of
+  // listing the trees again (see metacircuit::reuse)
+  std::vector< std::shared_ptr<const sapecng::metacircuit::term_cache> >
+    cache_;
   std::vector< std::unique_ptr< std::atomic<int> > > permille_;
   std::atomic<bool> cancel_{false};
   std::atomic<bool> cancelled_{false};

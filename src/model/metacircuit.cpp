@@ -529,6 +529,157 @@ bool tree_problem(const circuit& circuit, tree_graphs& graphs,
   return true;
 }
 
+
+// the circuit as far as its terms go: the two graphs, every part's kind,
+// power of s and name, and the value of the unnamed ones (the raw terms
+// hold them). Not in it: the named parts' values, which are symbolic
+std::string circuit_shape(const circuit& circuit, const tree_graphs& g)
+{
+  const Graph& refG = circuit.iGraph();
+  const std::vector<circuit::edge_descriptor>& refO = circuit.iGraph_order();
+  std::string s;
+  auto put = [&s](const void* p, std::size_t n)
+    { s.append(static_cast<const char*>(p), n); };
+  put(&g.vertices, sizeof g.vertices);
+  put(&g.edges, sizeof g.edges);
+  for(int j = 0; j < g.edges; ++j) {
+    const int at[6] = { g.iu[j], g.iv[j], g.vu[j], g.vv[j],
+      int(get(boost::edge_type, refG)[ refO[j] ]),
+      int(get(boost::edge_degree, refG)[ refO[j] ]) };
+    put(at, sizeof at);
+    const std::string& name = get(boost::edge_name, refG)[ refO[j] ];
+    const std::uint32_t length = std::uint32_t(name.size());
+    put(&length, sizeof length);
+    s += name;
+    if(name.empty()) {
+      const double weight = get(boost::edge_weight, refG)[ refO[j] ];
+      const char symbolic = get(boost::edge_symbolic, refG)[ refO[j] ];
+      put(&weight, sizeof weight);
+      put(&symbolic, sizeof symbolic);
+    }
+  }
+  return s;
+}
+
+// a named part's value, and whether it stays a symbol (in mixed)
+struct name_value
+{
+  double weight;
+  bool symbolic;
+};
+typedef std::unordered_map<const std::string*, name_value> name_values;
+
+// the circuit fits the terms of `cache`: its named parts' values. Every
+// part of a name (an ideal transformer has two) has one value
+bool fit_values(const circuit& circuit,
+  const metacircuit::term_cache& cache, name_values& values)
+{
+  tree_graphs graphs;
+  std::vector<bool> forcedIn;
+  if(!tree_problem(circuit, graphs, forcedIn)
+      || circuit_shape(circuit, graphs) != cache.shape)
+    return false;
+  const Graph& refG = circuit.iGraph();
+  const std::vector<circuit::edge_descriptor>& refO = circuit.iGraph_order();
+  values.clear();
+  for(int j = 0; j < graphs.edges; ++j) {
+    const EdgeType type = get(boost::edge_type, refG)[ refO[j] ];
+    const std::string& name = get(boost::edge_name, refG)[ refO[j] ];
+    if((type != sapecng::Y && type != sapecng::Z) || name.empty())
+      continue;
+    const name_value v = { get(boost::edge_weight, refG)[ refO[j] ],
+      bool(get(boost::edge_symbolic, refG)[ refO[j] ]) };
+    const auto at = values.emplace(symbol_list::intern(name), v);
+    if(!at.second && (std::memcmp(&at.first->second.weight, &v.weight,
+          sizeof v.weight) != 0 || at.first->second.symbolic != v.symbolic))
+      return false;
+  }
+  return true;
+}
+
+}
+
+
+bool metacircuit::fits(const circuit& circ, const term_cache& cache)
+{
+  name_values values;
+  return fit_values(circ, cache, values);
+}
+
+
+bool metacircuit::reuse(const circuit& circ,
+  const std::shared_ptr<const term_cache>& cache)
+{
+  name_values values;
+  if(!cache || !fit_values(circ, *cache, values))
+    return false;
+
+  singular_ = false;
+  raw_ = cache->raw;
+  digit_.first.clear();
+  digit_.second.clear();
+  mixed_.first.clear();
+  mixed_.second.clear();
+
+  // each raw term (its number: the signs and the unnamed parts) times the
+  // values put in: all of them (digit), those not symbolic (mixed). Mixed
+  // terms in the order of their first raw term, as the trees give them
+  std::vector<const std::string*> kept;
+  std::string key;
+  for(int side = 0; side < 2; ++side) {
+    const expression& raw = side ? cache->raw.second : cache->raw.first;
+    expression& digit = side ? digit_.second : digit_.first;
+    expression& mixed = side ? mixed_.second : mixed_.first;
+    for(const auto& degree : raw) {
+      exact_sum digitSum;
+      std::unordered_map<std::string, std::size_t> found;
+      std::vector<std::pair<exact_sum, symbol_list>> terms;
+      for(const basic_expression& term : degree.second) {
+        double all = term.first, some = term.first;
+        bool whole = true;   // every name stays
+        kept.clear();
+        for(symbol_list::const_iterator it = term.second.begin();
+            it != term.second.end(); ++it) {
+          const name_value& v = values.at(it.operator->());
+          all *= v.weight;
+          if(v.symbolic) {
+            kept.push_back(it.operator->());
+          } else {
+            some *= v.weight;
+            whole = false;
+          }
+        }
+        digitSum.add(all);
+        key.assign(reinterpret_cast<const char*>(kept.data()),
+          kept.size() * sizeof(const std::string*));
+        const auto at = found.emplace(key, terms.size());
+        if(at.second) {
+          symbol_list names;
+          if(whole) {
+            names = term.second;   // shares its list
+          } else {
+            names.reserve(kept.size());
+            for(const std::string* n : kept)
+              names.push_back_interned(n);
+          }
+          terms.emplace_back(exact_sum(), names);
+        }
+        terms[at.first->second].first.add(some);
+      }
+      digit[degree.first].push_back(
+        basic_expression(digitSum.value(), symbol_list()));
+      degree_expression& out = mixed[degree.first];
+      for(auto& t : terms)
+        out.push_back(basic_expression(t.first.value(), t.second));
+    }
+  }
+  terms_ = cache;
+
+  const bool rawOk = simplify(raw_);
+  const bool digitOk = simplify(digit_);
+  simplify(mixed_);
+  singular_ = !rawOk || !digitOk;
+  return true;
 }
 
 
@@ -536,6 +687,7 @@ void metacircuit::operator()(const circuit& circuit)
 {
   // clear data
   singular_ = false;
+  terms_.reset();
   raw_.first.clear();
   raw_.second.clear();
   digit_.first.clear();
@@ -605,6 +757,12 @@ void metacircuit::operator()(const circuit& circuit)
       &mixed_.first, &raw_.second, &digit_.second, &mixed_.second };
     terms.results(out, names);
   }
+  if(keep_) {
+    std::shared_ptr<term_cache> cache = std::make_shared<term_cache>();
+    cache->shape = circuit_shape(circuit, graphs);
+    cache->raw = raw_;
+    terms_ = cache;
+  }
 
   const bool rawOk = simplify(raw_);
   const bool digitOk = simplify(digit_);
@@ -617,6 +775,7 @@ void metacircuit::operator()(const circuit& circuit)
 void metacircuit::numeric(const circuit& circuit)
 {
   singular_ = false;
+  terms_.reset();
   raw_.first.clear();
   raw_.second.clear();
   digit_.first.clear();

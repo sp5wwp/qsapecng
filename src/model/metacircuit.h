@@ -25,6 +25,8 @@
 
 #include <exception>
 #include <list>
+#include <memory>
+#include <string>
 #include "model/symbols.h"
 #include <map>
 
@@ -89,6 +91,25 @@ public:
   };
 
   static std::string as_string(const expression& e);
+
+  // The symbolic result's terms as the trees give them (raw, before
+  // simplify()): the same for every value of the named parts and whichever
+  // of them are symbolic. Kept by operator() when keep_terms() asks for it;
+  // reuse() makes the whole result from them, in a fraction of the time
+  struct term_cache
+  {
+    std::string shape;   // the circuit but the named parts' values
+    std::pair<expression, expression> raw;
+  };
+  inline void keep_terms(bool keep) { keep_ = keep; }
+  inline std::shared_ptr<const term_cache> terms() const { return terms_; }
+  // `circ` differs from the circuit of `cache` only in the values of named
+  // parts (and which are symbolic): their terms are the same
+  static bool fits(const circuit& circ, const term_cache& cache);
+  // the whole result (raw, digit, mixed) of `circ` from `cache`, as
+  // operator() gives it; false, and nothing done, when it does not fit
+  bool reuse(const circuit& circ,
+    const std::shared_ptr<const term_cache>& cache);
   // the whole result: raw, digit and mixed (lists the trees; can take
   // hours for a big circuit)
   void operator()(const circuit& circ);
@@ -146,6 +167,8 @@ private:
   std::pair<metacircuit::expression, metacircuit::expression> digit_;
   std::pair<metacircuit::expression, metacircuit::expression> mixed_;
   bool singular_ = false;
+  bool keep_ = false;
+  std::shared_ptr<const term_cache> terms_;
 
 };
 
